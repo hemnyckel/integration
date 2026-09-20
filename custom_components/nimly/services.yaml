@@ -5,3 +5,6 @@ fetch_history:
 set_lock:
 gateway_scan:
 probe:
+set_ieee:
+ota_install:
+provision_wifi:

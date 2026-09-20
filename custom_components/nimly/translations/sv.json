@@ -4,7 +4,8 @@
       "user": {
         "title": "Nimly",
         "menu_options": {
-          "cloud": "Leverantörskonto (moln)"
+          "cloud": "Leverantörskonto (moln)",
+          "mirror": "Låsspegel (app-sidan)"
         }
       },
       "cloud": {
@@ -21,15 +22,57 @@
         "data": {
           "location_id": "Plats"
         }
+      },
+      "mirror": {
+        "title": "Nimly-spegeln",
+        "description": "Välj det riktiga låset (parat i ZHA) och MQTT-prefixet som emulatorn använder.\n\n{detected}",
+        "data": {
+          "lock_entity_id": "Lås",
+          "topic_prefix": "MQTT-prefix"
+        }
+      },
+      "channels": {
+        "title": "Speglingskanaler",
+        "description": "Välj vad som ska speglas mellan Nimly-appen och det riktiga låset.",
+        "data": {
+          "preset": "Förval"
+        }
+      },
+      "custom": {
+        "title": "Anpassade kanaler",
+        "description": "Slå på en kanal i taget.",
+        "data": {
+          "ch_lock": "Spegla lås/lås upp",
+          "ch_activity": "Spegla notiser",
+          "ch_pin": "Spegla PIN-koder",
+          "ch_fingerprint": "Spegla fingeravtryck",
+          "ch_volume": "Spegla ljudvolym",
+          "ch_autolock": "Spegla auto-lock",
+          "ch_battery": "Spegla batteri",
+          "ch_sync": "Synk vid start",
+          "ch_slot_reconcile": "Slotsynk (lås → app)",
+          "ch_names": "Spegla användarnamn"
+        }
+      },
+      "wifi": {
+        "title": "WiFi för bryggan",
+        "description": "Ange nätverket som {device} ska ansluta till.",
+        "data": {
+          "ssid": "Nätverk (SSID)",
+          "password": "Lösenord"
+        }
       }
+    },
+    "abort": {
+      "already_configured": "Det här kontot eller låset är redan uppsatt.",
+      "provisioned": "Bryggan är provisionerad och ansluten.",
+      "no_address": "Kunde inte läsa enhetens adress."
     },
     "error": {
       "invalid_auth": "Fel e-post eller lösenord.",
       "cannot_connect": "Kunde inte nå leverantörens moln.",
-      "no_locations": "Kontot har inga platser."
-    },
-    "abort": {
-      "already_configured": "Det här kontot är redan uppsatt."
+      "no_locations": "Kontot har inga platser.",
+      "provision_failed": "Kunde inte provisionera – kontrollera nätverket och försök igen."
     }
   },
   "options": {
@@ -39,6 +82,28 @@
         "description": "Hur ofta kontot tillfrågas om ny aktivitet. Kortare intervall ger snabbare svar och belastar leverantörens API mer.",
         "data": {
           "scan_interval": "Sekunder mellan avfrågningar"
+        }
+      },
+      "mirror": {
+        "title": "Speglingskanaler",
+        "description": "Ändra vad som speglas. Varje kanal har också en switch du kan växla senare.",
+        "data": {
+          "preset": "Förval"
+        }
+      },
+      "custom": {
+        "title": "Anpassade kanaler",
+        "data": {
+          "ch_lock": "Spegla lås/lås upp",
+          "ch_activity": "Spegla notiser",
+          "ch_pin": "Spegla PIN-koder",
+          "ch_fingerprint": "Spegla fingeravtryck",
+          "ch_volume": "Spegla ljudvolym",
+          "ch_autolock": "Spegla auto-lock",
+          "ch_battery": "Spegla batteri",
+          "ch_sync": "Synk vid start",
+          "ch_slot_reconcile": "Slotsynk (lås → app)",
+          "ch_names": "Spegla användarnamn"
         }
       }
     }
@@ -71,6 +136,23 @@
       "pin_required_remote": { "name": "PIN krävs vid fjärrupplåsning (moln)" },
       "part_of_alarm": { "name": "Del av larm (moln)" },
       "gateway_online": { "name": "Bryggan online" }
+    }
+  },
+  "issues": {
+    "new_slot": {
+      "title": "Ny slot {slot} skapad i Nimly-appen",
+      "description": "En ny {kind} lades till i appen (slot {slot}). Ge användaren ett namn så att Home Assistants notiser visar rätt person.",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Namnge slot {slot}",
+            "description": "Ange namnet på personen som använder slot {slot}.",
+            "data": {
+              "name": "Namn"
+            }
+          }
+        }
+      }
     }
   },
   "services": {
@@ -109,6 +191,31 @@
       "description": "Anropar sökvägar på leverantörens API och returnerar status och ett maskat svar. Används för att kartlägga API:t, behövs inte i normal drift.",
       "fields": {
         "paths": { "name": "Sökvägar", "description": "Sökvägar relativt API-roten, eller objekt med path, method, json och headers." }
+      }
+    },
+    "set_ieee": {
+      "name": "Provisionera IEEE-adress",
+      "description": "Skickar en IEEE-adress till emulatorn, som sparar den i NVS och startar om. Standard är det riktiga låsets egen adress, eftersom molnet bara accepterar kända moduler.",
+      "fields": {
+        "ieee": { "name": "IEEE-adress", "description": "Adress i formen 00:11:22:33:44:55:66:77. Tom använder låsets egen." },
+        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska provisioneras. Utelämna för alla." }
+      }
+    },
+    "ota_install": {
+      "name": "Installera bryggans firmware (OTA)",
+      "description": "Skickar en firmware-URL till bryggan, som laddar hem den, skriver nästa applikationspartition och startar om. Används av uppdaterings-entiteten, men kan också köras manuellt.",
+      "fields": {
+        "url": { "name": "URL", "description": "Absolut http(s)-URL till applikationsbinären." },
+        "entry_id": { "name": "Konfigurationspost", "description": "Vilken brygga som ska uppdateras. Utelämna för alla." }
+      }
+    },
+    "provision_wifi": {
+      "name": "Provisionera Wi-Fi (BLE/Improv)",
+      "description": "Ansluter till bryggan över Bluetooth och skickar Wi-Fi-uppgifter med Improv. Används av upptäcktsflödet, men kan också köras manuellt.",
+      "fields": {
+        "address": { "name": "Bluetooth-adress", "description": "Enhetens BLE-adress, till exempel från nRF Connect eller upptäckt." },
+        "ssid": { "name": "Nätverk (SSID)", "description": "Nätverket som bryggan ska ansluta till." },
+        "password": { "name": "Lösenord", "description": "Nätverkets lösenord, om det finns." }
       }
     }
   }

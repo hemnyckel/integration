@@ -57,7 +57,11 @@ SCHEMA_PROBE = vol.Schema({vol.Required("paths"): vol.All(cv.ensure_list, [vol.A
 
 
 def _coordinator(hass: HomeAssistant, entry_id: str | None = None) -> NimlyCloudCoordinator:
-    entries: dict[str, NimlyCloudCoordinator] = hass.data.get(DOMAIN, {})
+    entries = {
+        key: coordinator
+        for key, coordinator in hass.data.get(DOMAIN, {}).items()
+        if isinstance(coordinator, NimlyCloudCoordinator)
+    }
     if not entries:
         raise HomeAssistantError("the Nimly cloud account is not configured")
     if entry_id and entry_id in entries:

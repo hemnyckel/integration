@@ -1,0 +1,174 @@
+"""The bridge entry: the bridge as its own device (online, firmware, OTA).
+
+Created when a bridge is provisioned through Bluetooth discovery, so the discovery
+card does not come back and the bridge appears as a real device in Home Assistant.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from datetime import timedelta
+from typing import Any
+
+import aiohttp
+
+from homeassistant.components import mqtt
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.update_coordinator import (
+    CoordinatorEntity,
+    DataUpdateCoordinator,
+)
+
+from ..const import (
+    CONF_ADDRESS,
+    CONF_OTA_MANIFEST_URL,
+    DEFAULT_OTA_MANIFEST_URL,
+    DOMAIN,
+    MANIFEST_REFRESH,
+    TOPIC_BRIDGE_INFO,
+    TOPIC_OTA,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+ONLINE_TIMEOUT = 180  # seconds without a sign of life -> offline
+
+
+class BridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Holds the bridge info (`nimly/info`), OTA status and presence."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_bridge",
+            update_interval=timedelta(seconds=MANIFEST_REFRESH),
+        )
+        self.entry = entry
+        self.address: str | None = entry.data.get(CONF_ADDRESS)
+        self.info: dict[str, Any] = {}
+        self.ota: dict[str, Any] = {}
+        self.manifest: dict[str, Any] | None = None
+        self.online = False
+        self._last_seen = 0.0
+        self._unsubs: list = []
+        self.ota_manifest_url = (
+            entry.options.get(CONF_OTA_MANIFEST_URL) or DEFAULT_OTA_MANIFEST_URL
+        )
+
+    async def async_setup(self) -> None:
+        self._unsubs.append(
+            await mqtt.async_subscribe(self.hass, TOPIC_BRIDGE_INFO, self._on_info, qos=1)
+        )
+        self._unsubs.append(
+            await mqtt.async_subscribe(
+                self.hass, f"nimly/proxy/{TOPIC_OTA}", self._on_ota, qos=1
+            )
+        )
+        for topic in ("state", "battery"):
+            self._unsubs.append(
+                await mqtt.async_subscribe(
+                    self.hass, f"nimly/proxy/{topic}", self._on_seen, qos=1
+                )
+            )
+        await self._async_fetch_manifest()
+        self._publish()
+
+    async def async_shutdown(self) -> None:
+        for unsub in self._unsubs:
+            unsub()
+        self._unsubs.clear()
+
+    @callback
+    def _on_info(self, msg: mqtt.ReceiveMessage) -> None:
+        try:
+            data = json.loads(msg.payload)
+        except (ValueError, TypeError):
+            return
+        if isinstance(data, dict):
+            self.info = data
+            self._last_seen = time.monotonic()
+            self.online = True
+            self._publish()
+
+    @callback
+    def _on_ota(self, msg: mqtt.ReceiveMessage) -> None:
+        try:
+            data = json.loads(msg.payload)
+        except (ValueError, TypeError):
+            return
+        if isinstance(data, dict):
+            self.ota = data
+            self._last_seen = time.monotonic()
+            self._publish()
+
+    @callback
+    def _on_seen(self, msg: mqtt.ReceiveMessage) -> None:
+        self._last_seen = time.monotonic()
+        if not self.online:
+            self.online = True
+            self._publish()
+
+    async def _async_fetch_manifest(self) -> None:
+        session = async_get_clientsession(self.hass)
+        try:
+            async with session.get(self.ota_manifest_url, timeout=20) as resp:
+                if resp.status == 200:
+                    self.manifest = await resp.json(content_type=None)
+        except (TimeoutError, ValueError, aiohttp.ClientError) as err:
+            _LOGGER.debug("Could not fetch the OTA manifest: %s", err)
+
+    async def async_ota(self, url: str) -> None:
+        await mqtt.async_publish(
+            self.hass,
+            "nimly/proxy/ha_to_bridge",
+            json.dumps({"cmd": "ota", "url": url}, separators=(",", ":")),
+            qos=1,
+            retain=False,
+        )
+
+    def binary_url(self) -> str | None:
+        manifest = self.manifest or {}
+        builds = manifest.get("builds") or {}
+        target = self.info.get("target")
+        name = builds.get(target)
+        if not isinstance(name, str):
+            return None
+        return f"{self.ota_manifest_url.rsplit('/', 1)[0]}/{name}"
+
+    def _snapshot(self) -> dict[str, Any]:
+        return {
+            "info": dict(self.info),
+            "ota": dict(self.ota),
+            "manifest": self.manifest,
+            "online": self.online
+            and (time.monotonic() - self._last_seen) < ONLINE_TIMEOUT,
+        }
+
+    @callback
+    def _publish(self) -> None:
+        self.async_set_updated_data(self._snapshot())
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        await self._async_fetch_manifest()
+        return self._snapshot()
+
+
+class BridgeEntity(CoordinatorEntity[BridgeCoordinator]):
+    """Base for the bridge entities."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: BridgeCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"bridge_{coordinator.address}")},
+            name="Nimly Bridge",
+            manufacturer="nimly-tools",
+            model=coordinator.info.get("model", "Nimly Bridge"),
+        )

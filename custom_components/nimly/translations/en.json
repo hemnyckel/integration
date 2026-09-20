@@ -4,7 +4,8 @@
       "user": {
         "title": "Nimly",
         "menu_options": {
-          "cloud": "Vendor account (cloud)"
+          "cloud": "Vendor account (cloud)",
+          "mirror": "Lock mirror (the app side)"
         }
       },
       "cloud": {
@@ -21,15 +22,57 @@
         "data": {
           "location_id": "Location"
         }
+      },
+      "mirror": {
+        "title": "Nimly mirror",
+        "description": "Pick the real lock (paired in ZHA) and the MQTT prefix the emulator uses.\n\n{detected}",
+        "data": {
+          "lock_entity_id": "Lock",
+          "topic_prefix": "MQTT prefix"
+        }
+      },
+      "channels": {
+        "title": "Mirror channels",
+        "description": "Choose what should be mirrored between the Nimly app side and the real lock.",
+        "data": {
+          "preset": "Preset"
+        }
+      },
+      "custom": {
+        "title": "Custom channels",
+        "description": "Enable one channel at a time.",
+        "data": {
+          "ch_lock": "Mirror lock/unlock",
+          "ch_activity": "Mirror notifications",
+          "ch_pin": "Mirror PIN codes",
+          "ch_fingerprint": "Mirror fingerprints",
+          "ch_volume": "Mirror sound volume",
+          "ch_autolock": "Mirror auto-lock",
+          "ch_battery": "Mirror battery",
+          "ch_sync": "Sync on start",
+          "ch_slot_reconcile": "Slot reconcile (lock to app)",
+          "ch_names": "Mirror user names"
+        }
+      },
+      "wifi": {
+        "title": "WiFi for the bridge",
+        "description": "Enter the network {device} should join.",
+        "data": {
+          "ssid": "Network (SSID)",
+          "password": "Password"
+        }
       }
+    },
+    "abort": {
+      "already_configured": "This account or lock is already configured.",
+      "provisioned": "The bridge is provisioned and connected.",
+      "no_address": "Could not read the device address."
     },
     "error": {
       "invalid_auth": "Invalid email or password.",
       "cannot_connect": "Could not reach the vendor cloud.",
-      "no_locations": "The account has no locations."
-    },
-    "abort": {
-      "already_configured": "This account is already configured."
+      "no_locations": "The account has no locations.",
+      "provision_failed": "Provisioning failed – check the network and try again."
     }
   },
   "options": {
@@ -39,6 +82,28 @@
         "description": "How often to ask the account for new activity. Shorter is more responsive and asks more of the vendor's API.",
         "data": {
           "scan_interval": "Seconds between polls"
+        }
+      },
+      "mirror": {
+        "title": "Mirror channels",
+        "description": "Change what is mirrored. Each channel also has a switch you can toggle later.",
+        "data": {
+          "preset": "Preset"
+        }
+      },
+      "custom": {
+        "title": "Custom channels",
+        "data": {
+          "ch_lock": "Mirror lock/unlock",
+          "ch_activity": "Mirror notifications",
+          "ch_pin": "Mirror PIN codes",
+          "ch_fingerprint": "Mirror fingerprints",
+          "ch_volume": "Mirror sound volume",
+          "ch_autolock": "Mirror auto-lock",
+          "ch_battery": "Mirror battery",
+          "ch_sync": "Sync on start",
+          "ch_slot_reconcile": "Slot reconcile (lock to app)",
+          "ch_names": "Mirror user names"
         }
       }
     }
@@ -71,6 +136,23 @@
       "pin_required_remote": { "name": "Cloud PIN required for remote unlock" },
       "part_of_alarm": { "name": "Cloud part of alarm" },
       "gateway_online": { "name": "Bridge online" }
+    }
+  },
+  "issues": {
+    "new_slot": {
+      "title": "New slot {slot} created in the Nimly app",
+      "description": "A new {kind} was added in the app (slot {slot}). Give the user a name so Home Assistant notifications show the right person.",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Name slot {slot}",
+            "description": "Enter the name of the person using slot {slot}.",
+            "data": {
+              "name": "Name"
+            }
+          }
+        }
+      }
     }
   },
   "services": {
@@ -109,6 +191,31 @@
       "description": "Calls paths on the vendor API and returns the status and a redacted body. Used to map the API; not needed for normal use.",
       "fields": {
         "paths": { "name": "Paths", "description": "Paths relative to the API root, or objects with path, method, json and headers." }
+      }
+    },
+    "set_ieee": {
+      "name": "Provision IEEE address",
+      "description": "Sends an IEEE address to the emulator, which stores it in NVS and reboots. Defaults to the real lock module's own address, because the vendor cloud only accepts known modules.",
+      "fields": {
+        "ieee": { "name": "IEEE address", "description": "Address in the form 00:11:22:33:44:55:66:77. Empty uses the lock's own." },
+        "entry_id": { "name": "Config entry", "description": "Which mirror to provision. Leave out to target all of them." }
+      }
+    },
+    "ota_install": {
+      "name": "Install bridge firmware (OTA)",
+      "description": "Sends a firmware URL to the bridge, which downloads it, writes the next application partition and reboots. Used by the update entity, but can also be run manually.",
+      "fields": {
+        "url": { "name": "URL", "description": "Absolute http(s) URL to the application binary." },
+        "entry_id": { "name": "Config entry", "description": "Which bridge to update. Leave out to target all of them." }
+      }
+    },
+    "provision_wifi": {
+      "name": "Provision Wi-Fi (BLE/Improv)",
+      "description": "Connects to the bridge over Bluetooth and sends Wi-Fi credentials using Improv. Used by the discovery flow, but can also be run manually.",
+      "fields": {
+        "address": { "name": "Bluetooth address", "description": "The device's BLE address, for example from nRF Connect or from discovery." },
+        "ssid": { "name": "Network (SSID)", "description": "The Wi-Fi network the bridge should join." },
+        "password": { "name": "Password", "description": "The Wi-Fi password, if any." }
       }
     }
   }

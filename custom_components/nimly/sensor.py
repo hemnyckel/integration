@@ -6,7 +6,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_TYPE, TYPE_CLOUD
+from .const import CONF_TYPE, TYPE_BRIDGE, TYPE_CLOUD, TYPE_MIRROR
 
 
 async def async_setup_entry(
@@ -14,7 +14,12 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    if entry.data.get(CONF_TYPE) == TYPE_CLOUD:
+    entry_type = entry.data.get(CONF_TYPE)
+    if entry_type == TYPE_CLOUD:
         from .cloud.sensor import async_setup_entry as async_setup_cloud
 
         await async_setup_cloud(hass, entry, async_add_entities)
+    elif entry_type in (TYPE_MIRROR, TYPE_BRIDGE):
+        from .mirror.sensor import async_setup_entry as async_setup_mirror
+
+        await async_setup_mirror(hass, entry, async_add_entities)
