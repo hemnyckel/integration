@@ -19,7 +19,7 @@ from typing import Any, Callable
 import aiohttp
 
 from homeassistant.components import mqtt
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -57,6 +57,7 @@ from ..const import (
     CONF_CHANNELS,
     CONF_ENABLED,
     CONF_OTA_MANIFEST_URL,
+    CONF_TYPE,
     DEFAULT_ENDPOINT,
     DEFAULT_OTA_MANIFEST_URL,
     DOMAIN,
@@ -85,6 +86,7 @@ from ..const import (
     TOPIC_HA_TO_BRIDGE,
     TOPIC_PIN,
     TOPIC_STATE,
+    TYPE_CLOUD,
     ZCL_CMD_FP_CLEAR,
     ZCL_CMD_FP_ENROLL,
 )
@@ -125,6 +127,10 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.app_volume: int | None = None
         self.app_autolock: bool | None = None
         self.bridge_online = False
+        self.emulator_joined: bool | None = None
+        self._not_joined_since: float | None = None
+        self._cloud_seen_at: float = 0.0
+        self._cloud_expect_after: float | None = None
         self.firmware: str | None = None
         self.emulator_ieee: str | None = None
         self.bridge_info: dict[str, Any] = {}
@@ -311,6 +317,10 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- publishing ---------------------------------------------------------
 
     async def _async_publish(self, payload: dict[str, Any]) -> None:
+        if payload.get("cmd") in (CMD_EVENT, CMD_LOCK, CMD_UNLOCK):
+            # This should show up in the vendor cloud's feed shortly; the health
+            # tick raises a repair when the feedback never arrives.
+            self._cloud_expect_after = time.monotonic()
         try:
             await mqtt.async_publish(
                 self.hass,
@@ -329,6 +339,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {
             "app_locked": self.app_locked,
             "bridge_online": self.bridge_online,
+            "emulator_joined": self.emulator_joined,
             "battery": self.app_battery,
             "volume": self.app_volume,
             "autolock": self.app_autolock,
@@ -469,6 +480,12 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._last_hello and now - self._last_hello > HELLO_GAP:
                 self.hass.async_create_task(self._async_sync_to_app())
             self._last_hello = now
+            self._publish_snapshot()
+        elif ev == "net" and isinstance(data.get("joined"), bool):
+            self.emulator_joined = data["joined"]
+            if self.emulator_joined:
+                self._not_joined_since = None
+                ir.async_delete_issue(self.hass, DOMAIN, "emulator_not_joined")
             self._publish_snapshot()
         elif ev == EV_ACTION:
             self.hass.async_create_task(self._async_handle_action(data))
@@ -794,6 +811,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         serial = str(data.get("serial") or "").replace(":", "").replace("-", "").lower()
         if not self.ieee or serial != self.ieee.replace(":", "").replace("-", "").lower():
             return
+        self._cloud_seen_at = time.monotonic()
 
         slot = data.get("slot")
         if not isinstance(slot, int):
@@ -964,6 +982,57 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             time.monotonic() - self._last_state_rx > HEALTH_TIMEOUT
         ):
             self._set_online(False)
+        self._check_health_issues()
+
+    @callback
+    def _check_health_issues(self) -> None:
+        """Surface the two silent failure modes as repairs."""
+        now = time.monotonic()
+
+        # 1) The emulator answers on the UART but is not on a Zigbee network.
+        if self.emulator_joined is False:
+            if self._not_joined_since is None:
+                self._not_joined_since = now
+            elif now - self._not_joined_since > 300:
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    "emulator_not_joined",
+                    is_fixable=False,
+                    is_persistent=True,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="emulator_not_joined",
+                )
+        elif self.emulator_joined is True:
+            self._not_joined_since = None
+            ir.async_delete_issue(self.hass, DOMAIN, "emulator_not_joined")
+
+        # 2) We sent the vendor cloud something that should come back in its feed;
+        #    if it never does, the bridge's cloud link is likely wedged.
+        if self._cloud_expect_after is not None:
+            if self._cloud_seen_at >= self._cloud_expect_after:
+                self._cloud_expect_after = None
+                ir.async_delete_issue(self.hass, DOMAIN, "cloud_feedback_stale")
+            elif (
+                now - self._cloud_expect_after > 180
+                and self._cloud_entry_loaded()
+            ):
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    "cloud_feedback_stale",
+                    is_fixable=False,
+                    is_persistent=True,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="cloud_feedback_stale",
+                )
+
+    def _cloud_entry_loaded(self) -> bool:
+        return any(
+            entry.data.get(CONF_TYPE) == TYPE_CLOUD
+            and entry.state is ConfigEntryState.LOADED
+            for entry in self.hass.config_entries.async_entries(DOMAIN)
+        )
 
 
 def _as_int(value: Any, default: int) -> int:

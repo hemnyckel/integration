@@ -24,6 +24,7 @@ async def async_get_config_entry_diagnostics(
         "channels": dict(coordinator.channels),
         "related_entities": dict(coordinator.related),
         "bridge_online": coordinator.bridge_online,
+        "emulator_joined": coordinator.emulator_joined,
         "app_locked": coordinator.app_locked,
         "app_battery": coordinator.app_battery,
         "app_volume": coordinator.app_volume,

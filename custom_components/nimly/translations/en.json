@@ -209,6 +209,14 @@
           }
         }
       }
+    },
+    "emulator_not_joined": {
+      "title": "The emulator is not on the Zigbee network",
+      "description": "The emulator answers Home Assistant but is not joined to the Nimly bridge. Open the Nimly app's add-device flow so the bridge allows the join; the emulator retries by itself."
+    },
+    "cloud_feedback_stale": {
+      "title": "The vendor cloud is not answering",
+      "description": "A change was sent towards the Nimly app but never appeared in the account. The bridge's cloud link is likely stuck - power-cycle the Nimly Connect Bridge."
     }
   },
   "services": {

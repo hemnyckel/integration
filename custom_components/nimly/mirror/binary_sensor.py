@@ -26,7 +26,23 @@ async def async_setup_entry(
     if entry.data.get(CONF_TYPE) == TYPE_BRIDGE:
         async_add_entities([BridgeOnline(coordinator)])
         return
-    async_add_entities([MirrorBridge(coordinator)])
+    async_add_entities([MirrorBridge(coordinator), MirrorEmulatorJoined(coordinator)])
+
+
+class MirrorEmulatorJoined(MirrorEntity, BinarySensorEntity):
+    """Whether the emulator is joined to the vendor bridge's Zigbee network."""
+
+    _attr_name = "Emulator joined"
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: MirrorCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.entry_id}_emulator_joined"
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.coordinator.emulator_joined
 
 
 class MirrorBridge(MirrorEntity, BinarySensorEntity):
