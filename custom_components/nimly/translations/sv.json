@@ -140,8 +140,8 @@
   },
   "issues": {
     "new_slot": {
-      "title": "Ny slot {slot} skapad i Nimly-appen",
-      "description": "En ny {kind} lades till i appen (slot {slot}). Ge användaren ett namn så att Home Assistants notiser visar rätt person.",
+      "title": "Slot {slot} behöver ett namn",
+      "description": "En {kind} finns på slot {slot}. Ge användaren ett namn så att Home Assistants notiser visar rätt person.",
       "fix_flow": {
         "step": {
           "init": {
@@ -216,6 +216,15 @@
         "address": { "name": "Bluetooth-adress", "description": "Enhetens BLE-adress, till exempel från nRF Connect eller upptäckt." },
         "ssid": { "name": "Nätverk (SSID)", "description": "Nätverket som bryggan ska ansluta till." },
         "password": { "name": "Lösenord", "description": "Nätverkets lösenord, om det finns." }
+      }
+    },
+    "set_slot_name": {
+      "name": "Namnge en låsslot",
+      "description": "Sparar ett personnamn för en slot så att händelser och notiser säger vem som gjorde vad.",
+      "fields": {
+        "slot": { "name": "Slot", "description": "Sloten där uppgiften finns." },
+        "name": { "name": "Namn", "description": "Personens namn." },
+        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska namnges. Utelämna för alla." }
       }
     }
   }

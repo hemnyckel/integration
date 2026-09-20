@@ -75,6 +75,9 @@ from ..const import (
     HUMAN_SOURCES,
     MANIFEST_REFRESH,
     SOURCE_NAMES,
+    SRC_FINGERPRINT,
+    SRC_KEYPAD,
+    SRC_RFID,
     TOPIC_BATTERY,
     TOPIC_BRIDGE_INFO,
     TOPIC_BRIDGE_TO_HA,
@@ -712,6 +715,14 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not isinstance(action, int):
             return
         slot = data.get("user_slot")
+        if isinstance(slot, int) and source in (
+            SRC_KEYPAD,
+            SRC_FINGERPRINT,
+            SRC_RFID,
+        ):
+            # A person used a credential we cannot name yet: ask once, so the next
+            # event carries a name without depending on the cloud.
+            self._flag_new_slot(slot, SOURCE_NAMES.get(source, "credential"))
         # System locks (auto) need no notification - mirrored anyway for consistency.
         if source is not None and source not in HUMAN_SOURCES:
             _LOGGER.debug("Skipping system event source=%s", source)

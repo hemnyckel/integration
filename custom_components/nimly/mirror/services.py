@@ -16,6 +16,7 @@ _LOGGER = logging.getLogger(__name__)
 SERVICE_SET_IEEE = "set_ieee"
 SERVICE_OTA_INSTALL = "ota_install"
 SERVICE_PROVISION = "provision_wifi"
+SERVICE_SET_SLOT_NAME = "set_slot_name"
 
 PROVISION_SCHEMA = vol.Schema(
     {
@@ -35,6 +36,14 @@ SET_IEEE_SCHEMA = vol.Schema(
 OTA_INSTALL_SCHEMA = vol.Schema(
     {
         vol.Required("url"): cv.string,
+        vol.Optional("entry_id"): cv.string,
+    }
+)
+
+SET_SLOT_NAME_SCHEMA = vol.Schema(
+    {
+        vol.Required("slot"): vol.Coerce(int),
+        vol.Required("name"): cv.string,
         vol.Optional("entry_id"): cv.string,
     }
 )
@@ -77,6 +86,17 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         for coord in coordinators:
             await coord.async_ota(url)
 
+    async def _async_handle_set_slot_name(call: ServiceCall) -> None:
+        entry_id = call.data.get("entry_id")
+        slot = int(call.data["slot"])
+        name = str(call.data["name"])
+        coordinators = _coordinators(hass, entry_id, "async_set_slot_name")
+        if not coordinators:
+            _LOGGER.error("set_slot_name: no matching mirror (%s)", entry_id)
+            return
+        for coord in coordinators:
+            await coord.async_set_slot_name(slot, name)
+
     async def _async_handle_provision(call: ServiceCall) -> None:
         from .improv_ble import async_provision
 
@@ -96,9 +116,16 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, SERVICE_PROVISION, _async_handle_provision, schema=PROVISION_SCHEMA
     )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_SLOT_NAME,
+        _async_handle_set_slot_name,
+        schema=SET_SLOT_NAME_SCHEMA,
+    )
 
 
 async def async_unload_services(hass: HomeAssistant) -> None:
     hass.services.async_remove(DOMAIN, SERVICE_SET_IEEE)
     hass.services.async_remove(DOMAIN, SERVICE_OTA_INSTALL)
     hass.services.async_remove(DOMAIN, SERVICE_PROVISION)
+    hass.services.async_remove(DOMAIN, SERVICE_SET_SLOT_NAME)

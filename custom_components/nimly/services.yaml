@@ -8,3 +8,4 @@ probe:
 set_ieee:
 ota_install:
 provision_wifi:
+set_slot_name:

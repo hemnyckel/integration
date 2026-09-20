@@ -140,8 +140,8 @@
   },
   "issues": {
     "new_slot": {
-      "title": "New slot {slot} created in the Nimly app",
-      "description": "A new {kind} was added in the app (slot {slot}). Give the user a name so Home Assistant notifications show the right person.",
+      "title": "Slot {slot} needs a name",
+      "description": "A {kind} is registered in slot {slot}. Give the user a name so Home Assistant notifications show the right person.",
       "fix_flow": {
         "step": {
           "init": {
@@ -216,6 +216,15 @@
         "address": { "name": "Bluetooth address", "description": "The device's BLE address, for example from nRF Connect or from discovery." },
         "ssid": { "name": "Network (SSID)", "description": "The Wi-Fi network the bridge should join." },
         "password": { "name": "Password", "description": "The Wi-Fi password, if any." }
+      }
+    },
+    "set_slot_name": {
+      "name": "Name a lock slot",
+      "description": "Stores a person's name for a lock slot so events and notifications say who did what.",
+      "fields": {
+        "slot": { "name": "Slot", "description": "The lock slot the credential lives in." },
+        "name": { "name": "Name", "description": "The person's name." },
+        "entry_id": { "name": "Config entry", "description": "Which mirror to name a slot on. Leave out to target all of them." }
       }
     }
   }
