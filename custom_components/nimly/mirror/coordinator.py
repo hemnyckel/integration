@@ -805,13 +805,15 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.active(CH_ACTIVITY):
             return
         data = event.data
-        name = data.get("user_name")
-        if not name:
-            return
         serial = str(data.get("serial") or "").replace(":", "").replace("-", "").lower()
         if not self.ieee or serial != self.ieee.replace(":", "").replace("-", "").lower():
             return
+        # Any activity for this lock proves the cloud feedback path is alive,
+        # named or not - the watchdog clears on this even for mirrored events.
         self._cloud_seen_at = time.monotonic()
+        name = data.get("user_name")
+        if not name:
+            return
 
         slot = data.get("slot")
         if not isinstance(slot, int):
