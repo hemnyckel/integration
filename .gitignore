@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Home Assistant development
+config/
+.storage/
+deps/
+tts/
+
+# Tooling
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local secrets and device identity — never commit real values
+secrets.yaml
+secrets.h
+*.pem
+*.key
+*.token
+.env
+.env.*

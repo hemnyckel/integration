@@ -1,0 +1,30 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+
+jobs:
+  hassfest:
+    name: Home Assistant hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hygiene:
+    name: Compile, tests and repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile the integration
+        run: python -m compileall -q custom_components
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Reject real device and account data
+        run: python tools/check_pii.py

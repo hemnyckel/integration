@@ -1,0 +1,16 @@
+Nimly Integrations for Home Assistant
+Copyright 2026 Claes Häll
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes software developed as part of the Nimly Integrations project
+(https://github.com/c14ym0re/nimly_integrations).
+
+"Nimly", "Nimly Connect" and "Nimly Connect Bridge" are trademarks of Onesti Products AS.
+They are used in this project only to describe compatibility. This project is unofficial
+and is not affiliated with, endorsed by, or supported by Onesti Products AS.
+
+The cloud integration communicates with the vendor's own API using the account owner's own
+credentials and hardware. It contains no vendor source code. Request and response shapes were
+determined for interoperability by observing the API that serves the account owner's own
+devices.

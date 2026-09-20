@@ -1,0 +1,7 @@
+# Descriptions live in translations/*.json; the keys are listed here so Home Assistant
+# can load the file for every registered service.
+refresh:
+fetch_history:
+set_lock:
+gateway_scan:
+probe:

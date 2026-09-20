@@ -1,0 +1,115 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Nimly",
+        "menu_options": {
+          "cloud": "Vendor account (cloud)"
+        }
+      },
+      "cloud": {
+        "title": "Nimly account",
+        "description": "Sign in with the account you use in the official app.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      },
+      "location": {
+        "title": "Location",
+        "description": "Choose which location to expose in Home Assistant.",
+        "data": {
+          "location_id": "Location"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid email or password.",
+      "cannot_connect": "Could not reach the vendor cloud.",
+      "no_locations": "The account has no locations."
+    },
+    "abort": {
+      "already_configured": "This account is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Polling",
+        "description": "How often to ask the account for new activity. Shorter is more responsive and asks more of the vendor's API.",
+        "data": {
+          "scan_interval": "Seconds between polls"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "lock_state": { "name": "Cloud lock state" },
+      "last_event": { "name": "Last event" },
+      "last_person": { "name": "Last person" },
+      "last_pin_slot": { "name": "Last PIN slot" },
+      "last_tag": { "name": "Last tag" },
+      "battery": { "name": "Cloud battery" },
+      "lqi": { "name": "Cloud link quality" },
+      "sound_volume": { "name": "Cloud sound volume" },
+      "volume_name": { "name": "Cloud volume level" },
+      "autorelock_time": { "name": "Cloud auto-relock time" },
+      "firmware": { "name": "Cloud firmware" },
+      "config_progress": { "name": "Cloud configuration progress" },
+      "raw": { "name": "Cloud raw data" },
+      "remaining_pin_attempts": { "name": "Remaining PIN attempts" },
+      "alarm_state": { "name": "Alarm state" },
+      "device_count": { "name": "Devices in the account" },
+      "user_count": { "name": "People in the account" },
+      "user_access": { "name": "Access for {name}" }
+    },
+    "binary_sensor": {
+      "online": { "name": "Cloud online" },
+      "autolock": { "name": "Cloud auto-lock" },
+      "master_pin_mode": { "name": "Cloud master PIN mode" },
+      "pin_required_remote": { "name": "Cloud PIN required for remote unlock" },
+      "part_of_alarm": { "name": "Cloud part of alarm" },
+      "gateway_online": { "name": "Bridge online" }
+    }
+  },
+  "services": {
+    "refresh": {
+      "name": "Refresh",
+      "description": "Ask the account for new activity right now.",
+      "fields": {
+        "entry_id": { "name": "Config entry", "description": "Which account to refresh. Leave out for all of them." }
+      }
+    },
+    "fetch_history": {
+      "name": "Fetch activity history",
+      "description": "Return the activities Home Assistant has collected, newest first.",
+      "fields": {
+        "device_id": { "name": "Device", "description": "Limit the result to one lock." },
+        "limit": { "name": "Limit", "description": "Maximum number of activities to return." }
+      }
+    },
+    "set_lock": {
+      "name": "Lock or unlock through the cloud",
+      "description": "An optional second control path. The local path is faster and keeps working without internet.",
+      "fields": {
+        "device_id": { "name": "Device", "description": "The lock to act on." },
+        "locked": { "name": "Locked", "description": "True to lock, false to unlock." }
+      }
+    },
+    "gateway_scan": {
+      "name": "Open the bridge pairing window",
+      "description": "Asks the bridge to accept a new device, so a module or an emulator can join from Home Assistant.",
+      "fields": {
+        "start": { "name": "Start", "description": "True to open the window, false to close it." }
+      }
+    },
+    "probe": {
+      "name": "Call the vendor API (diagnostics)",
+      "description": "Calls paths on the vendor API and returns the status and a redacted body. Used to map the API; not needed for normal use.",
+      "fields": {
+        "paths": { "name": "Paths", "description": "Paths relative to the API root, or objects with path, method, json and headers." }
+      }
+    }
+  }
+}

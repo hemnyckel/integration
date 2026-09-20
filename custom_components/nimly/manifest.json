@@ -1,0 +1,18 @@
+{
+  "domain": "nimly",
+  "name": "Nimly",
+  "codeowners": ["@c14ym0re"],
+  "config_flow": true,
+  "after_dependencies": ["mqtt", "zha", "onesti_lock"],
+  "bluetooth": [
+    {
+      "connectable": true,
+      "service_uuid": "00467768-6228-2272-4663-277478268000"
+    }
+  ],
+  "documentation": "https://github.com/c14ym0re/nimly-tools",
+  "issue_tracker": "https://github.com/c14ym0re/nimly-tools/issues",
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "version": "0.1.0"
+}

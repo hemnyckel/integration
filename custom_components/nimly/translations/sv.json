@@ -1,0 +1,115 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Nimly",
+        "menu_options": {
+          "cloud": "Leverantörskonto (moln)"
+        }
+      },
+      "cloud": {
+        "title": "Nimly-konto",
+        "description": "Logga in med kontot du använder i den officiella appen.",
+        "data": {
+          "email": "E-post",
+          "password": "Lösenord"
+        }
+      },
+      "location": {
+        "title": "Plats",
+        "description": "Välj vilken plats som ska visas i Home Assistant.",
+        "data": {
+          "location_id": "Plats"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Fel e-post eller lösenord.",
+      "cannot_connect": "Kunde inte nå leverantörens moln.",
+      "no_locations": "Kontot har inga platser."
+    },
+    "abort": {
+      "already_configured": "Det här kontot är redan uppsatt."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Avfrågning",
+        "description": "Hur ofta kontot tillfrågas om ny aktivitet. Kortare intervall ger snabbare svar och belastar leverantörens API mer.",
+        "data": {
+          "scan_interval": "Sekunder mellan avfrågningar"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "lock_state": { "name": "Molntillstånd" },
+      "last_event": { "name": "Senaste händelse" },
+      "last_person": { "name": "Senaste person" },
+      "last_pin_slot": { "name": "Senaste PIN-plats" },
+      "last_tag": { "name": "Senaste tagg" },
+      "battery": { "name": "Batteri (moln)" },
+      "lqi": { "name": "Länkkvalitet (moln)" },
+      "sound_volume": { "name": "Ljudvolym (moln)" },
+      "volume_name": { "name": "Volymnivå (moln)" },
+      "autorelock_time": { "name": "Återlåsningstid (moln)" },
+      "firmware": { "name": "Firmware (moln)" },
+      "config_progress": { "name": "Konfigurationsförlopp (moln)" },
+      "raw": { "name": "Rådata (moln)" },
+      "remaining_pin_attempts": { "name": "Återstående PIN-försök" },
+      "alarm_state": { "name": "Larmtillstånd" },
+      "device_count": { "name": "Enheter i kontot" },
+      "user_count": { "name": "Personer i kontot" },
+      "user_access": { "name": "Åtkomst för {name}" }
+    },
+    "binary_sensor": {
+      "online": { "name": "Online (moln)" },
+      "autolock": { "name": "Auto-lås (moln)" },
+      "master_pin_mode": { "name": "Master-PIN-läge (moln)" },
+      "pin_required_remote": { "name": "PIN krävs vid fjärrupplåsning (moln)" },
+      "part_of_alarm": { "name": "Del av larm (moln)" },
+      "gateway_online": { "name": "Bryggan online" }
+    }
+  },
+  "services": {
+    "refresh": {
+      "name": "Uppdatera",
+      "description": "Be kontot om ny aktivitet direkt.",
+      "fields": {
+        "entry_id": { "name": "Konfigurationspost", "description": "Vilket konto som ska uppdateras. Utelämna för alla." }
+      }
+    },
+    "fetch_history": {
+      "name": "Hämta aktivitetshistorik",
+      "description": "Returnerar de aktiviteter Home Assistant samlat, nyaste först.",
+      "fields": {
+        "device_id": { "name": "Enhet", "description": "Begränsa resultatet till ett lås." },
+        "limit": { "name": "Gräns", "description": "Högsta antal aktiviteter att returnera." }
+      }
+    },
+    "set_lock": {
+      "name": "Lås eller lås upp via molnet",
+      "description": "En valfri andra styrväg. Den lokala vägen är snabbare och fungerar utan internet.",
+      "fields": {
+        "device_id": { "name": "Enhet", "description": "Låset som åtgärden gäller." },
+        "locked": { "name": "Låst", "description": "Sant för att låsa, falskt för att låsa upp." }
+      }
+    },
+    "gateway_scan": {
+      "name": "Öppna bryggans parningsfönster",
+      "description": "Ber bryggan ta emot en ny enhet, så att en modul eller emulator kan ansluta från Home Assistant.",
+      "fields": {
+        "start": { "name": "Starta", "description": "Sant för att öppna fönstret, falskt för att stänga det." }
+      }
+    },
+    "probe": {
+      "name": "Anropa leverantörens API (diagnostik)",
+      "description": "Anropar sökvägar på leverantörens API och returnerar status och ett maskat svar. Används för att kartlägga API:t, behövs inte i normal drift.",
+      "fields": {
+        "paths": { "name": "Sökvägar", "description": "Sökvägar relativt API-roten, eller objekt med path, method, json och headers." }
+      }
+    }
+  }
+}
