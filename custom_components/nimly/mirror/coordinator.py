@@ -370,6 +370,8 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             DOMAIN,
             f"new_slot_{slot}",
             is_fixable=True,
+            is_persistent=True,
+            data={"slot": slot},
             severity=ir.IssueSeverity.WARNING,
             translation_key="new_slot",
             translation_placeholders={"slot": str(slot), "kind": kind},
