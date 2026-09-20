@@ -385,6 +385,17 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._publish_snapshot()
         _LOGGER.info("Named slot %s as %s", slot, name)
 
+    async def async_set_slot_pin(self, slot: int, code: str) -> None:
+        """Write a PIN to a slot on the real lock (config UI and service path)."""
+        await self._async_set_pin(slot, code)
+
+    async def async_clear_slot(self, slot: int) -> None:
+        """Clear a slot's credential on the real lock and forget it locally."""
+        await self._async_clear_pin(slot)
+        self.slots.clear(slot)
+        await self._async_publish_slot(slot, False)
+        self._publish_snapshot()
+
     # -- OTA ---------------------------------------------------------------
 
     async def _async_fetch_manifest(self) -> None:

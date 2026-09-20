@@ -84,11 +84,45 @@
           "scan_interval": "Sekunder mellan avfrågningar"
         }
       },
-      "mirror": {
+      "mirror_menu": {
+        "title": "Nimly-spegeln",
+        "menu_options": {
+          "channels": "Speglingskanaler",
+          "slots": "Slottar"
+        }
+      },
+      "channels": {
         "title": "Speglingskanaler",
         "description": "Ändra vad som speglas. Varje kanal har också en switch du kan växla senare.",
         "data": {
           "preset": "Förval"
+        }
+      },
+      "slots": {
+        "title": "Slottar",
+        "description": "{slot_status}"
+      },
+      "slot_name": {
+        "title": "Namnge en slot",
+        "data": {
+          "slot": "Slot",
+          "name": "Namn"
+        }
+      },
+      "slot_set_pin": {
+        "title": "Sätt en PIN-kod",
+        "description": "Koden skrivs till låset och sparas aldrig i Home Assistant.",
+        "data": {
+          "slot": "Slot",
+          "name": "Namn",
+          "code": "PIN-kod"
+        }
+      },
+      "slot_clear": {
+        "title": "Rensa en slot",
+        "description": "Rensar uppgiften på låset och glömmer slotens lokala data.",
+        "data": {
+          "slot": "Slot"
         }
       },
       "custom": {
@@ -106,6 +140,17 @@
           "ch_names": "Spegla användarnamn"
         }
       }
+    },
+    "progress": {
+      "slot_set_pin": "Skickar PIN-koden till låset...",
+      "slot_clear": "Rensar sloten..."
+    },
+    "error": {
+      "invalid_pin": "PIN-koden måste vara 4-8 siffror.",
+      "lock_unreachable": "Låset svarade inte. Tryck på en knapp på låset för att väcka det och försök igen."
+    },
+    "abort": {
+      "no_active_slots": "Inga upptagna slottar att rensa."
     }
   },
   "entity": {
@@ -225,6 +270,24 @@
         "slot": { "name": "Slot", "description": "Sloten där uppgiften finns." },
         "name": { "name": "Namn", "description": "Personens namn." },
         "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska namnges. Utelämna för alla." }
+      }
+    },
+    "set_pin": {
+      "name": "Skriv en PIN-kod till en slot",
+      "description": "Skriver en PIN-kod till det riktiga låset och namnger sloten. Koden sparas aldrig i Home Assistant.",
+      "fields": {
+        "slot": { "name": "Slot", "description": "Sloten som koden ska skrivas till." },
+        "code": { "name": "PIN-kod", "description": "Koden, 4-8 siffror." },
+        "name": { "name": "Namn", "description": "Valfritt personnamn för sloten." },
+        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska användas. Utelämna för alla." }
+      }
+    },
+    "clear_slot": {
+      "name": "Rensa en låsslot",
+      "description": "Rensar uppgiften på låset och glömmer slotens lokala data.",
+      "fields": {
+        "slot": { "name": "Slot", "description": "Sloten som ska rensas." },
+        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska användas. Utelämna för alla." }
       }
     }
   }

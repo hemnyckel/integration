@@ -84,11 +84,45 @@
           "scan_interval": "Seconds between polls"
         }
       },
-      "mirror": {
+      "mirror_menu": {
+        "title": "Nimly mirror",
+        "menu_options": {
+          "channels": "Mirror channels",
+          "slots": "Slots"
+        }
+      },
+      "channels": {
         "title": "Mirror channels",
         "description": "Change what is mirrored. Each channel also has a switch you can toggle later.",
         "data": {
           "preset": "Preset"
+        }
+      },
+      "slots": {
+        "title": "Slots",
+        "description": "{slot_status}"
+      },
+      "slot_name": {
+        "title": "Name a slot",
+        "data": {
+          "slot": "Slot",
+          "name": "Name"
+        }
+      },
+      "slot_set_pin": {
+        "title": "Set a PIN",
+        "description": "The code is written to the lock and never stored in Home Assistant.",
+        "data": {
+          "slot": "Slot",
+          "name": "Name",
+          "code": "PIN code"
+        }
+      },
+      "slot_clear": {
+        "title": "Clear a slot",
+        "description": "Clears the credential on the lock and forgets the slot's local data.",
+        "data": {
+          "slot": "Slot"
         }
       },
       "custom": {
@@ -106,6 +140,17 @@
           "ch_names": "Mirror user names"
         }
       }
+    },
+    "progress": {
+      "slot_set_pin": "Sending the PIN to the lock...",
+      "slot_clear": "Clearing the slot..."
+    },
+    "error": {
+      "invalid_pin": "The PIN must be 4-8 digits.",
+      "lock_unreachable": "The lock did not respond. Press a button on the lock to wake it and try again."
+    },
+    "abort": {
+      "no_active_slots": "No occupied slots to clear."
     }
   },
   "entity": {
@@ -225,6 +270,24 @@
         "slot": { "name": "Slot", "description": "The lock slot the credential lives in." },
         "name": { "name": "Name", "description": "The person's name." },
         "entry_id": { "name": "Config entry", "description": "Which mirror to name a slot on. Leave out to target all of them." }
+      }
+    },
+    "set_pin": {
+      "name": "Write a PIN to a slot",
+      "description": "Writes a PIN code to the real lock and names the slot. The code is never stored in Home Assistant.",
+      "fields": {
+        "slot": { "name": "Slot", "description": "The slot to write the code to." },
+        "code": { "name": "PIN code", "description": "The code, 4-8 digits." },
+        "name": { "name": "Name", "description": "Optional person name for the slot." },
+        "entry_id": { "name": "Config entry", "description": "Which mirror to act on. Leave out to target all of them." }
+      }
+    },
+    "clear_slot": {
+      "name": "Clear a lock slot",
+      "description": "Clears the credential on the lock and forgets the slot's local data.",
+      "fields": {
+        "slot": { "name": "Slot", "description": "The slot to clear." },
+        "entry_id": { "name": "Config entry", "description": "Which mirror to act on. Leave out to target all of them." }
       }
     }
   }

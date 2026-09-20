@@ -17,6 +17,8 @@ SERVICE_SET_IEEE = "set_ieee"
 SERVICE_OTA_INSTALL = "ota_install"
 SERVICE_PROVISION = "provision_wifi"
 SERVICE_SET_SLOT_NAME = "set_slot_name"
+SERVICE_SET_PIN = "set_pin"
+SERVICE_CLEAR_SLOT = "clear_slot"
 
 PROVISION_SCHEMA = vol.Schema(
     {
@@ -44,6 +46,22 @@ SET_SLOT_NAME_SCHEMA = vol.Schema(
     {
         vol.Required("slot"): vol.Coerce(int),
         vol.Required("name"): cv.string,
+        vol.Optional("entry_id"): cv.string,
+    }
+)
+
+SET_PIN_SCHEMA = vol.Schema(
+    {
+        vol.Required("slot"): vol.Coerce(int),
+        vol.Required("code"): cv.string,
+        vol.Optional("name"): cv.string,
+        vol.Optional("entry_id"): cv.string,
+    }
+)
+
+CLEAR_SLOT_SCHEMA = vol.Schema(
+    {
+        vol.Required("slot"): vol.Coerce(int),
         vol.Optional("entry_id"): cv.string,
     }
 )
@@ -97,6 +115,30 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         for coord in coordinators:
             await coord.async_set_slot_name(slot, name)
 
+    async def _async_handle_set_pin(call: ServiceCall) -> None:
+        entry_id = call.data.get("entry_id")
+        slot = int(call.data["slot"])
+        code = str(call.data["code"])
+        name = call.data.get("name")
+        coordinators = _coordinators(hass, entry_id, "async_set_slot_pin")
+        if not coordinators:
+            _LOGGER.error("set_pin: no matching mirror (%s)", entry_id)
+            return
+        for coord in coordinators:
+            await coord.async_set_slot_pin(slot, code)
+            if name:
+                await coord.async_set_slot_name(slot, str(name))
+
+    async def _async_handle_clear_slot(call: ServiceCall) -> None:
+        entry_id = call.data.get("entry_id")
+        slot = int(call.data["slot"])
+        coordinators = _coordinators(hass, entry_id, "async_clear_slot")
+        if not coordinators:
+            _LOGGER.error("clear_slot: no matching mirror (%s)", entry_id)
+            return
+        for coord in coordinators:
+            await coord.async_clear_slot(slot)
+
     async def _async_handle_provision(call: ServiceCall) -> None:
         from .improv_ble import async_provision
 
@@ -122,6 +164,12 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         _async_handle_set_slot_name,
         schema=SET_SLOT_NAME_SCHEMA,
     )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_PIN, _async_handle_set_pin, schema=SET_PIN_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_CLEAR_SLOT, _async_handle_clear_slot, schema=CLEAR_SLOT_SCHEMA
+    )
 
 
 async def async_unload_services(hass: HomeAssistant) -> None:
@@ -129,3 +177,5 @@ async def async_unload_services(hass: HomeAssistant) -> None:
     hass.services.async_remove(DOMAIN, SERVICE_OTA_INSTALL)
     hass.services.async_remove(DOMAIN, SERVICE_PROVISION)
     hass.services.async_remove(DOMAIN, SERVICE_SET_SLOT_NAME)
+    hass.services.async_remove(DOMAIN, SERVICE_SET_PIN)
+    hass.services.async_remove(DOMAIN, SERVICE_CLEAR_SLOT)

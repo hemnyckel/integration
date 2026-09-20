@@ -118,6 +118,12 @@ class SlotTable:
         self._notify()
         return True
 
+    def clear(self, slot: int) -> None:
+        """Forget everything local about a slot (after its credential is cleared)."""
+        if self._slots.pop(str(slot), None) is not None:
+            self._save()
+            self._notify()
+
     def import_from_onesti(self, hass: HomeAssistant, ieee: str) -> int:
         """Import slot names and occupancy from an onesti_lock entry, once.
 
