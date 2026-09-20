@@ -39,6 +39,58 @@ async def async_setup_entry(
             MirrorLastError(coordinator),
         ]
     )
+    _setup_slot_sensors(coordinator, async_add_entities)
+
+
+def _setup_slot_sensors(
+    coordinator: MirrorCoordinator, async_add_entities: AddEntitiesCallback
+) -> None:
+    """One sensor per known slot, added as slots appear."""
+    known: set[int] = set()
+
+    def _add_new_slots() -> None:
+        new = [
+            SlotSensor(coordinator, slot)
+            for slot, _data in coordinator.slots.items()
+            if slot not in known
+        ]
+        if new:
+            known.update(entity.slot for entity in new)
+            async_add_entities(new)
+
+    coordinator.slots.add_listener(_add_new_slots)
+    _add_new_slots()
+
+
+class SlotSensor(MirrorEntity, SensorEntity):
+    """One lock slot: its name and which credential types it holds."""
+
+    _attr_icon = "mdi:account-key"
+
+    def __init__(self, coordinator: MirrorCoordinator, slot: int) -> None:
+        super().__init__(coordinator)
+        self.slot = slot
+        self._attr_name = f"Slot {slot}"
+        self._attr_unique_id = f"{coordinator.entry.entry_id}_slot_{slot}"
+
+    @property
+    def native_value(self) -> str:
+        data = self.coordinator.slots.get(self.slot)
+        name = str(data.get("name") or "")
+        if name:
+            return name
+        return "Occupied" if self.coordinator.slots.occupied(self.slot) else "Vacant"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = self.coordinator.slots.get(self.slot)
+        return {
+            "slot": self.slot,
+            "has_pin": bool(data.get("has_pin")),
+            "has_fingerprint": bool(data.get("has_fingerprint")),
+            "has_rfid": bool(data.get("has_rfid")),
+            "credentials": self.coordinator.slots.credentials(self.slot),
+        }
 
 
 class MirrorLastEvent(MirrorEntity, SensorEntity):

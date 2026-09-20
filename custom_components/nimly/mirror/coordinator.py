@@ -382,6 +382,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.slots.set_name(slot, name)
         ir.async_delete_issue(self.hass, DOMAIN, f"new_slot_{slot}")
         await self._async_publish_slot(slot, self.slots.occupied(slot))
+        self._publish_snapshot()
         _LOGGER.info("Named slot %s as %s", slot, name)
 
     # -- OTA ---------------------------------------------------------------
@@ -722,8 +723,14 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             SRC_FINGERPRINT,
             SRC_RFID,
         ):
-            # A person used a credential we cannot name yet: ask once, so the next
-            # event carries a name without depending on the cloud.
+            # Learn which credential type the slot holds, and ask once for a name
+            # if it has none, so attribution stays local.
+            if source == SRC_KEYPAD:
+                self.slots.mark_credential(slot, "pin")
+            elif source == SRC_FINGERPRINT:
+                self.slots.mark_credential(slot, "fingerprint")
+            else:
+                self.slots.mark_credential(slot, "rfid")
             self._flag_new_slot(slot, SOURCE_NAMES.get(source, "credential"))
         # System locks (auto) need no notification - mirrored anyway for consistency.
         if source is not None and source not in HUMAN_SOURCES:

@@ -1,4 +1,4 @@
-"""The slot table: names and occupancy for the lock's PIN/RFID slots.
+"""The slot table: names, occupancy and credentials for the lock's slots.
 
 Stored in the mirror entry's options under "slots" - the same shape the former
 onesti_lock integration used, so an existing table is imported once.
@@ -7,7 +7,7 @@ onesti_lock integration used, so an existing table is imported once.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -18,14 +18,21 @@ _LOGGER = logging.getLogger(__name__)
 
 SLOTS_OPTION = "slots"
 
+_CREDENTIAL_KEYS = {
+    "pin": "has_pin",
+    "fingerprint": "has_fingerprint",
+    "rfid": "has_rfid",
+}
+
 
 class SlotTable:
-    """Slot data for one lock: name, has_pin and has_rfid per slot."""
+    """Slot data for one lock: name and credential types per slot."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
         self.entry = entry
         self._slots: dict[str, dict[str, Any]] = {}
+        self._listeners: list[Callable[[], None]] = []
         self._load()
 
     def _load(self) -> None:
@@ -45,6 +52,17 @@ class SlotTable:
             },
         )
 
+    # -- listeners ----------------------------------------------------------
+
+    def add_listener(self, callback: Callable[[], None]) -> None:
+        self._listeners.append(callback)
+
+    def _notify(self) -> None:
+        for callback in list(self._listeners):
+            callback()
+
+    # -- data access --------------------------------------------------------
+
     def get(self, slot: int) -> dict[str, Any]:
         return {**DEFAULT_SLOT, **self._slots.get(str(slot), {})}
 
@@ -54,21 +72,12 @@ class SlotTable:
             return name
         return f"Slot {slot}"
 
-    def occupied(self, slot: int) -> bool:
+    def credentials(self, slot: int) -> list[str]:
         data = self.get(slot)
-        return bool(data.get("name") or data.get("has_pin") or data.get("has_rfid"))
+        return [kind for kind, key in _CREDENTIAL_KEYS.items() if data.get(key)]
 
-    def set_name(self, slot: int, name: str) -> None:
-        self._slots.setdefault(str(slot), {**DEFAULT_SLOT})["name"] = name
-        self._save()
-
-    def mark_pin(self, slot: int, present: bool) -> None:
-        self._slots.setdefault(str(slot), {**DEFAULT_SLOT})["has_pin"] = present
-        self._save()
-
-    def mark_rfid(self, slot: int, present: bool) -> None:
-        self._slots.setdefault(str(slot), {**DEFAULT_SLOT})["has_rfid"] = present
-        self._save()
+    def occupied(self, slot: int) -> bool:
+        return bool(self.get(slot).get("name")) or bool(self.credentials(slot))
 
     def items(self) -> list[tuple[int, dict[str, Any]]]:
         return sorted(
@@ -78,6 +87,36 @@ class SlotTable:
 
     def snapshot(self) -> dict[str, dict[str, Any]]:
         return {str(slot): dict(data) for slot, data in self.items()}
+
+    # -- mutations ----------------------------------------------------------
+
+    def set_name(self, slot: int, name: str) -> None:
+        self._slots.setdefault(str(slot), {**DEFAULT_SLOT})["name"] = name
+        self._save()
+        self._notify()
+
+    def mark_pin(self, slot: int, present: bool) -> None:
+        self._slots.setdefault(str(slot), {**DEFAULT_SLOT})["has_pin"] = present
+        self._save()
+        self._notify()
+
+    def mark_rfid(self, slot: int, present: bool) -> None:
+        self._slots.setdefault(str(slot), {**DEFAULT_SLOT})["has_rfid"] = present
+        self._save()
+        self._notify()
+
+    def mark_credential(self, slot: int, kind: str) -> bool:
+        """Learn a credential type from a usage event. True when it was new."""
+        key = _CREDENTIAL_KEYS.get(kind)
+        if key is None:
+            return False
+        data = self._slots.setdefault(str(slot), {**DEFAULT_SLOT})
+        if data.get(key):
+            return False
+        data[key] = True
+        self._save()
+        self._notify()
+        return True
 
     def import_from_onesti(self, hass: HomeAssistant, ieee: str) -> int:
         """Import slot names and occupancy from an onesti_lock entry, once.
@@ -94,10 +133,14 @@ class SlotTable:
                 if str(slot) in self._slots:
                     continue
                 merged = {**DEFAULT_SLOT, **data}
-                if merged.get("name") or merged.get("has_pin") or merged.get("has_rfid"):
+                if any(
+                    merged.get(key)
+                    for key in ("name", "has_pin", "has_fingerprint", "has_rfid")
+                ):
                     self._slots[str(slot)] = merged
                     imported += 1
             if imported:
                 self._save()
+                self._notify()
             return imported
         return 0

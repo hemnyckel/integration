@@ -220,7 +220,12 @@ HUMAN_SOURCES = {SRC_KEYPAD, SRC_FINGERPRINT, SRC_RFID, SRC_ZIGBEE, SRC_UNATTRIB
 
 # --- Slots -------------------------------------------------------------------
 SLOT_FIRST_USER = 3
-DEFAULT_SLOT: dict[str, Any] = {"name": "", "has_pin": False, "has_rfid": False}
+DEFAULT_SLOT: dict[str, Any] = {
+    "name": "",
+    "has_pin": False,
+    "has_fingerprint": False,
+    "has_rfid": False,
+}
 
 
 def decode_operation_event(value: int) -> dict[str, Any] | None:
