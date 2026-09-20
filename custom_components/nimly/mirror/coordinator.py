@@ -417,6 +417,15 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_publish({"cmd": CMD_OTA, "url": url})
         _LOGGER.info("OTA requested: %s", url)
 
+    async def async_ota_c6(self, url: str, sha256: str, version: str) -> None:
+        """Asks the bridge to ferry a firmware image to the C6 emulator over UART."""
+        if not url:
+            raise ValueError("No firmware URL")
+        await self._async_publish(
+            {"cmd": "ota_c6", "url": url, "sha256": sha256, "version": version}
+        )
+        _LOGGER.info("C6 OTA requested: %s (%s)", url, version)
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Periodic update: manifest plus a sync of battery/volume/auto-lock to the app."
 

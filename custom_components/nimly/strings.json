@@ -91,7 +91,15 @@
           "slot_set_pin": "Set a PIN",
           "slot_name": "Name a slot",
           "slot_clear": "Clear a slot",
-          "channels": "Mirror channels"
+          "channels": "Mirror channels",
+          "firmware": "Firmware source"
+        }
+      },
+      "firmware": {
+        "title": "Firmware source",
+        "description": "The OTA manifest URL the update entities read. Keep the default unless you host your own builds.",
+        "data": {
+          "ota_manifest_url": "Manifest URL"
         }
       },
       "channels": {

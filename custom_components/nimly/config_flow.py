@@ -28,12 +28,14 @@ from .const import (
     CONF_EMAIL,
     CONF_LOCK_ENTITY,
     CONF_LOCATION_ID,
+    CONF_OTA_MANIFEST_URL,
     CONF_PASSWORD,
     CONF_PREFIX,
     CONF_REFRESH_TOKEN,
     CONF_SCAN_INTERVAL,
     CONF_TYPE,
     DEFAULT_CHANNELS,
+    DEFAULT_OTA_MANIFEST_URL,
     DEFAULT_PREFIX,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -400,11 +402,43 @@ class NimlyOptionsFlow(config_entries.OptionsFlow):
     ) -> config_entries.ConfigFlowResult:
         return self.async_show_menu(
             step_id="mirror_menu",
-            menu_options=["slots", "slot_set_pin", "slot_name", "slot_clear", "channels"],
+            menu_options=[
+                "slots",
+                "slot_set_pin",
+                "slot_name",
+                "slot_clear",
+                "channels",
+                "firmware",
+            ],
         )
 
     def _mirror(self) -> Any:
         return self.hass.data[DOMAIN][self.config_entry.entry_id]
+
+    async def async_step_firmware(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        if user_input is not None:
+            url = str(user_input.get(CONF_OTA_MANIFEST_URL) or "").strip()
+            options = dict(self.config_entry.options)
+            if url:
+                options[CONF_OTA_MANIFEST_URL] = url
+            else:
+                options.pop(CONF_OTA_MANIFEST_URL, None)
+            return self.async_create_entry(data=options)
+        current = self.config_entry.options.get(
+            CONF_OTA_MANIFEST_URL, DEFAULT_OTA_MANIFEST_URL
+        )
+        return self.async_show_form(
+            step_id="firmware",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_OTA_MANIFEST_URL, default=current
+                    ): selector.TextSelector()
+                }
+            ),
+        )
 
     # -- mirror: channels ---------------------------------------------------
 

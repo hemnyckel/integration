@@ -91,7 +91,15 @@
           "slot_set_pin": "Sätt en PIN-kod",
           "slot_name": "Namnge en slot",
           "slot_clear": "Rensa en slot",
-          "channels": "Speglingskanaler"
+          "channels": "Speglingskanaler",
+          "firmware": "Firmwarekälla"
+        }
+      },
+      "firmware": {
+        "title": "Firmwarekälla",
+        "description": "OTA-manifestets URL som uppdaterings-entiteterna läser. Behåll standardvärdet om du inte hostar egna byggen.",
+        "data": {
+          "ota_manifest_url": "Manifest-URL"
         }
       },
       "channels": {
