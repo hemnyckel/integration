@@ -15,8 +15,10 @@ verified on hardware. The v1 integrations and this repository coexist during the
    services move to `nimly.*`. Service names are unchanged; only the domain is.
 5. **Remove the old** — delete the `nimly_cloud` and `nimly_shadow` config entries, then the
    custom components (or uninstall them in HACS). Clear any V1-only repairs.
-6. **Remove `onesti_lock`** once the absorbed ZHA layer provides the slot table and the ZCL
-   commands (Phase 2 of the v2 plan). The lock entity itself is created by ZHA and stays.
+6. **Remove `onesti_lock`** — the mirror owns the ZHA link now (raw `0x0100` listener, ZCL
+   commands and the slot table), and slot names and occupancy are imported automatically on
+   mirror setup. Removal is safe after hardware verification; the lock entity itself is
+   created by ZHA and stays.
 
 ## What changes for the user
 

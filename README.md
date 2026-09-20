@@ -6,9 +6,10 @@ vendor bridge and app working. Home Assistant never stops being able to open the
 internet or not.
 
 > **Status: v2, under construction.** The package is being rebuilt from the lessons of the
-> v1 integrations (`nimly_cloud` + `nimly_shadow`). The cloud and mirror layers are ported
-> (the bridge entry type included); the absorbed ZHA layer, which retires `onesti_lock`, is
-> next. Nothing here is installable yet — the design and the phased plan live in
+> v1 integrations (`nimly_cloud` + `nimly_shadow`). The cloud, mirror and bridge layers are
+> ported, and the mirror owns its ZHA link — the raw `0x0100` listener, the ZCL commands and
+> the slot table — so `onesti_lock` is no longer needed. Next: the C6 OTA reflash. Nothing
+> here is installable yet — the design and the phased plan live in
 > [docs/v2-arkitektur.md](docs/v2-arkitektur.md).
 
 ## What this repository is

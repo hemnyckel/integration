@@ -30,7 +30,7 @@ installation. Anything that imports `homeassistant` is verified on hardware thro
 ## Layout
 
 - `custom_components/nimly/` — the integration. `cloud/` and `mirror/` (which also hosts
-  the bridge provisioning) are ported; the absorbed ZHA layer is next. Platform files
+  the bridge provisioning and the ZHA link in `zha_link.py`) are ported. Platform files
   (`sensor.py`, `binary_sensor.py`, …) are thin routers that dispatch each config entry to
   its layer.
 - `docs/v2-arkitektur.md` — the ratified design; the phased plan is the last section.

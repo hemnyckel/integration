@@ -30,4 +30,8 @@ async def async_get_config_entry_diagnostics(
         "app_autolock": coordinator.app_autolock,
         "counters": dict(coordinator.counters),
         "last_error": coordinator.last_error,
+        "slots": coordinator.slots.snapshot(),
+        "zha_listener": bool(
+            coordinator.zha is not None and coordinator.zha.attached
+        ),
     }

@@ -33,7 +33,6 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from ..const import (
-    ACTION_FROM_NAME,
     ACTION_LOCK,
     ACTION_NAMES,
     ACTION_UNLOCK,
@@ -63,7 +62,6 @@ from ..const import (
     DOMAIN,
     ECHO_WINDOW,
     EVENT_NIMLY_CLOUD_ACTIVITY,
-    EVENT_NIMLY_LOCK_ACTIVITY,
     EV_ACTION,
     EV_FP_CLEAR,
     EV_FP_ENROLL,
@@ -76,7 +74,6 @@ from ..const import (
     HELLO_GAP,
     HUMAN_SOURCES,
     MANIFEST_REFRESH,
-    SOURCE_FROM_NAME,
     SOURCE_NAMES,
     TOPIC_BATTERY,
     TOPIC_BRIDGE_INFO,
@@ -85,13 +82,12 @@ from ..const import (
     TOPIC_HA_TO_BRIDGE,
     TOPIC_PIN,
     TOPIC_STATE,
-    ZCL_CLUSTER_DOORLOCK,
-    ZCL_CMD_CLEAR_PIN,
     ZCL_CMD_FP_CLEAR,
     ZCL_CMD_FP_ENROLL,
-    ZCL_CMD_SET_PIN,
-    ZHA_SERVICE,
 )
+
+from .slots import SlotTable
+from .zha_link import ZhaLink
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -138,7 +134,8 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.last_event: dict[str, Any] | None = None
         self.last_pin: dict[str, Any] | None = None
-        self._slot_entities: dict[int, str] = {}
+        self.slots = SlotTable(hass, entry)
+        self.zha: ZhaLink | None = None
         self.last_error: str | None = None
         self.counters: dict[str, int] = {
             "app_to_lock": 0,
@@ -187,6 +184,17 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         self._started = True
         self._discover_lock_metadata()
+        if self.ieee:
+            self.zha = ZhaLink(
+                self.hass,
+                self.ieee,
+                self.lock_entity_id,
+                self.endpoint_id,
+                self._on_lock_activity,
+            )
+            imported = self.slots.import_from_onesti(self.hass, self.ieee)
+            if imported:
+                _LOGGER.info("Imported %s slots from onesti_lock", imported)
 
         self._unsubs.append(
             await mqtt.async_subscribe(
@@ -228,22 +236,15 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         self._unsubs.append(
-            self.hass.bus.async_listen(EVENT_NIMLY_LOCK_ACTIVITY, self._on_activity)
-        )
-        self._unsubs.append(
             self.hass.bus.async_listen(EVENT_NIMLY_CLOUD_ACTIVITY, self._on_cloud_activity)
         )
 
-        # HA -> app: mirror onesti_lock slot occupancy (e.g. a PIN cleared in HA should
-        # also free the slot in the app).
-        self._slot_entities = self._find_slot_entities()
-        if self._slot_entities and self.active(CH_PIN):
-            self._unsubs.append(
-                async_track_state_change_event(
-                    self.hass, list(self._slot_entities.values()), self._on_slot_change
-                )
-            )
+        # HA -> app: the slot table's occupancy goes to the app, so a slot freed
+        # in HA frees in the app too.
+        if self.active(CH_PIN):
             self.hass.async_create_task(self._async_sync_slots())
+        if self.zha is not None:
+            self.zha.ensure_listener()
         self._unsubs.append(
             async_track_time_interval(
                 self.hass, self._async_health, timedelta(seconds=HEALTH_INTERVAL)
@@ -258,6 +259,8 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
+        if self.zha is not None:
+            self.zha.detach()
         self._started = False
 
     # -- metadata -----------------------------------------------------------
@@ -344,37 +347,15 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _publish_snapshot(self) -> None:
         self.async_set_updated_data(self._snapshot())
 
-    def _find_slot_entities(self) -> dict[int, str]:
-        """Maps slot number -> onesti_lock slot sensor entity id."""
-        registry = er.async_get(self.hass)
-        out: dict[int, str] = {}
-        for entity in registry.entities.values():
-            eid = entity.entity_id
-            if entity.domain != "sensor" or "onesti_lock_slot" not in eid:
-                continue
-            tail = eid.rsplit("_", 1)[-1]
-            if tail.isdigit():
-                out[int(tail)] = eid
-        return out
-
     async def _async_sync_slots(self) -> None:
-        for slot, eid in self._slot_entities.items():
-            await self._async_publish_slot(slot, self.hass.states.get(eid))
+        for slot, _data in self.slots.items():
+            await self._async_publish_slot(slot, self.slots.occupied(slot))
 
-    async def _async_publish_slot(self, slot: int, state: Any) -> None:
-        if state is None or state.state in ("unknown", "unavailable", "None"):
-            return
-        occupied = state.state != "Vacant"
+    async def _async_publish_slot(self, slot: int, occupied: bool) -> None:
         await self._async_publish({"cmd": "pin_status", "slot": slot, "set": occupied})
 
     def _slot_is_named(self, slot: int) -> bool:
-        eid = self._slot_entities.get(slot)
-        state = self.hass.states.get(eid) if eid else None
-        return state is not None and state.state not in (
-            "Vacant",
-            "unknown",
-            "unavailable",
-        )
+        return bool(self.slots.get(slot).get("name"))
 
     @callback
     def _flag_new_slot(self, slot: int, kind: str) -> None:
@@ -392,24 +373,11 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def async_set_slot_name(self, slot: int, name: str) -> None:
-        """Write a slot name to the lock and clear the repair."""
-        await self.hass.services.async_call(
-            "onesti_lock",
-            "set_name",
-            {"slot": slot, "name": name, "ieee": self.ieee},
-            blocking=True,
-        )
+        """Write a slot name into the table and clear the repair."""
+        self.slots.set_name(slot, name)
         ir.async_delete_issue(self.hass, DOMAIN, f"new_slot_{slot}")
+        await self._async_publish_slot(slot, self.slots.occupied(slot))
         _LOGGER.info("Named slot %s as %s", slot, name)
-
-    @callback
-    def _on_slot_change(self, event: Event) -> None:
-        entity_id = event.data.get("entity_id")
-        new_state = event.data.get("new_state")
-        for slot, eid in self._slot_entities.items():
-            if eid == entity_id:
-                self.hass.async_create_task(self._async_publish_slot(slot, new_state))
-                return
 
     # -- OTA ---------------------------------------------------------------
 
@@ -670,6 +638,8 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         command = ZCL_CMD_FP_ENROLL if enroll else ZCL_CMD_FP_CLEAR
         try:
             await self._async_zcl(command, slot)
+            self.slots.mark_rfid(slot, enroll)
+            await self._async_publish_slot(slot, self.slots.occupied(slot))
         except Exception as err:  # noqa: BLE001
             self.counters["errors"] += 1
             self.last_error = str(err)
@@ -733,27 +703,23 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_publish({"cmd": CMD_LOCK if locked else CMD_UNLOCK})
 
     @callback
-    def _on_activity(self, event: Event) -> None:
-        """Rich event from onesti_lock (action/source/slot) -> app notification."""
+    def _on_lock_activity(self, data: dict[str, Any]) -> None:
+        """A decoded operation event from the lock -> app notification."""
         if not self.active(CH_ACTIVITY):
             return
-        data = event.data
         action = data.get("action_code")
-        if not isinstance(action, int):
-            action = ACTION_FROM_NAME.get(data.get("action"))
         source = data.get("source_code")
-        if not isinstance(source, int):
-            source = SOURCE_FROM_NAME.get(data.get("source"))
         if not isinstance(action, int):
             return
+        slot = data.get("user_slot")
         # System locks (auto) need no notification - mirrored anyway for consistency.
         if source is not None and source not in HUMAN_SOURCES:
             _LOGGER.debug("Skipping system event source=%s", source)
         self.last_event = {
             "action": ACTION_NAMES.get(action),
             "source": SOURCE_NAMES.get(source) if isinstance(source, int) else None,
-            "slot": data.get("user_slot"),
-            "name": data.get("user_name"),
+            "slot": slot,
+            "name": self.slots.name(slot) if isinstance(slot, int) else None,
             "time": dt_util.utcnow().isoformat(),
             "direction": "lock->app",
         }
@@ -765,7 +731,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "cmd": CMD_EVENT,
                     "action": int(action),
                     "source": int(source) if source is not None else 0,
-                    "slot": _as_int(data.get("user_slot"), 0),
+                    "slot": _as_int(slot, 0),
                 }
             )
         )
@@ -817,11 +783,8 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         target = name.strip().casefold()
         exact: list[int] = []
         partial: list[int] = []
-        for slot, entity_id in self._slot_entities.items():
-            state = self.hass.states.get(entity_id)
-            if state is None or state.state in ("Vacant", "unknown", "unavailable"):
-                continue
-            local = str(state.state).strip().casefold()
+        for slot, data in self.slots.items():
+            local = str(data.get("name") or "").strip().casefold()
             if not local:
                 continue
             if local == target:
@@ -930,69 +893,32 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- PIN / fingerprint towards ZHA ---------------------------------------
 
     async def _async_set_pin(self, slot: int, code: str) -> None:
-        if await self._async_try_onesti(
-            "set_pin",
-            {
-                "slot": slot,
-                "name": f"App slot {slot}",
-                "code": code,
-                "ieee": self.ieee,
-            },
-        ):
-            return
-        await self._async_zha_cluster(
-            ZCL_CMD_SET_PIN, [slot, "0" + code], manufacturer_specific=False
-        )
+        if self.zha is None:
+            raise RuntimeError("the ZHA link is not ready")
+        if not await self.zha.set_pin(slot, code):
+            raise RuntimeError("the lock did not accept the PIN command")
+        self.slots.mark_pin(slot, True)
+        await self._async_publish_slot(slot, self.slots.occupied(slot))
 
     async def _async_clear_pin(self, slot: int) -> None:
-        if await self._async_try_onesti("clear_pin", {"slot": slot, "ieee": self.ieee}):
-            return
-        await self._async_zha_cluster(
-            ZCL_CMD_CLEAR_PIN, [slot], manufacturer_specific=False
-        )
+        if self.zha is None:
+            raise RuntimeError("the ZHA link is not ready")
+        if not await self.zha.clear_pin(slot):
+            raise RuntimeError("the lock did not accept the clear command")
+        self.slots.mark_pin(slot, False)
+        await self._async_publish_slot(slot, self.slots.occupied(slot))
 
     async def _async_zcl(self, command: int, arg: int) -> None:
-        if await self._async_try_onesti(
-            "raw_zcl", {"command": command, "arg": arg, "ieee": self.ieee}
-        ):
-            return
-        await self._async_zha_cluster(command, [arg])
-
-    async def _async_try_onesti(self, service: str, data: dict[str, Any]) -> bool:
-        if not self.hass.services.has_service("onesti_lock", service):
-            return False
-        if self.ieee is None:
-            return False
-        try:
-            await self.hass.services.async_call(
-                "onesti_lock", service, data, blocking=True
-            )
-            return True
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("onesti_lock.%s failed, trying ZHA: %s", service, err)
-            return False
-
-    async def _async_zha_cluster(
-        self, command: int, args: list[Any], *, manufacturer_specific: bool = True
-    ) -> None:
-        if self.ieee is None:
-            raise RuntimeError("No IEEE for the lock - cannot send ZCL")
-        data: dict[str, Any] = {
-            "ieee": self.ieee,
-            "endpoint_id": self.endpoint_id,
-            "cluster_id": ZCL_CLUSTER_DOORLOCK,
-            "cluster_type": "in",
-            "command": command,
-            "command_type": "server",
-            "args": args,
-        }
-        if manufacturer_specific:
-            data["manufacturer"] = None
-        await self.hass.services.async_call("zha", ZHA_SERVICE, data, blocking=True)
+        if self.zha is None:
+            raise RuntimeError("the ZHA link is not ready")
+        if not await self.zha.send_fingerprint(command, arg):
+            raise RuntimeError(f"the lock did not accept command 0x{command:02x}")
 
     # -- health -------------------------------------------------------------
 
     async def _async_health(self, _now: Any = None) -> None:
+        if self.zha is not None:
+            self.zha.ensure_listener()
         await self._async_publish({"cmd": CMD_GET_STATE})
         if self._last_state_rx and (
             time.monotonic() - self._last_state_rx > HEALTH_TIMEOUT

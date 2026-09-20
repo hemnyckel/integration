@@ -5,6 +5,8 @@ The protocol towards the firmware (the bridge) is frozen; see the repository doc
 
 from __future__ import annotations
 
+from typing import Any
+
 DOMAIN = "nimly"
 
 # --- Entry types -------------------------------------------------------------
@@ -215,6 +217,30 @@ SOURCE_FROM_NAME: dict[str, int] = {v: k for k, v in SOURCE_NAMES.items()}
 
 # Sources that count as "a person did something" (for notifications)
 HUMAN_SOURCES = {SRC_KEYPAD, SRC_FINGERPRINT, SRC_RFID, SRC_ZIGBEE, SRC_UNATTRIBUTED}
+
+# --- Slots -------------------------------------------------------------------
+SLOT_FIRST_USER = 3
+DEFAULT_SLOT: dict[str, Any] = {"name": "", "has_pin": False, "has_rfid": False}
+
+
+def decode_operation_event(value: int) -> dict[str, Any] | None:
+    """Decode attribute 0x0100 (bitmap32): slot, action and source.
+
+    Bits 0-15 are the slot (0 means none), 16-23 the action, 24-31 the source.
+    Unknown codes come back as None names rather than a guess.
+    """
+    if not isinstance(value, int) or not 0 <= value <= 0xFFFFFFFF:
+        return None
+    slot = value & 0xFFFF
+    action_code = (value >> 16) & 0xFF
+    source_code = (value >> 24) & 0xFF
+    return {
+        "user_slot": slot if slot > 0 else None,
+        "action_code": action_code,
+        "source_code": source_code,
+        "action": ACTION_NAMES.get(action_code),
+        "source": SOURCE_NAMES.get(source_code),
+    }
 
 # --- Health ----------------------------------------------------------------
 HEALTH_INTERVAL = 60  # seconds between get_state pings

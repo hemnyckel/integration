@@ -3,7 +3,7 @@
   "name": "Nimly",
   "codeowners": ["@c14ym0re"],
   "config_flow": true,
-  "after_dependencies": ["mqtt", "zha", "onesti_lock"],
+  "after_dependencies": ["mqtt", "zha"],
   "bluetooth": [
     {
       "connectable": true,
