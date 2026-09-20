@@ -31,6 +31,7 @@ async def async_setup_entry(
         return
     async_add_entities(
         [
+            MirrorSlots(coordinator),
             MirrorLastEvent(coordinator),
             MirrorLastPin(coordinator),
             MirrorBattery(coordinator),
@@ -60,6 +61,42 @@ def _setup_slot_sensors(
 
     coordinator.slots.add_listener(_add_new_slots)
     _add_new_slots()
+
+
+class MirrorSlots(MirrorEntity, SensorEntity):
+    """All known slots at a glance: names and credential types."""
+
+    _attr_name = "Slots"
+    _attr_icon = "mdi:format-list-bulleted"
+
+    def __init__(self, coordinator: MirrorCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.entry_id}_slots"
+
+    @property
+    def native_value(self) -> str:
+        occupied = sum(
+            1
+            for slot, _data in self.coordinator.slots.items()
+            if self.coordinator.slots.occupied(slot)
+        )
+        return f"{occupied} occupied"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        rows = []
+        for slot, data in self.coordinator.slots.items():
+            rows.append(
+                {
+                    "slot": slot,
+                    "name": str(data.get("name") or ""),
+                    "has_pin": bool(data.get("has_pin")),
+                    "has_fingerprint": bool(data.get("has_fingerprint")),
+                    "has_rfid": bool(data.get("has_rfid")),
+                    "credentials": self.coordinator.slots.credentials(slot),
+                }
+            )
+        return {"slots": rows}
 
 
 class SlotSensor(MirrorEntity, SensorEntity):
