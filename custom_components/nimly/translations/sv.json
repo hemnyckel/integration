@@ -87,8 +87,11 @@
       "mirror_menu": {
         "title": "Nimly-spegeln",
         "menu_options": {
-          "channels": "Speglingskanaler",
-          "slots": "Slottar"
+          "slots": "Slottar",
+          "slot_set_pin": "Sätt en PIN-kod",
+          "slot_name": "Namnge en slot",
+          "slot_clear": "Rensa en slot",
+          "channels": "Speglingskanaler"
         }
       },
       "channels": {

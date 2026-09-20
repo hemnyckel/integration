@@ -87,8 +87,11 @@
       "mirror_menu": {
         "title": "Nimly mirror",
         "menu_options": {
-          "channels": "Mirror channels",
-          "slots": "Slots"
+          "slots": "Slots",
+          "slot_set_pin": "Set a PIN",
+          "slot_name": "Name a slot",
+          "slot_clear": "Clear a slot",
+          "channels": "Mirror channels"
         }
       },
       "channels": {

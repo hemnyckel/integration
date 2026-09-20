@@ -399,7 +399,8 @@ class NimlyOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         return self.async_show_menu(
-            step_id="mirror_menu", menu_options=["channels", "slots"]
+            step_id="mirror_menu",
+            menu_options=["slots", "slot_set_pin", "slot_name", "slot_clear", "channels"],
         )
 
     def _mirror(self) -> Any:
