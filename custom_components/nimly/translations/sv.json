@@ -225,6 +225,10 @@
     "cloud_feedback_stale": {
       "title": "Leverantörens moln svarar inte",
       "description": "En ändring skickades mot Nimly-appen men dök aldrig upp i kontot. Bryggans molnlänk verkar ha fastnat - dra ur och sätt tillbaka Nimly Connect Bridge."
+    },
+    "slot_conflict": {
+      "title": "En app-uppgift för slot {slot} kunde inte sparas",
+      "description": "Appen skapade en uppgift för slot {slot}, men den kunde inte sparas i låset: {reason}. Inget skrevs över. Frigör en slot och försök igen i appen."
     }
   },
   "services": {

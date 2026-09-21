@@ -38,6 +38,7 @@ async def async_get_config_entry_diagnostics(
         "counters": dict(coordinator.counters),
         "last_error": coordinator.last_error,
         "slots": coordinator.slots.snapshot(),
+        "slot_map": {str(k): v for k, v in coordinator.slot_map.items()},
         "zha_listener": bool(
             coordinator.zha is not None and coordinator.zha.attached
         ),

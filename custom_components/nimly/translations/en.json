@@ -225,6 +225,10 @@
     "cloud_feedback_stale": {
       "title": "The vendor cloud is not answering",
       "description": "A change was sent towards the Nimly app but never appeared in the account. The bridge's cloud link is likely stuck - power-cycle the Nimly Connect Bridge."
+    },
+    "slot_conflict": {
+      "title": "An app credential for slot {slot} could not be stored",
+      "description": "The app provisioned a credential for slot {slot}, but it could not be stored on the lock: {reason}. Nothing was overwritten. Free a slot and try again in the app."
     }
   },
   "services": {

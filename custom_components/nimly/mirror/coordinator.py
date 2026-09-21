@@ -122,6 +122,19 @@ from .journal import (
     trim as journal_trim,
 )
 from .pin_rules import check_credential_slot, first_user_slot, pin_capacity
+from .slot_virtual import (
+    BLOCKED,
+    CLEAR,
+    IGNORE,
+    MOVE,
+    OPTION_SLOT_MAP,
+    PASS,
+    dump_map,
+    load_map,
+    resolve_clear,
+    resolve_write,
+    virtual_of,
+)
 from .slots import SlotTable
 from .zha_link import FACTS_ATTRIBUTES, ZhaLink
 
@@ -177,6 +190,9 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.last_event: dict[str, Any] | None = None
         self.slots = SlotTable(hass, entry)
+        # Virtual app slots: the vendor app's slot number -> the real slot that
+        # holds the credential. Empty while the app's numbers pass through.
+        self.slot_map: dict[int, int] = load_map(entry.options.get(OPTION_SLOT_MAP))
         self.lock_facts: dict[str, Any] = {}
         self.lock_facts_at: str | None = None
         self.settings_drift: dict[str, dict[str, Any]] = {}
@@ -404,6 +420,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "last_error": self.last_error,
             "channels": dict(self.channels),
             "master_enabled": self.master_enabled,
+            "slot_map": dump_map(self.slot_map),
         }
 
     @callback
@@ -411,11 +428,75 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_set_updated_data(self._snapshot())
 
     async def _async_sync_slots(self) -> None:
+        # The app may only ever see its own slot numbers: a relocated credential
+        # is published under its virtual number, never under the real one.
+        published: set[int] = set()
         for slot, _data in self.slots.items():
-            await self._async_publish_slot(slot, self.slots.occupied(slot))
+            shown = self._virtual_slot(slot)
+            if shown is None:
+                shown = slot
+            if shown in published:
+                continue
+            published.add(shown)
+            await self._async_publish_slot(shown, self.slots.occupied(slot))
+        for virtual, real in self.slot_map.items():
+            if virtual not in published:
+                published.add(virtual)
+                await self._async_publish_slot(virtual, self.slots.occupied(real))
 
     async def _async_publish_slot(self, slot: int, occupied: bool) -> None:
         await self._async_publish({"cmd": "pin_status", "slot": slot, "set": occupied})
+
+    # -- app slot virtualization --------------------------------------------
+
+    def _local_pin_slots(self) -> set[int]:
+        """Slots that hold a local PIN and must never be overwritten by the app.
+
+        App-owned slots are excluded: a passthrough write is remembered as an
+        identity mapping, so the app always owns what it wrote, whichever real
+        slot it ended up in.
+        """
+        app_owned = set(self.slot_map.values())
+        return {
+            slot
+            for slot, data in self.slots.items()
+            if data.get("has_pin") and slot not in app_owned
+        }
+
+    def _slot_bounds(self) -> tuple[int, int]:
+        return first_user_slot(self.entry.options), pin_capacity(self.lock_facts)
+
+    def _virtual_slot(self, real: int) -> int | None:
+        """The app's slot number for a real slot, when it owns it."""
+        return virtual_of(real, self.slot_map)
+
+    def _save_slot_map(self) -> None:
+        self.hass.config_entries.async_update_entry(
+            self.entry,
+            options={**self.entry.options, OPTION_SLOT_MAP: dump_map(self.slot_map)},
+        )
+
+    async def _async_slot_conflict(self, virtual: int, reason: str) -> None:
+        """Journal and surface an app provisioning we could not place."""
+        await self._async_journal_add(
+            make_entry(
+                action="slot_conflict",
+                time=dt_util.utcnow().isoformat(),
+                origin=ORIGIN_HA,
+                slot=virtual,
+                detail=reason,
+            )
+        )
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            f"slot_conflict_{virtual}",
+            is_fixable=False,
+            is_persistent=True,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="slot_conflict",
+            translation_placeholders={"slot": str(virtual), "reason": reason},
+        )
 
     def _slot_is_named(self, slot: int) -> bool:
         """A real name, not the import's placeholder (which may be replaced)."""
@@ -750,6 +831,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise RuntimeError("until is not a valid ISO timestamp")
         if slot is None:
             occupied = {s for s, _data in self.slots.items() if self.slots.occupied(s)}
+            occupied |= set(self.slot_map.values())
             occupied |= {int(key) for key in self.guests if str(key).isdigit()}
             slot = pick_slot(
                 occupied,
@@ -1097,22 +1179,79 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.active(CH_PIN):
             return
         ev = data.get("ev")
-        if ev == EV_PIN_SET and isinstance(data.get("slot"), int):
-            self._flag_new_slot(data["slot"], "pin")
-        slot = data.get("slot")
-        if not isinstance(slot, int):
+        virtual = data.get("slot")
+        if not isinstance(virtual, int):
             return
         try:
             if ev == EV_PIN_SET and data.get("code"):
-                await self._async_set_pin(slot, str(data["code"]))
+                await self._async_app_pin_set(virtual, str(data["code"]))
             elif ev == EV_PIN_CLEAR:
-                await self._async_clear_pin(slot)
+                await self._async_app_pin_clear(virtual)
         except Exception as err:  # noqa: BLE001
             self.counters["errors"] += 1
             self.last_error = str(err)
-            _LOGGER.error("PIN mirroring failed (slot %s): %s", slot, err)
+            _LOGGER.error("PIN mirroring failed (slot %s): %s", virtual, err)
         self.counters["app_to_lock"] += 1
         self._publish_snapshot()
+
+    async def _async_app_pin_set(self, virtual: int, code: str) -> None:
+        """Store an app-provisioned PIN, relocating it when it would collide.
+
+        The app is never refused: it reports success to the user before the
+        bridge even answers, so a refusal would only diverge in silence. A
+        collision with a local credential becomes a virtual -> real mapping,
+        and the lock's own events are translated back for attribution.
+        """
+        floor, capacity = self._slot_bounds()
+        outcome, real, reason = resolve_write(
+            virtual,
+            mapping=self.slot_map,
+            local_pins=self._local_pin_slots(),
+            floor=floor,
+            capacity=capacity,
+        )
+        if outcome == BLOCKED or real is None:
+            await self._async_slot_conflict(virtual, reason or "no free slot")
+            return
+        label = f"pin (app slot {virtual})" if real != virtual else "pin"
+        self._flag_new_slot(real, label)
+        await self._async_set_pin(real, code, virtual_slot=virtual)
+        if outcome in (MOVE, PASS):
+            # Remember that the app owns this real slot: the relocation when it
+            # collided, an identity mapping when it passed straight through. The
+            # app's later edits and clears must resolve to the same slot, and the
+            # local side must never touch it.
+            self.slot_map[virtual] = real
+            self._save_slot_map()
+        if outcome == MOVE:
+            await self._async_journal_add(
+                make_entry(
+                    action="slot_relocated",
+                    time=dt_util.utcnow().isoformat(),
+                    origin=ORIGIN_HA,
+                    slot=virtual,
+                    detail=f"stored in local slot {real}",
+                )
+            )
+        ir.async_delete_issue(self.hass, DOMAIN, f"slot_conflict_{virtual}")
+
+    async def _async_app_pin_clear(self, virtual: int) -> None:
+        """Apply an app clear to the app's own credential only."""
+        outcome, real = resolve_clear(
+            virtual, mapping=self.slot_map, local_pins=self._local_pin_slots()
+        )
+        if outcome == CLEAR and real is not None:
+            await self._async_clear_pin(real, virtual_slot=virtual)
+            self.slot_map.pop(virtual, None)
+            self._save_slot_map()
+            ir.async_delete_issue(self.hass, DOMAIN, f"slot_conflict_{virtual}")
+        elif outcome == IGNORE:
+            await self._async_slot_conflict(virtual, "the slot holds a local credential")
+        else:
+            # Nothing of the app's lives here; repeat the local truth so the
+            # gateway does not allocate around a slot the app has freed.
+            await self._async_publish_slot(virtual, self.slots.occupied(virtual))
+            ir.async_delete_issue(self.hass, DOMAIN, f"slot_conflict_{virtual}")
 
     async def _async_handle_fingerprint(self, slot: Any, *, enroll: bool) -> None:
         if not self.active(CH_FINGERPRINT):
@@ -1198,6 +1337,11 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not isinstance(action, int):
             return
         slot = data.get("user_slot")
+        # The credential may live in a relocated slot; the app only knows its own
+        # number, so events are translated back before they leave for the bridge.
+        shown = self._virtual_slot(slot) if isinstance(slot, int) else None
+        if not isinstance(shown, int):
+            shown = slot
         master = bool(data.get("master"))
         if (
             isinstance(slot, int)
@@ -1216,7 +1360,10 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.slots.mark_credential(slot, "fingerprint")
             else:
                 self.slots.mark_credential(slot, "rfid")
-            self._flag_new_slot(slot, SOURCE_NAMES.get(source, "credential"))
+            label = SOURCE_NAMES.get(source, "credential")
+            if shown != slot:
+                label = f"{label} (app slot {shown})"
+            self._flag_new_slot(slot, label)
         # System locks (auto) need no notification - mirrored anyway for consistency.
         if source is not None and source not in HUMAN_SOURCES:
             _LOGGER.debug("Skipping system event source=%s", source)
@@ -1229,7 +1376,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.last_event = {
             "action": ACTION_NAMES.get(action),
             "source": SOURCE_NAMES.get(source) if isinstance(source, int) else None,
-            "slot": slot,
+            "slot": shown,
             "name": slot_name,
             "time": dt_util.utcnow().isoformat(),
             "direction": "lock->app",
@@ -1246,7 +1393,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     source=SOURCE_NAMES.get(source)
                     if isinstance(source, int)
                     else None,
-                    slot=slot,
+                    slot=shown,
                     name=slot_name,
                 )
             )
@@ -1257,7 +1404,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "cmd": CMD_EVENT,
                     "action": int(action),
                     "source": int(source) if source is not None else 0,
-                    "slot": _as_int(slot, 0),
+                    "slot": _as_int(shown, 0),
                 }
             )
         )
@@ -1438,52 +1585,81 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- PIN / fingerprint towards ZHA ---------------------------------------
 
     async def _async_set_pin(
-        self, slot: int, code: str, *, journal: dict[str, Any] | None = None
+        self,
+        slot: int,
+        code: str,
+        *,
+        journal: dict[str, Any] | None = None,
+        virtual_slot: int | None = None,
     ) -> None:
         if self.zha is None:
             raise RuntimeError("the ZHA link is not ready")
         reason = check_credential_slot(slot, self.entry.options, self.lock_facts)
         if reason is not None:
             raise RuntimeError(reason)
+        if virtual_slot is None and (owner := self._virtual_slot(slot)) is not None:
+            where = (
+                f"the app's slot {owner} credential"
+                if owner != slot
+                else "the app's credential"
+            )
+            raise RuntimeError(f"slot {slot} holds {where}; choose another slot")
         if not await self.zha.set_pin(slot, code):
             raise RuntimeError("the lock did not accept the PIN command")
         self.slots.mark_pin(slot, True)
-        await self._async_publish_slot(slot, self.slots.occupied(slot))
-        await self._async_journal_add(
-            make_entry(
-                time=dt_util.utcnow().isoformat(),
-                origin=ORIGIN_HA,
-                slot=slot,
-                **(
-                    journal
-                    or {
-                        "action": "pin_set",
-                        "name": self.slots.name(slot, fallback=False) or None,
-                    }
-                ),
-            )
+        shown = virtual_slot if virtual_slot is not None else slot
+        await self._async_publish_slot(shown, self.slots.occupied(slot))
+        entry = make_entry(
+            time=dt_util.utcnow().isoformat(),
+            origin=ORIGIN_HA,
+            slot=shown,
+            **(
+                journal
+                or {
+                    "action": "pin_set",
+                    "name": self.slots.name(slot, fallback=False) or None,
+                }
+            ),
         )
+        if shown != slot and not entry.get("detail"):
+            entry["detail"] = f"stored in local slot {slot}"
+        await self._async_journal_add(entry)
 
     async def _async_clear_pin(
-        self, slot: int, *, journal: dict[str, Any] | None = None
+        self,
+        slot: int,
+        *,
+        journal: dict[str, Any] | None = None,
+        virtual_slot: int | None = None,
     ) -> None:
         if self.zha is None:
             raise RuntimeError("the ZHA link is not ready")
         reason = check_credential_slot(slot, self.entry.options, self.lock_facts)
         if reason is not None:
             raise RuntimeError(reason)
+        if virtual_slot is None and (owner := self._virtual_slot(slot)) is not None:
+            where = (
+                f"the app's slot {owner} credential"
+                if owner != slot
+                else "the app's credential"
+            )
+            raise RuntimeError(
+                f"slot {slot} holds {where}; clear that in the app instead"
+            )
         if not await self.zha.clear_pin(slot):
             raise RuntimeError("the lock did not accept the clear command")
         self.slots.mark_pin(slot, False)
-        await self._async_publish_slot(slot, self.slots.occupied(slot))
-        await self._async_journal_add(
-            make_entry(
-                time=dt_util.utcnow().isoformat(),
-                origin=ORIGIN_HA,
-                slot=slot,
-                **(journal or {"action": "pin_cleared"}),
-            )
+        shown = virtual_slot if virtual_slot is not None else slot
+        await self._async_publish_slot(shown, self.slots.occupied(slot))
+        entry = make_entry(
+            time=dt_util.utcnow().isoformat(),
+            origin=ORIGIN_HA,
+            slot=shown,
+            **(journal or {"action": "pin_cleared"}),
         )
+        if shown != slot and not entry.get("detail"):
+            entry["detail"] = f"cleared local slot {slot}"
+        await self._async_journal_add(entry)
 
     async def _async_zcl(self, command: int, arg: int) -> None:
         if self.zha is None:
