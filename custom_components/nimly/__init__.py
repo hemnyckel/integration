@@ -11,6 +11,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceEntry
 
 from .cloud.services import async_setup_services
 from .const import (
@@ -162,6 +163,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return unload_ok
 
     return False
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: ConfigEntry, device_entry: DeviceEntry
+) -> bool:
+    """Allow removing devices that are not this integration's own.
+
+    A legacy v1 device (identifiers under the old `onesti_lock` domain) once
+    attached to a live entry cannot be deleted at all while the integration
+    does not answer this callback: Home Assistant refuses the removal. Our own
+    devices stay protected, since they would just be recreated.
+    """
+    return DOMAIN not in {domain for domain, _value in device_entry.identifiers}
 
 
 async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

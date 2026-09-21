@@ -148,7 +148,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             or DEFAULT_OTA_MANIFEST_URL
         )
         self.last_event: dict[str, Any] | None = None
-        self.last_pin: dict[str, Any] | None = None
         self.slots = SlotTable(hass, entry)
         self.lock_facts: dict[str, Any] = {}
         self.lock_facts_at: str | None = None
@@ -358,7 +357,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "volume": self.app_volume,
             "autolock": self.app_autolock,
             "last_event": self.last_event,
-            "last_pin": self.last_pin,
             "firmware": self.firmware,
             "emulator_ieee": self.emulator_ieee,
             "bridge_info": dict(self.bridge_info),

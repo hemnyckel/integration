@@ -12,6 +12,7 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from ..const import CONF_TYPE, DOMAIN, TYPE_BRIDGE
@@ -34,7 +35,6 @@ async def async_setup_entry(
         [
             MirrorSlots(coordinator),
             MirrorLastEvent(coordinator),
-            MirrorLastPin(coordinator),
             MirrorBattery(coordinator),
             MirrorFirmware(coordinator),
             MirrorBridgeFirmware(coordinator),
@@ -48,10 +48,27 @@ async def async_setup_entry(
 def _setup_slot_sensors(
     coordinator: MirrorCoordinator, async_add_entities: AddEntitiesCallback
 ) -> None:
-    """One sensor per known slot, added as slots appear."""
+    """One sensor per known slot, added as slots appear and pruned when gone."""
     known: set[int] = set()
 
-    def _add_new_slots() -> None:
+    def _sync_slots() -> None:
+        active = {slot for slot, _data in coordinator.slots.items()}
+        registry = er.async_get(coordinator.hass)
+        prefix = f"{coordinator.entry.entry_id}_slot_"
+        for entry in er.async_entries_for_config_entry(
+            registry, coordinator.entry.entry_id
+        ):
+            unique_id = entry.unique_id or ""
+            if not unique_id.startswith(prefix):
+                continue
+            try:
+                slot = int(unique_id[len(prefix) :])
+            except ValueError:
+                continue
+            if slot not in active:
+                registry.async_remove(entry.entity_id)
+                known.discard(slot)
+
         new = [
             SlotSensor(coordinator, slot)
             for slot, _data in coordinator.slots.items()
@@ -61,8 +78,8 @@ def _setup_slot_sensors(
             known.update(entity.slot for entity in new)
             async_add_entities(new)
 
-    coordinator.slots.add_listener(_add_new_slots)
-    _add_new_slots()
+    coordinator.slots.add_listener(_sync_slots)
+    _sync_slots()
 
 
 class MirrorSlots(MirrorEntity, SensorEntity):
@@ -234,26 +251,6 @@ class BridgeFirmware(BridgeEntity, SensorEntity):
     def native_value(self) -> str | None:
         value = ((self.coordinator.data or {}).get("info") or {}).get("fw")
         return value if isinstance(value, str) else None
-
-
-class MirrorLastPin(MirrorEntity, SensorEntity):
-    """Last PIN event mirrored from the app side (slot + result)."""
-
-    _attr_name = "Last PIN event"
-    _attr_icon = "mdi:dialpad"
-
-    def __init__(self, coordinator) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{coordinator.entry.entry_id}_last_pin"
-
-    @property
-    def native_value(self) -> str | None:
-        pin = self.coordinator.last_pin
-        return pin.get("event") if pin else None
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        return dict(self.coordinator.last_pin or {})
 
 
 class MirrorLockFacts(MirrorEntity, SensorEntity):
