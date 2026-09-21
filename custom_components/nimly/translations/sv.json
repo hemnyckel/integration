@@ -174,32 +174,80 @@
   },
   "entity": {
     "sensor": {
-      "lock_state": { "name": "Molntillstånd" },
-      "last_event": { "name": "Senaste händelse" },
-      "last_person": { "name": "Senaste person" },
-      "last_pin_slot": { "name": "Senaste PIN-plats" },
-      "last_tag": { "name": "Senaste tagg" },
-      "battery": { "name": "Batteri (moln)" },
-      "lqi": { "name": "Länkkvalitet (moln)" },
-      "sound_volume": { "name": "Ljudvolym (moln)" },
-      "volume_name": { "name": "Volymnivå (moln)" },
-      "autorelock_time": { "name": "Återlåsningstid (moln)" },
-      "firmware": { "name": "Firmware (moln)" },
-      "config_progress": { "name": "Konfigurationsförlopp (moln)" },
-      "raw": { "name": "Rådata (moln)" },
-      "remaining_pin_attempts": { "name": "Återstående PIN-försök" },
-      "alarm_state": { "name": "Larmtillstånd" },
-      "device_count": { "name": "Enheter i kontot" },
-      "user_count": { "name": "Personer i kontot" },
-      "user_access": { "name": "Åtkomst för {name}" }
+      "lock_state": {
+        "name": "Molntillstånd"
+      },
+      "last_event": {
+        "name": "Senaste händelse"
+      },
+      "last_person": {
+        "name": "Senaste person"
+      },
+      "last_pin_slot": {
+        "name": "Senaste PIN-plats"
+      },
+      "last_tag": {
+        "name": "Senaste tagg"
+      },
+      "battery": {
+        "name": "Batteri (moln)"
+      },
+      "lqi": {
+        "name": "Länkkvalitet (moln)"
+      },
+      "sound_volume": {
+        "name": "Ljudvolym (moln)"
+      },
+      "volume_name": {
+        "name": "Volymnivå (moln)"
+      },
+      "autorelock_time": {
+        "name": "Återlåsningstid (moln)"
+      },
+      "firmware": {
+        "name": "Firmware (moln)"
+      },
+      "config_progress": {
+        "name": "Konfigurationsförlopp (moln)"
+      },
+      "raw": {
+        "name": "Rådata (moln)"
+      },
+      "remaining_pin_attempts": {
+        "name": "Återstående PIN-försök"
+      },
+      "alarm_state": {
+        "name": "Larmtillstånd"
+      },
+      "device_count": {
+        "name": "Enheter i kontot"
+      },
+      "user_count": {
+        "name": "Personer i kontot"
+      },
+      "user_access": {
+        "name": "Åtkomst för {name}"
+      }
     },
     "binary_sensor": {
-      "online": { "name": "Online (moln)" },
-      "autolock": { "name": "Auto-lås (moln)" },
-      "master_pin_mode": { "name": "Master-PIN-läge (moln)" },
-      "pin_required_remote": { "name": "PIN krävs vid fjärrupplåsning (moln)" },
-      "part_of_alarm": { "name": "Del av larm (moln)" },
-      "gateway_online": { "name": "Bryggan online" }
+      "online": {
+        "name": "Online (moln)"
+      },
+      "autolock": {
+        "name": "Auto-lås (moln)"
+      },
+      "master_pin_mode": {
+        "name": "Master-PIN-läge (moln)"
+      },
+      "pin_required_remote": {
+        "name": "PIN krävs vid fjärrupplåsning (moln)"
+      },
+      "part_of_alarm": {
+        "name": "Del av larm (moln)"
+      },
+      "gateway_online": {
+        "name": "Bryggan online"
+      }
     }
   },
   "issues": {
@@ -236,151 +284,348 @@
       "name": "Uppdatera",
       "description": "Be kontot om ny aktivitet direkt.",
       "fields": {
-        "entry_id": { "name": "Konfigurationspost", "description": "Vilket konto som ska uppdateras. Utelämna för alla." }
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilket konto som ska uppdateras. Utelämna för alla."
+        }
       }
     },
     "fetch_history": {
       "name": "Hämta aktivitetshistorik",
       "description": "Returnerar de aktiviteter Home Assistant samlat, nyaste först.",
       "fields": {
-        "device_id": { "name": "Enhet", "description": "Begränsa resultatet till ett lås." },
-        "limit": { "name": "Gräns", "description": "Högsta antal aktiviteter att returnera." }
+        "device_id": {
+          "name": "Enhet",
+          "description": "Begränsa resultatet till ett lås."
+        },
+        "limit": {
+          "name": "Gräns",
+          "description": "Högsta antal aktiviteter att returnera."
+        }
       }
     },
     "set_lock": {
       "name": "Lås eller lås upp via molnet",
       "description": "En valfri andra styrväg. Den lokala vägen är snabbare och fungerar utan internet.",
       "fields": {
-        "device_id": { "name": "Enhet", "description": "Låset som åtgärden gäller." },
-        "locked": { "name": "Låst", "description": "Sant för att låsa, falskt för att låsa upp." }
+        "device_id": {
+          "name": "Enhet",
+          "description": "Låset som åtgärden gäller."
+        },
+        "locked": {
+          "name": "Låst",
+          "description": "Sant för att låsa, falskt för att låsa upp."
+        }
       }
     },
     "gateway_scan": {
       "name": "Öppna bryggans parningsfönster",
       "description": "Ber bryggan ta emot en ny enhet, så att en modul eller emulator kan ansluta från Home Assistant.",
       "fields": {
-        "start": { "name": "Starta", "description": "Sant för att öppna fönstret, falskt för att stänga det." }
+        "start": {
+          "name": "Starta",
+          "description": "Sant för att öppna fönstret, falskt för att stänga det."
+        }
       }
     },
     "probe": {
       "name": "Anropa leverantörens API (diagnostik)",
       "description": "Anropar sökvägar på leverantörens API och returnerar status och ett maskat svar. Används för att kartlägga API:t, behövs inte i normal drift.",
       "fields": {
-        "paths": { "name": "Sökvägar", "description": "Sökvägar relativt API-roten, eller objekt med path, method, json och headers." }
+        "paths": {
+          "name": "Sökvägar",
+          "description": "Sökvägar relativt API-roten, eller objekt med path, method, json och headers."
+        }
       }
     },
     "set_ieee": {
       "name": "Provisionera IEEE-adress",
       "description": "Skickar en IEEE-adress till emulatorn, som sparar den i NVS och startar om. Standard är det riktiga låsets egen adress, eftersom molnet bara accepterar kända moduler.",
       "fields": {
-        "ieee": { "name": "IEEE-adress", "description": "Adress i formen 00:11:22:33:44:55:66:77. Tom använder låsets egen." },
-        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska provisioneras. Utelämna för alla." }
+        "ieee": {
+          "name": "IEEE-adress",
+          "description": "Adress i formen 00:11:22:33:44:55:66:77. Tom använder låsets egen."
+        },
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilken spegel som ska provisioneras. Utelämna för alla."
+        }
       }
     },
     "ota_install": {
       "name": "Installera bryggans firmware (OTA)",
       "description": "Skickar en firmware-URL till bryggan, som laddar hem den, skriver nästa applikationspartition och startar om. Används av uppdaterings-entiteten, men kan också köras manuellt.",
       "fields": {
-        "url": { "name": "URL", "description": "Absolut http(s)-URL till applikationsbinären." },
-        "entry_id": { "name": "Konfigurationspost", "description": "Vilken brygga som ska uppdateras. Utelämna för alla." }
+        "url": {
+          "name": "URL",
+          "description": "Absolut http(s)-URL till applikationsbinären."
+        },
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilken brygga som ska uppdateras. Utelämna för alla."
+        }
       }
     },
     "provision_wifi": {
       "name": "Provisionera Wi-Fi (BLE/Improv)",
       "description": "Ansluter till bryggan över Bluetooth och skickar Wi-Fi-uppgifter med Improv. Används av upptäcktsflödet, men kan också köras manuellt.",
       "fields": {
-        "address": { "name": "Bluetooth-adress", "description": "Enhetens BLE-adress, till exempel från nRF Connect eller upptäckt." },
-        "ssid": { "name": "Nätverk (SSID)", "description": "Nätverket som bryggan ska ansluta till." },
-        "password": { "name": "Lösenord", "description": "Nätverkets lösenord, om det finns." }
+        "address": {
+          "name": "Bluetooth-adress",
+          "description": "Enhetens BLE-adress, till exempel från nRF Connect eller upptäckt."
+        },
+        "ssid": {
+          "name": "Nätverk (SSID)",
+          "description": "Nätverket som bryggan ska ansluta till."
+        },
+        "password": {
+          "name": "Lösenord",
+          "description": "Nätverkets lösenord, om det finns."
+        }
       }
     },
     "set_slot_name": {
       "name": "Namnge en låsslot",
       "description": "Sparar ett personnamn för en slot så att händelser och notiser säger vem som gjorde vad.",
       "fields": {
-        "slot": { "name": "Slot", "description": "Sloten där uppgiften finns." },
-        "name": { "name": "Namn", "description": "Personens namn." },
-        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska namnges. Utelämna för alla." }
+        "slot": {
+          "name": "Slot",
+          "description": "Sloten där uppgiften finns."
+        },
+        "name": {
+          "name": "Namn",
+          "description": "Personens namn."
+        },
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilken spegel som ska namnges. Utelämna för alla."
+        }
       }
     },
     "set_pin": {
       "name": "Skriv en PIN-kod till en slot",
       "description": "Skriver en PIN-kod till det riktiga låset och namnger sloten. Koden sparas aldrig i Home Assistant.",
       "fields": {
-        "slot": { "name": "Slot", "description": "Sloten som koden ska skrivas till." },
-        "code": { "name": "PIN-kod", "description": "Koden, 4-8 siffror." },
-        "name": { "name": "Namn", "description": "Valfritt personnamn för sloten." },
-        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska användas. Utelämna för alla." }
+        "slot": {
+          "name": "Slot",
+          "description": "Sloten som koden ska skrivas till."
+        },
+        "code": {
+          "name": "PIN-kod",
+          "description": "Koden, 4-8 siffror."
+        },
+        "name": {
+          "name": "Namn",
+          "description": "Valfritt personnamn för sloten."
+        },
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilken spegel som ska användas. Utelämna för alla."
+        }
       }
     },
     "clear_slot": {
       "name": "Rensa en låsslot",
       "description": "Rensar uppgiften på låset och glömmer slotens lokala data.",
       "fields": {
-        "slot": { "name": "Slot", "description": "Sloten som ska rensas." },
-        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska användas. Utelämna för alla." }
+        "slot": {
+          "name": "Slot",
+          "description": "Sloten som ska rensas."
+        },
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilken spegel som ska användas. Utelämna för alla."
+        }
       }
     },
     "read_lock_attributes": {
       "name": "Läs låsets attribut",
       "description": "Läser låsets standardattribut (DoorLock) över Zigbee och returnerar dem. PIN-koder läses aldrig.",
       "fields": {
-        "attributes": { "name": "Attribut", "description": "Attributnamn eller id:n. Utelämna för standardlistan." },
-        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska användas. Utelämna för alla." }
+        "attributes": {
+          "name": "Attribut",
+          "description": "Attributnamn eller id:n. Utelämna för standardlistan."
+        },
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilken spegel som ska användas. Utelämna för alla."
+        }
       }
     },
     "set_auto_lock": {
       "name": "Ställ in låsets auto-lås",
       "description": "Skriver låsets egen auto-lås-inställning över Zigbee och läser tillbaka den.",
       "fields": {
-        "enabled": { "name": "Aktiverat", "description": "true slår på auto-låset, false slår av det." },
-        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska användas. Utelämna för alla." }
+        "enabled": {
+          "name": "Aktiverat",
+          "description": "true slår på auto-låset, false slår av det."
+        },
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilken spegel som ska användas. Utelämna för alla."
+        }
       }
     },
     "set_sound_volume": {
       "name": "Ställ in låsets volym",
       "description": "Skriver låsets egen volym över Zigbee och läser tillbaka den.",
       "fields": {
-        "level": { "name": "Nivå", "description": "0, 1 eller 2." },
-        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska användas. Utelämna för alla." }
+        "level": {
+          "name": "Nivå",
+          "description": "0, 1 eller 2."
+        },
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilken spegel som ska användas. Utelämna för alla."
+        }
       }
     },
     "fetch_journal": {
       "name": "Läs låsjournalen",
       "description": "Returnerar låsets tidslinje över åtkomst- och adminhändelser, nyaste sist.",
       "fields": {
-        "limit": { "name": "Antal", "description": "Hur många poster som returneras (1-500)." },
-        "person": { "name": "Person", "description": "Endast poster vars namn innehåller texten." },
-        "slot": { "name": "Slot", "description": "Endast poster för denna slot." },
-        "action": { "name": "Åtgärd", "description": "Endast poster med denna åtgärd, till exempel unlock eller pin_set." },
-        "since": { "name": "Från och med", "description": "Endast poster från och med denna ISO-tid." },
-        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska läsas. Utelämna för alla." }
+        "limit": {
+          "name": "Antal",
+          "description": "Hur många poster som returneras (1-500)."
+        },
+        "person": {
+          "name": "Person",
+          "description": "Endast poster vars namn innehåller texten."
+        },
+        "slot": {
+          "name": "Slot",
+          "description": "Endast poster för denna slot."
+        },
+        "action": {
+          "name": "Åtgärd",
+          "description": "Endast poster med denna åtgärd, till exempel unlock eller pin_set."
+        },
+        "since": {
+          "name": "Från och med",
+          "description": "Endast poster från och med denna ISO-tid."
+        },
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilken spegel som ska läsas. Utelämna för alla."
+        }
       }
     },
     "create_guest_code": {
       "name": "Skapa en gästkod",
       "description": "Skriver en PIN till låset, namnger sloten och minns giltighetsfönstret. Koden returneras en gång och sparas aldrig. Utgången upprätthålls av Home Assistant, så koden fungerar offline under fönstret.",
       "fields": {
-        "name": { "name": "Gästnamn", "description": "Vem koden gäller." },
-        "code": { "name": "Kod", "description": "4-8 siffror. Utelämna för en slumpad 6-siffrig kod." },
-        "slot": { "name": "Slot", "description": "Utelämna för att använda lägsta lediga användarslot." },
-        "until": { "name": "Giltig till", "description": "ISO-tid då koden rensas. Utelämna för ingen utgång." },
-        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska användas. Utelämna för alla." }
+        "name": {
+          "name": "Gästnamn",
+          "description": "Vem koden gäller."
+        },
+        "code": {
+          "name": "Kod",
+          "description": "4-8 siffror. Utelämna för en slumpad 6-siffrig kod."
+        },
+        "slot": {
+          "name": "Slot",
+          "description": "Utelämna för att använda lägsta lediga användarslot."
+        },
+        "until": {
+          "name": "Giltig till",
+          "description": "ISO-tid då koden rensas. Utelämna för ingen utgång."
+        },
+        "one_time": {
+          "name": "Engångskod",
+          "description": "Koden återkallar sig själv första gången den öppnar dörren."
+        },
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilken spegel som ska användas. Utelämna för alla."
+        }
       }
     },
     "revoke_guest_code": {
       "name": "Återkalla en gästkod",
       "description": "Rensar koden nu och glömmer gästens fönster.",
       "fields": {
-        "slot": { "name": "Slot", "description": "Gästens slot." },
-        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska användas. Utelämna för alla." }
+        "slot": {
+          "name": "Slot",
+          "description": "Gästens slot."
+        },
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilken spegel som ska användas. Utelämna för alla."
+        }
       }
     },
     "list_guests": {
       "name": "Lista gästkoder",
       "description": "Returnerar aktiva gästfönster (namn, slottar och sluttider — aldrig koderna).",
       "fields": {
-        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska läsas. Utelämna för alla." }
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilken spegel som ska läsas. Utelämna för alla."
+        }
+      }
+    },
+    "create_recurring_guest": {
+      "name": "Skapa en återkommande gäst",
+      "description": "En gäst vars kod aldrig ändras men bara är giltig inom veckoscheman. Home Assistant skriver koden när ett fönster öppnar och rensar den när fönstret stänger.",
+      "fields": {
+        "name": {
+          "name": "Gästnamn",
+          "description": "Vem koden gäller."
+        },
+        "code": {
+          "name": "Kod",
+          "description": "4-8 siffror. Utelämna för en slumpad 6-siffrig kod. Den är densamma så länge gästen finns."
+        },
+        "schedule": {
+          "name": "Schema",
+          "description": "En lista av fönster: {days: [mon..sun], start: HH:MM, end: HH:MM}. Sluttid före starttid betyder över midnatt."
+        },
+        "slot": {
+          "name": "Slot",
+          "description": "Utelämna för att använda lägsta lediga användarslot."
+        },
+        "paused": {
+          "name": "Pausad",
+          "description": "Skapa den pausad; inget skrivs till låset förrän den återupptas."
+        },
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilken spegel som ska användas. Utelämna för alla."
+        }
+      }
+    },
+    "update_guest": {
+      "name": "Uppdatera en gäst",
+      "description": "Ändra en gästs namn, kod, schema, paus eller utgång; ändringen träder i kraft direkt.",
+      "fields": {
+        "slot": {
+          "name": "Slot",
+          "description": "Gästens slot."
+        },
+        "name": {
+          "name": "Gästnamn",
+          "description": "Det nya namnet."
+        },
+        "code": {
+          "name": "Kod",
+          "description": "En ny 4-8-siffrig kod; sloten skrivs om."
+        },
+        "schedule": {
+          "name": "Schema",
+          "description": "Nya fönster (gör en enkel gäst återkommande)."
+        },
+        "paused": {
+          "name": "Pausad",
+          "description": "Pausa eller återuppta en återkommande gäst."
+        },
+        "until": {
+          "name": "Giltig till",
+          "description": "Ny ISO-utgång för en enkel gäst."
+        },
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilken spegel som ska användas. Utelämna för alla."
+        }
       }
     }
   }

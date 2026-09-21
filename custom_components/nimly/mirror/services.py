@@ -25,6 +25,8 @@ SERVICE_SET_AUTO_LOCK = "set_auto_lock"
 SERVICE_SET_SOUND_VOLUME = "set_sound_volume"
 SERVICE_FETCH_JOURNAL = "fetch_journal"
 SERVICE_CREATE_GUEST = "create_guest_code"
+SERVICE_CREATE_RECURRING_GUEST = "create_recurring_guest"
+SERVICE_UPDATE_GUEST = "update_guest"
 SERVICE_REVOKE_GUEST = "revoke_guest_code"
 SERVICE_LIST_GUESTS = "list_guests"
 
@@ -113,6 +115,38 @@ CREATE_GUEST_SCHEMA = vol.Schema(
         vol.Required("name"): cv.string,
         vol.Optional("code"): cv.string,
         vol.Optional("slot"): vol.Coerce(int),
+        vol.Optional("until"): cv.string,
+        vol.Optional("one_time", default=False): cv.boolean,
+        vol.Optional("entry_id"): cv.string,
+    }
+)
+
+WINDOW_SCHEMA = vol.Schema(
+    {
+        vol.Required("days"): vol.Any(cv.string, [cv.string]),
+        vol.Required("start"): cv.string,
+        vol.Required("end"): cv.string,
+    }
+)
+
+CREATE_RECURRING_GUEST_SCHEMA = vol.Schema(
+    {
+        vol.Required("name"): cv.string,
+        vol.Required("schedule"): vol.All(cv.ensure_list, [WINDOW_SCHEMA]),
+        vol.Optional("code"): cv.string,
+        vol.Optional("slot"): vol.Coerce(int),
+        vol.Optional("paused", default=False): cv.boolean,
+        vol.Optional("entry_id"): cv.string,
+    }
+)
+
+UPDATE_GUEST_SCHEMA = vol.Schema(
+    {
+        vol.Required("slot"): vol.Coerce(int),
+        vol.Optional("name"): cv.string,
+        vol.Optional("code"): cv.string,
+        vol.Optional("schedule"): vol.All(cv.ensure_list, [WINDOW_SCHEMA]),
+        vol.Optional("paused"): cv.boolean,
         vol.Optional("until"): cv.string,
         vol.Optional("entry_id"): cv.string,
     }
@@ -273,6 +307,37 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 code=call.data.get("code"),
                 slot=call.data.get("slot"),
                 until=call.data.get("until"),
+                one_time=bool(call.data.get("one_time")),
+            )
+        return results
+
+    async def _async_handle_create_recurring_guest(call: ServiceCall) -> dict[str, Any]:
+        entry_id = call.data.get("entry_id")
+        coordinators = _coordinators(hass, entry_id, "async_create_recurring_guest")
+        if not coordinators:
+            return {"error": "no matching mirror"}
+        results: dict[str, Any] = {}
+        for coord in coordinators:
+            results[coord.entry.entry_id] = await coord.async_create_recurring_guest(
+                str(call.data["name"]),
+                code=call.data.get("code"),
+                windows=call.data.get("schedule"),
+                slot=call.data.get("slot"),
+                paused=bool(call.data.get("paused")),
+            )
+        return results
+
+    async def _async_handle_update_guest(call: ServiceCall) -> dict[str, Any]:
+        entry_id = call.data.get("entry_id")
+        coordinators = _coordinators(hass, entry_id, "async_update_guest")
+        if not coordinators:
+            return {"error": "no matching mirror"}
+        fields = ("name", "code", "schedule", "paused", "until")
+        changes = {key: call.data[key] for key in fields if key in call.data}
+        results: dict[str, Any] = {}
+        for coord in coordinators:
+            results[coord.entry.entry_id] = await coord.async_update_guest(
+                int(call.data["slot"]), changes
             )
         return results
 
@@ -355,6 +420,20 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN,
+        SERVICE_CREATE_RECURRING_GUEST,
+        _async_handle_create_recurring_guest,
+        schema=CREATE_RECURRING_GUEST_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_UPDATE_GUEST,
+        _async_handle_update_guest,
+        schema=UPDATE_GUEST_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_REVOKE_GUEST,
         _async_handle_revoke_guest,
         schema=REVOKE_GUEST_SCHEMA,
@@ -381,5 +460,7 @@ async def async_unload_services(hass: HomeAssistant) -> None:
     hass.services.async_remove(DOMAIN, SERVICE_SET_SOUND_VOLUME)
     hass.services.async_remove(DOMAIN, SERVICE_FETCH_JOURNAL)
     hass.services.async_remove(DOMAIN, SERVICE_CREATE_GUEST)
+    hass.services.async_remove(DOMAIN, SERVICE_CREATE_RECURRING_GUEST)
+    hass.services.async_remove(DOMAIN, SERVICE_UPDATE_GUEST)
     hass.services.async_remove(DOMAIN, SERVICE_REVOKE_GUEST)
     hass.services.async_remove(DOMAIN, SERVICE_LIST_GUESTS)

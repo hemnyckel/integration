@@ -105,8 +105,12 @@ from .guests import (
     GUEST_CREATED,
     GUEST_EXPIRED,
     GUEST_REVOKED,
+    GUEST_USED,
+    GUEST_WINDOW_CLOSE,
+    GUEST_WINDOW_OPEN,
     expired_slots,
     generate_code,
+    is_expired,
     normalize_until,
     pick_slot,
     valid_code,
@@ -122,6 +126,8 @@ from .journal import (
     trim as journal_trim,
 )
 from .pin_rules import check_credential_slot, first_user_slot, pin_capacity
+from .schedule import describe as schedule_describe
+from .schedule import in_window, next_boundary, normalize_windows
 from .slot_virtual import (
     BLOCKED,
     CLEAR,
@@ -780,18 +786,10 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- guest codes ---------------------------------------------------------
 
     def list_guests(self) -> list[dict[str, Any]]:
-        """The active guest windows (never the codes themselves)."""
-        result = []
-        for key, guest in sorted(self.guests.items(), key=lambda item: int(item[0])):
-            result.append(
-                {
-                    "slot": int(key),
-                    "name": guest.get("name"),
-                    "until": guest.get("until"),
-                    "created": guest.get("created"),
-                }
-            )
-        return result
+        """The active guests with their live state (never the codes themselves)."""
+        rows = self.guest_rows()
+        order = sorted(rows, key=lambda key: int(key) if key.isdigit() else 0)
+        return [rows[key] for key in order]
 
     def _load_guests(self) -> None:
         stored = self.entry.options.get("guests")
@@ -817,11 +815,13 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         code: str | None = None,
         slot: int | None = None,
         until: str | None = None,
+        one_time: bool = False,
     ) -> dict[str, Any]:
         """Write a guest PIN, name the slot and remember the window.
 
         The code is returned once so the caller can hand it to the guest; it is
-        never stored or logged anywhere.
+        never stored or logged anywhere. A one-time code is revoked by itself
+        the first time that slot opens the door.
         """
         clean_name = str(name or "").strip()
         if not clean_name:
@@ -856,6 +856,8 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_publish_slot(slot, self.slots.occupied(slot))
         self.guests[str(slot)] = {
             "name": clean_name,
+            "kind": "simple",
+            "one_time": bool(one_time),
             "until": normalized_until,
             "created": dt_util.utcnow().isoformat(),
         }
@@ -871,7 +873,221 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "code": code_text,
             "name": clean_name,
             "until": normalized_until,
+            "one_time": bool(one_time),
         }
+
+    async def async_create_recurring_guest(
+        self,
+        name: str,
+        code: str | None = None,
+        windows: Any = None,
+        slot: int | None = None,
+        paused: bool = False,
+    ) -> dict[str, Any]:
+        """A guest whose code stays the same, valid only inside weekly windows.
+
+        The lock has no schedules, so the window is enforced here: the code is
+        written when a window opens and cleared when it closes, and the code
+        value is kept in the entry options so the same digits can be restored
+        every time. That storage is the deliberate cost of a fixed code.
+        """
+        clean_name = str(name or "").strip()
+        if not clean_name:
+            raise RuntimeError("a guest name is required")
+        schedule = normalize_windows(windows)
+        if schedule is None:
+            raise RuntimeError("the schedule needs at least one valid window")
+        if slot is None:
+            occupied = {s for s, _data in self.slots.items() if self.slots.occupied(s)}
+            occupied |= set(self.slot_map.values())
+            occupied |= {int(key) for key in self.guests if str(key).isdigit()}
+            slot = pick_slot(
+                occupied,
+                first_user_slot(self.entry.options),
+                pin_capacity(self.lock_facts),
+            )
+            if slot is None:
+                raise RuntimeError("the lock has no free user slot")
+        code_text = str(code) if code else generate_code()
+        if not valid_code(code_text):
+            raise RuntimeError("the code must be 4-8 digits")
+        self.guests[str(slot)] = {
+            "name": clean_name,
+            "kind": "recurring",
+            "code": code_text,
+            "schedule": schedule,
+            "paused": bool(paused),
+            "created": dt_util.utcnow().isoformat(),
+        }
+        self.slots.set_name(slot, clean_name)
+        await self._async_save_guests()
+        await self._apply_guest_state(slot)
+        self._schedule_guest_boundary(slot)
+        self._publish_snapshot()
+        row = self.guest_rows().get(str(slot), {})
+        _LOGGER.info(
+            "Recurring guest created on slot %s (%s)", slot, schedule_describe(schedule)
+        )
+        return {
+            "slot": slot,
+            "code": code_text,
+            "name": clean_name,
+            "schedule": schedule,
+            "paused": bool(paused),
+            "in_window": bool(row.get("in_window")),
+        }
+
+    async def async_update_guest(self, slot: int, changes: dict[str, Any]) -> dict[str, Any]:
+        """Change a guest's name, code, schedule, pause or expiry in one go."""
+        key = str(slot)
+        guest = self.guests.get(key)
+        if guest is None:
+            raise RuntimeError(f"no guest on slot {slot}")
+        if "name" in changes:
+            clean = str(changes.get("name") or "").strip()
+            if not clean:
+                raise RuntimeError("a guest name is required")
+            guest["name"] = clean
+            self.slots.set_name(slot, clean)
+        if "code" in changes:
+            code_text = str(changes.get("code") or "")
+            if not valid_code(code_text):
+                raise RuntimeError("the code must be 4-8 digits")
+            guest["code"] = code_text
+            if "pin" in self.slots.credentials(slot):
+                await self._async_set_pin(
+                    slot,
+                    code_text,
+                    journal={
+                        "action": GUEST_CREATED,
+                        "name": guest.get("name"),
+                        "detail": "code changed",
+                    },
+                )
+        if "schedule" in changes:
+            schedule = normalize_windows(changes.get("schedule"))
+            if schedule is None:
+                raise RuntimeError("the schedule needs at least one valid window")
+            guest["kind"] = "recurring"
+            guest["schedule"] = schedule
+        if "paused" in changes:
+            guest["paused"] = bool(changes.get("paused"))
+        if "until" in changes:
+            normalized = normalize_until(changes.get("until"))
+            guest["until"] = normalized
+        await self._async_save_guests()
+        await self._apply_guest_state(slot)
+        self._schedule_guest_boundary(slot)
+        self._publish_snapshot()
+        return {"slot": slot, "guest": dict(guest)}
+
+    def _guest_boundary_active(self, guest: dict[str, Any]) -> bool:
+        """Whether a guest needs boundary timers (recurring and not paused)."""
+        return guest.get("kind") == "recurring" and not guest.get("paused")
+
+    async def _apply_guest_state(self, slot: int, now: Any = None) -> None:
+        """Make the lock match the schedule right now.
+
+        The table already tracks what the lock holds, so a steady state is a
+        no-op: the code is written only when a window is open and the slot has
+        nothing, and cleared only when the slot holds something outside its
+        window. Clears made through this integration update the table, so the
+        startup pass repairs them; a clear made outside it needs a pause/resume
+        (or any edit) to be noticed again.
+        """
+        guest = self.guests.get(str(slot))
+        if guest is None or guest.get("kind") != "recurring":
+            return
+        windows = guest.get("schedule") or []
+        current = now or dt_util.now()
+        open_now = bool(windows) and not guest.get("paused") and in_window(windows, current)
+        has_pin = "pin" in self.slots.credentials(slot)
+        if open_now and not has_pin:
+            code_text = str(guest.get("code") or "")
+            if not valid_code(code_text):
+                _LOGGER.error("Recurring guest on slot %s has no usable code", slot)
+                return
+            await self._async_set_pin(
+                slot,
+                code_text,
+                journal={
+                    "action": GUEST_WINDOW_OPEN,
+                    "name": guest.get("name"),
+                    "detail": schedule_describe(windows),
+                },
+            )
+        elif not open_now and has_pin:
+            await self._async_clear_pin(
+                slot,
+                journal={
+                    "action": GUEST_WINDOW_CLOSE,
+                    "name": guest.get("name"),
+                    "detail": schedule_describe(windows),
+                },
+            )
+
+    async def _async_guest_boundary(self, slot: int) -> None:
+        """A window edge arrived: apply the new state and arm the next edge."""
+        await self._apply_guest_state(slot)
+        self._schedule_guest_boundary(slot)
+
+    def _schedule_guest_boundary(self, slot: int) -> None:
+        """Arm a timer for the next window edge; a missed one fires at startup."""
+        self._cancel_guest_timer(slot)
+        guest = self.guests.get(str(slot))
+        if guest is None or not self._guest_boundary_active(guest):
+            return
+        windows = guest.get("schedule") or []
+        upcoming = next_boundary(windows, dt_util.now())
+        if upcoming is None:
+            return
+        delay = (upcoming - dt_util.utcnow()).total_seconds()
+        if delay <= 0:
+            self.hass.async_create_task(self._async_guest_boundary(slot))
+            return
+
+        async def _edge(_now: Any = None, guest_slot: int = slot) -> None:
+            await self._async_guest_boundary(guest_slot)
+
+        self._guest_unsubs[str(slot)] = async_call_later(self.hass, delay, _edge)
+
+    def guest_rows(self) -> dict[str, dict[str, Any]]:
+        """Every stored guest with its live state, keyed by slot (for entities)."""
+        now = dt_util.now()
+        rows: dict[str, dict[str, Any]] = {}
+        for key, guest in self.guests.items():
+            if not isinstance(guest, dict):
+                continue
+            kind = guest.get("kind", "simple")
+            windows = guest.get("schedule") or []
+            row: dict[str, Any] = {
+                "slot": int(key) if key.isdigit() else None,
+                "name": guest.get("name"),
+                "kind": kind,
+                "created": guest.get("created"),
+                "has_code": key.isdigit() and "pin" in self.slots.credentials(int(key)),
+            }
+            if kind == "recurring":
+                row["schedule"] = windows
+                row["summary"] = schedule_describe(windows)
+                row["paused"] = bool(guest.get("paused"))
+                row["in_window"] = bool(
+                    windows and not guest.get("paused") and in_window(windows, now)
+                )
+                if guest.get("paused"):
+                    row["state"] = "paused"
+                else:
+                    row["state"] = "active" if row["in_window"] else "outside"
+            else:
+                row["until"] = guest.get("until")
+                row["one_time"] = bool(guest.get("one_time"))
+                row["state"] = (
+                    "active"
+                    if row["has_code"] and not is_expired(guest.get("until"), now)
+                    else "expired"
+                )
+            rows[str(key)] = row
+        return rows
 
     async def async_revoke_guest(
         self, slot: int, *, reason: str = GUEST_REVOKED
@@ -923,14 +1139,21 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_revoke_guest(slot, reason=GUEST_EXPIRED)
 
     async def _async_resume_guests(self) -> None:
-        """After a restart: expire what already ended and re-arm the rest."""
+        """After a restart: expire what ended, re-apply schedules, re-arm timers."""
         now = dt_util.utcnow()
         for slot in expired_slots(self.guests, now):
             await self._async_expire_guest(slot)
         for key, guest in self.guests.items():
+            if not isinstance(guest, dict) or not str(key).isdigit():
+                continue
+            slot = int(key)
             until = guest.get("until")
-            if until and str(key).isdigit():
-                self._schedule_guest_expiry(int(key), str(until))
+            if until:
+                self._schedule_guest_expiry(slot, str(until))
+            if guest.get("kind") == "recurring":
+                # The lock may have gone through window edges while HA was down.
+                await self._apply_guest_state(slot)
+                self._schedule_guest_boundary(slot)
 
     # -- OTA ---------------------------------------------------------------
 
@@ -1364,6 +1587,12 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if shown != slot:
                 label = f"{label} (app slot {shown})"
             self._flag_new_slot(slot, label)
+            guest = self.guests.get(str(slot))
+            if isinstance(guest, dict) and guest.get("one_time"):
+                # A one-time code has done its job: revoke it after this use.
+                self.hass.async_create_task(
+                    self.async_revoke_guest(slot, reason=GUEST_USED)
+                )
         # System locks (auto) need no notification - mirrored anyway for consistency.
         if source is not None and source not in HUMAN_SOURCES:
             _LOGGER.debug("Skipping system event source=%s", source)

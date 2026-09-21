@@ -41,6 +41,7 @@ async def async_setup_entry(
             MirrorLastError(coordinator),
             MirrorLockFacts(coordinator),
             MirrorJournal(coordinator),
+            MirrorGuests(coordinator),
         ]
     )
     _setup_slot_sensors(coordinator, async_add_entities)
@@ -319,3 +320,24 @@ class MirrorJournal(MirrorEntity, SensorEntity):
             "count_last_24h": summary.get("last_24h"),
             "entries": list(self.coordinator.journal[-10:]),
         }
+
+
+class MirrorGuests(MirrorEntity, SensorEntity):
+    """Active guest codes: simple windows and recurring schedules."""
+
+    _attr_name = "Guests"
+    _attr_icon = "mdi:account-multiple-check"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.entry_id}_guests"
+
+    @property
+    def native_value(self) -> int:
+        return len(self.coordinator.guests)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        rows = self.coordinator.guest_rows()
+        order = sorted(rows, key=lambda key: int(key) if key.isdigit() else 0)
+        return {"guests": [rows[key] for key in order]}

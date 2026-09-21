@@ -21,6 +21,9 @@ DIGITS = "0123456789"
 GUEST_CREATED = "guest_created"
 GUEST_REVOKED = "guest_revoked"
 GUEST_EXPIRED = "guest_expired"
+GUEST_WINDOW_OPEN = "guest_window_open"
+GUEST_WINDOW_CLOSE = "guest_window_close"
+GUEST_USED = "guest_used"
 
 
 def generate_code(length: int = CODE_LENGTH, rng: random.Random | None = None) -> str:

@@ -16,5 +16,7 @@ set_auto_lock:
 set_sound_volume:
 fetch_journal:
 create_guest_code:
+create_recurring_guest:
+update_guest:
 revoke_guest_code:
 list_guests:

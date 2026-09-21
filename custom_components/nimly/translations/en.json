@@ -174,32 +174,80 @@
   },
   "entity": {
     "sensor": {
-      "lock_state": { "name": "Cloud lock state" },
-      "last_event": { "name": "Last event" },
-      "last_person": { "name": "Last person" },
-      "last_pin_slot": { "name": "Last PIN slot" },
-      "last_tag": { "name": "Last tag" },
-      "battery": { "name": "Cloud battery" },
-      "lqi": { "name": "Cloud link quality" },
-      "sound_volume": { "name": "Cloud sound volume" },
-      "volume_name": { "name": "Cloud volume level" },
-      "autorelock_time": { "name": "Cloud auto-relock time" },
-      "firmware": { "name": "Cloud firmware" },
-      "config_progress": { "name": "Cloud configuration progress" },
-      "raw": { "name": "Cloud raw data" },
-      "remaining_pin_attempts": { "name": "Remaining PIN attempts" },
-      "alarm_state": { "name": "Alarm state" },
-      "device_count": { "name": "Devices in the account" },
-      "user_count": { "name": "People in the account" },
-      "user_access": { "name": "Access for {name}" }
+      "lock_state": {
+        "name": "Cloud lock state"
+      },
+      "last_event": {
+        "name": "Last event"
+      },
+      "last_person": {
+        "name": "Last person"
+      },
+      "last_pin_slot": {
+        "name": "Last PIN slot"
+      },
+      "last_tag": {
+        "name": "Last tag"
+      },
+      "battery": {
+        "name": "Cloud battery"
+      },
+      "lqi": {
+        "name": "Cloud link quality"
+      },
+      "sound_volume": {
+        "name": "Cloud sound volume"
+      },
+      "volume_name": {
+        "name": "Cloud volume level"
+      },
+      "autorelock_time": {
+        "name": "Cloud auto-relock time"
+      },
+      "firmware": {
+        "name": "Cloud firmware"
+      },
+      "config_progress": {
+        "name": "Cloud configuration progress"
+      },
+      "raw": {
+        "name": "Cloud raw data"
+      },
+      "remaining_pin_attempts": {
+        "name": "Remaining PIN attempts"
+      },
+      "alarm_state": {
+        "name": "Alarm state"
+      },
+      "device_count": {
+        "name": "Devices in the account"
+      },
+      "user_count": {
+        "name": "People in the account"
+      },
+      "user_access": {
+        "name": "Access for {name}"
+      }
     },
     "binary_sensor": {
-      "online": { "name": "Cloud online" },
-      "autolock": { "name": "Cloud auto-lock" },
-      "master_pin_mode": { "name": "Cloud master PIN mode" },
-      "pin_required_remote": { "name": "Cloud PIN required for remote unlock" },
-      "part_of_alarm": { "name": "Cloud part of alarm" },
-      "gateway_online": { "name": "Bridge online" }
+      "online": {
+        "name": "Cloud online"
+      },
+      "autolock": {
+        "name": "Cloud auto-lock"
+      },
+      "master_pin_mode": {
+        "name": "Cloud master PIN mode"
+      },
+      "pin_required_remote": {
+        "name": "Cloud PIN required for remote unlock"
+      },
+      "part_of_alarm": {
+        "name": "Cloud part of alarm"
+      },
+      "gateway_online": {
+        "name": "Bridge online"
+      }
     }
   },
   "issues": {
@@ -236,151 +284,348 @@
       "name": "Refresh",
       "description": "Ask the account for new activity right now.",
       "fields": {
-        "entry_id": { "name": "Config entry", "description": "Which account to refresh. Leave out for all of them." }
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which account to refresh. Leave out for all of them."
+        }
       }
     },
     "fetch_history": {
       "name": "Fetch activity history",
       "description": "Return the activities Home Assistant has collected, newest first.",
       "fields": {
-        "device_id": { "name": "Device", "description": "Limit the result to one lock." },
-        "limit": { "name": "Limit", "description": "Maximum number of activities to return." }
+        "device_id": {
+          "name": "Device",
+          "description": "Limit the result to one lock."
+        },
+        "limit": {
+          "name": "Limit",
+          "description": "Maximum number of activities to return."
+        }
       }
     },
     "set_lock": {
       "name": "Lock or unlock through the cloud",
       "description": "An optional second control path. The local path is faster and keeps working without internet.",
       "fields": {
-        "device_id": { "name": "Device", "description": "The lock to act on." },
-        "locked": { "name": "Locked", "description": "True to lock, false to unlock." }
+        "device_id": {
+          "name": "Device",
+          "description": "The lock to act on."
+        },
+        "locked": {
+          "name": "Locked",
+          "description": "True to lock, false to unlock."
+        }
       }
     },
     "gateway_scan": {
       "name": "Open the bridge pairing window",
       "description": "Asks the bridge to accept a new device, so a module or an emulator can join from Home Assistant.",
       "fields": {
-        "start": { "name": "Start", "description": "True to open the window, false to close it." }
+        "start": {
+          "name": "Start",
+          "description": "True to open the window, false to close it."
+        }
       }
     },
     "probe": {
       "name": "Call the vendor API (diagnostics)",
       "description": "Calls paths on the vendor API and returns the status and a redacted body. Used to map the API; not needed for normal use.",
       "fields": {
-        "paths": { "name": "Paths", "description": "Paths relative to the API root, or objects with path, method, json and headers." }
+        "paths": {
+          "name": "Paths",
+          "description": "Paths relative to the API root, or objects with path, method, json and headers."
+        }
       }
     },
     "set_ieee": {
       "name": "Provision IEEE address",
       "description": "Sends an IEEE address to the emulator, which stores it in NVS and reboots. Defaults to the real lock module's own address, because the vendor cloud only accepts known modules.",
       "fields": {
-        "ieee": { "name": "IEEE address", "description": "Address in the form 00:11:22:33:44:55:66:77. Empty uses the lock's own." },
-        "entry_id": { "name": "Config entry", "description": "Which mirror to provision. Leave out to target all of them." }
+        "ieee": {
+          "name": "IEEE address",
+          "description": "Address in the form 00:11:22:33:44:55:66:77. Empty uses the lock's own."
+        },
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which mirror to provision. Leave out to target all of them."
+        }
       }
     },
     "ota_install": {
       "name": "Install bridge firmware (OTA)",
       "description": "Sends a firmware URL to the bridge, which downloads it, writes the next application partition and reboots. Used by the update entity, but can also be run manually.",
       "fields": {
-        "url": { "name": "URL", "description": "Absolute http(s) URL to the application binary." },
-        "entry_id": { "name": "Config entry", "description": "Which bridge to update. Leave out to target all of them." }
+        "url": {
+          "name": "URL",
+          "description": "Absolute http(s) URL to the application binary."
+        },
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which bridge to update. Leave out to target all of them."
+        }
       }
     },
     "provision_wifi": {
       "name": "Provision Wi-Fi (BLE/Improv)",
       "description": "Connects to the bridge over Bluetooth and sends Wi-Fi credentials using Improv. Used by the discovery flow, but can also be run manually.",
       "fields": {
-        "address": { "name": "Bluetooth address", "description": "The device's BLE address, for example from nRF Connect or from discovery." },
-        "ssid": { "name": "Network (SSID)", "description": "The Wi-Fi network the bridge should join." },
-        "password": { "name": "Password", "description": "The Wi-Fi password, if any." }
+        "address": {
+          "name": "Bluetooth address",
+          "description": "The device's BLE address, for example from nRF Connect or from discovery."
+        },
+        "ssid": {
+          "name": "Network (SSID)",
+          "description": "The Wi-Fi network the bridge should join."
+        },
+        "password": {
+          "name": "Password",
+          "description": "The Wi-Fi password, if any."
+        }
       }
     },
     "set_slot_name": {
       "name": "Name a lock slot",
       "description": "Stores a person's name for a lock slot so events and notifications say who did what.",
       "fields": {
-        "slot": { "name": "Slot", "description": "The lock slot the credential lives in." },
-        "name": { "name": "Name", "description": "The person's name." },
-        "entry_id": { "name": "Config entry", "description": "Which mirror to name a slot on. Leave out to target all of them." }
+        "slot": {
+          "name": "Slot",
+          "description": "The lock slot the credential lives in."
+        },
+        "name": {
+          "name": "Name",
+          "description": "The person's name."
+        },
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which mirror to name a slot on. Leave out to target all of them."
+        }
       }
     },
     "set_pin": {
       "name": "Write a PIN to a slot",
       "description": "Writes a PIN code to the real lock and names the slot. The code is never stored in Home Assistant.",
       "fields": {
-        "slot": { "name": "Slot", "description": "The slot to write the code to." },
-        "code": { "name": "PIN code", "description": "The code, 4-8 digits." },
-        "name": { "name": "Name", "description": "Optional person name for the slot." },
-        "entry_id": { "name": "Config entry", "description": "Which mirror to act on. Leave out to target all of them." }
+        "slot": {
+          "name": "Slot",
+          "description": "The slot to write the code to."
+        },
+        "code": {
+          "name": "PIN code",
+          "description": "The code, 4-8 digits."
+        },
+        "name": {
+          "name": "Name",
+          "description": "Optional person name for the slot."
+        },
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which mirror to act on. Leave out to target all of them."
+        }
       }
     },
     "clear_slot": {
       "name": "Clear a lock slot",
       "description": "Clears the credential on the lock and forgets the slot's local data.",
       "fields": {
-        "slot": { "name": "Slot", "description": "The slot to clear." },
-        "entry_id": { "name": "Config entry", "description": "Which mirror to act on. Leave out to target all of them." }
+        "slot": {
+          "name": "Slot",
+          "description": "The slot to clear."
+        },
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which mirror to act on. Leave out to target all of them."
+        }
       }
     },
     "read_lock_attributes": {
       "name": "Read the lock's attributes",
       "description": "Reads the lock's standard DoorLock attributes over Zigbee and returns them. PIN codes are never read.",
       "fields": {
-        "attributes": { "name": "Attributes", "description": "Attribute names or ids. Leave out for the default list." },
-        "entry_id": { "name": "Config entry", "description": "Which mirror to act on. Leave out to target all of them." }
+        "attributes": {
+          "name": "Attributes",
+          "description": "Attribute names or ids. Leave out for the default list."
+        },
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which mirror to act on. Leave out to target all of them."
+        }
       }
     },
     "set_auto_lock": {
       "name": "Set the lock's auto-lock",
       "description": "Writes the lock's own auto-relock setting over Zigbee and reads it back.",
       "fields": {
-        "enabled": { "name": "Enabled", "description": "true turns auto-lock on, false turns it off." },
-        "entry_id": { "name": "Config entry", "description": "Which mirror to act on. Leave out to target all of them." }
+        "enabled": {
+          "name": "Enabled",
+          "description": "true turns auto-lock on, false turns it off."
+        },
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which mirror to act on. Leave out to target all of them."
+        }
       }
     },
     "set_sound_volume": {
       "name": "Set the lock's sound volume",
       "description": "Writes the lock's own sound volume over Zigbee and reads it back.",
       "fields": {
-        "level": { "name": "Level", "description": "0, 1 or 2." },
-        "entry_id": { "name": "Config entry", "description": "Which mirror to act on. Leave out to target all of them." }
+        "level": {
+          "name": "Level",
+          "description": "0, 1 or 2."
+        },
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which mirror to act on. Leave out to target all of them."
+        }
       }
     },
     "fetch_journal": {
       "name": "Read the lock journal",
       "description": "Returns the lock's timeline of access and admin events, newest last.",
       "fields": {
-        "limit": { "name": "Limit", "description": "How many entries to return (1-500)." },
-        "person": { "name": "Person", "description": "Only entries whose name contains this text." },
-        "slot": { "name": "Slot", "description": "Only entries for this slot." },
-        "action": { "name": "Action", "description": "Only entries with this action, for example unlock or pin_set." },
-        "since": { "name": "Since", "description": "Only entries at or after this ISO timestamp." },
-        "entry_id": { "name": "Config entry", "description": "Which mirror to read. Leave out to read all of them." }
+        "limit": {
+          "name": "Limit",
+          "description": "How many entries to return (1-500)."
+        },
+        "person": {
+          "name": "Person",
+          "description": "Only entries whose name contains this text."
+        },
+        "slot": {
+          "name": "Slot",
+          "description": "Only entries for this slot."
+        },
+        "action": {
+          "name": "Action",
+          "description": "Only entries with this action, for example unlock or pin_set."
+        },
+        "since": {
+          "name": "Since",
+          "description": "Only entries at or after this ISO timestamp."
+        },
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which mirror to read. Leave out to read all of them."
+        }
       }
     },
     "create_guest_code": {
       "name": "Create a guest code",
       "description": "Writes a PIN to the lock, names the slot and remembers the window. The code is returned once and never stored. Expiry is enforced by Home Assistant, so the code works offline during the window.",
       "fields": {
-        "name": { "name": "Guest name", "description": "Who the code is for." },
-        "code": { "name": "Code", "description": "4-8 digits. Leave out for a random 6-digit code." },
-        "slot": { "name": "Slot", "description": "Leave out to use the lowest free user slot." },
-        "until": { "name": "Valid until", "description": "ISO timestamp when the code is cleared. Leave out for no expiry." },
-        "entry_id": { "name": "Config entry", "description": "Which mirror to use. Leave out for all of them." }
+        "name": {
+          "name": "Guest name",
+          "description": "Who the code is for."
+        },
+        "code": {
+          "name": "Code",
+          "description": "4-8 digits. Leave out for a random 6-digit code."
+        },
+        "slot": {
+          "name": "Slot",
+          "description": "Leave out to use the lowest free user slot."
+        },
+        "until": {
+          "name": "Valid until",
+          "description": "ISO timestamp when the code is cleared. Leave out for no expiry."
+        },
+        "one_time": {
+          "name": "One-time",
+          "description": "The code revokes itself the first time it opens the door."
+        },
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which mirror to use. Leave out for all of them."
+        }
       }
     },
     "revoke_guest_code": {
       "name": "Revoke a guest code",
       "description": "Clears the code now and forgets the guest window.",
       "fields": {
-        "slot": { "name": "Slot", "description": "The guest's slot." },
-        "entry_id": { "name": "Config entry", "description": "Which mirror to use. Leave out for all of them." }
+        "slot": {
+          "name": "Slot",
+          "description": "The guest's slot."
+        },
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which mirror to use. Leave out for all of them."
+        }
       }
     },
     "list_guests": {
       "name": "List guest codes",
       "description": "Returns the active guest windows (names, slots and end times - never the codes).",
       "fields": {
-        "entry_id": { "name": "Config entry", "description": "Which mirror to read. Leave out to read all of them." }
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which mirror to read. Leave out to read all of them."
+        }
+      }
+    },
+    "create_recurring_guest": {
+      "name": "Create a recurring guest",
+      "description": "A guest whose code never changes but is only valid inside weekly windows. Home Assistant writes the code when a window opens and clears it when it closes.",
+      "fields": {
+        "name": {
+          "name": "Guest name",
+          "description": "Who the code is for."
+        },
+        "code": {
+          "name": "Code",
+          "description": "4-8 digits. Leave out for a random 6-digit code. It stays the same for as long as the guest exists."
+        },
+        "schedule": {
+          "name": "Schedule",
+          "description": "A list of windows: {days: [mon..sun], start: HH:MM, end: HH:MM}. An end at or before the start crosses midnight."
+        },
+        "slot": {
+          "name": "Slot",
+          "description": "Leave out to use the lowest free user slot."
+        },
+        "paused": {
+          "name": "Paused",
+          "description": "Create it paused; nothing is written to the lock until it is resumed."
+        },
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which mirror to use. Leave out for all."
+        }
+      }
+    },
+    "update_guest": {
+      "name": "Update a guest",
+      "description": "Change a guest's name, code, schedule, pause or expiry; the change takes effect immediately.",
+      "fields": {
+        "slot": {
+          "name": "Slot",
+          "description": "The guest's slot."
+        },
+        "name": {
+          "name": "Guest name",
+          "description": "The new name."
+        },
+        "code": {
+          "name": "Code",
+          "description": "A new 4-8 digit code; the slot is rewritten."
+        },
+        "schedule": {
+          "name": "Schedule",
+          "description": "New windows (turns a simple guest into a recurring one)."
+        },
+        "paused": {
+          "name": "Paused",
+          "description": "Pause or resume a recurring guest."
+        },
+        "until": {
+          "name": "Valid until",
+          "description": "New ISO expiry for a simple guest."
+        },
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which mirror to use. Leave out for all."
+        }
       }
     }
   }
