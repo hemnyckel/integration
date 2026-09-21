@@ -482,6 +482,17 @@ class NimlyCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         gateway = self.home.get("gateway")
         return gateway if isinstance(gateway, dict) else {}
 
+    async def async_push_settings(
+        self, device_id: str, settings: dict[str, Any]
+    ) -> None:
+        """Write the app's record and refresh, so HA state follows immediately.
+
+        Convenience only: the local path never depends on it and callers treat
+        a failure as a log line, not an error.
+        """
+        await self.api.async_update_device_settings(device_id, settings)
+        await self.async_request_refresh()
+
     def device_raw(self, device_id: str) -> dict[str, Any]:
         """The device's whole cloud state, credentials masked. For diagnostics."""
         meta = {

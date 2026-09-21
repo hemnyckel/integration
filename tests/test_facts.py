@@ -62,6 +62,17 @@ class CapabilitySummaryTest(unittest.TestCase):
         self.assertIsNone(facts.capability_summary({}))
 
 
+class VendorVolumeTest(unittest.TestCase):
+    def test_levels(self) -> None:
+        self.assertEqual(facts.vendor_volume(0), "silent")
+        self.assertEqual(facts.vendor_volume(1), "low")
+        self.assertEqual(facts.vendor_volume(2), "high")
+
+    def test_out_of_range(self) -> None:
+        self.assertIsNone(facts.vendor_volume(3))
+        self.assertIsNone(facts.vendor_volume("x"))
+
+
 class SuggestUserNameTest(unittest.TestCase):
     USERS = [
         {"id": "u1", "name": "Claes Häll"},

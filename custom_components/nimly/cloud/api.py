@@ -31,6 +31,7 @@ from ..const import (
     PATH_DEVICE_ACTION,
     PATH_DEVICE_HISTORY,
     PATH_DEVICE_LOCK,
+    PATH_DEVICE_SETTINGS,
     PATH_GATEWAY_ACTION,
     PATH_HOME,
     PATH_LOCATION_USERS,
@@ -192,6 +193,9 @@ class NimlyCloudApi:
     async def async_post(self, path: str, payload: dict[str, Any] | None = None) -> Any:
         return await self._request("POST", path, json=payload)
 
+    async def async_patch(self, path: str, payload: dict[str, Any] | None = None) -> Any:
+        return await self._request("PATCH", path, json=payload)
+
     # -- account ------------------------------------------------------------
 
     async def async_me(self) -> dict[str, Any]:
@@ -248,6 +252,18 @@ class NimlyCloudApi:
         """
         return await self.async_post(
             PATH_DEVICE_LOCK.format(device_id=device_id), {"lock": locked}
+        )
+
+    async def async_update_device_settings(
+        self, device_id: str, settings: dict[str, Any]
+    ) -> Any:
+        """Write the app's record of a device's settings (autolock, volume, ...).
+
+        Verified on hardware: `autolock` (bool) and `volume` (silent/low/high) are
+        accepted; the response is the updated settings object.
+        """
+        return await self.async_patch(
+            PATH_DEVICE_SETTINGS.format(device_id=device_id), settings
         )
 
     async def async_device_action(

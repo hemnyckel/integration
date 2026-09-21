@@ -45,6 +45,17 @@ def capability_summary(facts: dict[str, Any]) -> str | None:
     return " · ".join(parts)
 
 
+VENDOR_VOLUMES: dict[int, str] = {0: "silent", 1: "low", 2: "high"}
+
+
+def vendor_volume(level: int) -> str | None:
+    """The vendor cloud's name for a lock volume level (0-2)."""
+    try:
+        return VENDOR_VOLUMES.get(int(level))
+    except (TypeError, ValueError):
+        return None
+
+
 def suggest_user_name(
     wanted_types: set[str],
     used_names: set[str],

@@ -293,6 +293,7 @@ PATH_DEVICE = "/devices/{device_id}"
 PATH_DEVICE_ACCESS = "/devices/{device_id}/access"
 PATH_DEVICE_HISTORY = "/devices/{device_id}/features-history"
 PATH_DEVICE_LOCK = "/devices/{device_id}/lock"
+PATH_DEVICE_SETTINGS = "/devices/{device_id}/settings"
 PATH_DEVICE_ACTION = "/devices/{device_id}/action"
 PATH_GATEWAY_ACTION = "/gateways/{gateway_id}/action"
 

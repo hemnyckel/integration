@@ -92,7 +92,7 @@ from ..const import (
     ZCL_CMD_FP_ENROLL,
 )
 
-from .facts import compute_settings_drift, suggest_user_name
+from .facts import compute_settings_drift, suggest_user_name, vendor_volume
 from .pin_rules import check_credential_slot
 from .slots import SlotTable
 from .zha_link import FACTS_ATTRIBUTES, ZhaLink
@@ -519,6 +519,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise RuntimeError("the lock did not report the setting back")
         if bool(actual) != bool(enabled):
             raise RuntimeError("the lock kept a different auto-lock setting")
+        await self._async_push_app_setting({"autolock": bool(enabled)})
         return facts
 
     async def async_set_lock_volume(self, level: int) -> dict[str, Any]:
@@ -532,7 +533,30 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise RuntimeError("the lock did not report the volume back")
         if int(actual) != int(level):
             raise RuntimeError("the lock kept a different volume")
+        vendor = vendor_volume(int(level))
+        if vendor is not None:
+            await self._async_push_app_setting({"volume": vendor})
         return facts
+
+    async def _async_push_app_setting(self, payload: dict[str, Any]) -> None:
+        """Best-effort: keep the app's record in step with the lock's own setting.
+
+        The local path never depends on this; a failure is logged and dropped,
+        and the drift sensor keeps showing the difference until it is gone.
+        """
+        for coordinator in self.hass.data.get(DOMAIN, {}).values():
+            push = getattr(coordinator, "async_push_settings", None)
+            devices = getattr(coordinator, "devices", None)
+            if push is None or not devices:
+                continue
+            device_id = self._cloud_device_id(devices)
+            if device_id is None:
+                continue
+            try:
+                await push(device_id, payload)
+            except Exception as err:  # noqa: BLE001 - convenience only
+                _LOGGER.debug("Could not push settings to the cloud: %s", err)
+            return
 
     # -- OTA ---------------------------------------------------------------
 

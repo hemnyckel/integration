@@ -187,7 +187,10 @@ until feature parity is verified, then entries are recreated and the old package
 
 - **Mirror:** real lock state ⇒ HA lock state ⇒ emulator frame with source `0x00` (activity
   entry) / `0x0A` (auto-relock, silent). Settings the app writes to the module
-  (`0x0023`/`0x0024`) are applied to the real lock, verified both directions.
+  (`0x0023`/`0x0024`) are applied to the real lock, verified both directions. A setting
+  write from HA goes the other way too: the local write is confirmed first, then the app's
+  cloud record is updated best-effort (`PATCH /devices/{id}/settings`) so the app display
+  follows and the drift check stays empty.
 - **Attribution:** raw `0x0100` from the real lock ⇒ decode slot/action/source ⇒ slot name ⇒
   cloud activity plus app notification. When the report is absent (report-on-change), the
   cloud feed's own history is the record.
@@ -238,9 +241,10 @@ drift, timestamp).
 5. **Device claiming (cloud):** `POST /devices` and `GET /home/{id}/new-devices/{type}` can
    add a new module to the account (needed for locks 2-3). Reverse-engineered and unverified;
    do it with the second lock at hand.
-6. **Vendor settings write:** `PATCH /devices/{id}/settings` accepts the app's record
-   (`autolock`, `volume`, `masterpinmode`, alarm profiles, report flags). Verify live and use
-   it so the app display follows HA's local setting writes.
+6. **Vendor settings write — done:** `PATCH /devices/{id}/settings` is verified on
+   hardware (`autolock` bool, `volume` silent/low/high). `set_auto_lock` and
+   `set_sound_volume` push the app's record best-effort after the local write confirms, so
+   the app display follows HA and the drift check stays empty.
 
 ## 10. Phases
 
