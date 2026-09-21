@@ -95,7 +95,12 @@ from ..const import (
     ZCL_CMD_FP_ENROLL,
 )
 
-from .facts import compute_settings_drift, suggest_user_name, vendor_volume
+from .facts import (
+    compute_settings_drift,
+    placeholder_slot_name,
+    suggest_user_name,
+    vendor_volume,
+)
 from .guests import (
     GUEST_CREATED,
     GUEST_EXPIRED,
@@ -413,7 +418,8 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_publish({"cmd": "pin_status", "slot": slot, "set": occupied})
 
     def _slot_is_named(self, slot: int) -> bool:
-        return bool(self.slots.get(slot).get("name"))
+        """A real name, not the import's placeholder (which may be replaced)."""
+        return not placeholder_slot_name(self.slots.get(slot).get("name"))
 
     @callback
     def _flag_new_slot(self, slot: int, kind: str) -> None:
@@ -464,6 +470,16 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for _slot, data in self.slots.items()
             if data.get("name")
         }
+        # The journal remembers names the cloud attached to this slot's events
+        # (a merged local+cloud pair), which covers guests that the location's
+        # member list does not contain.
+        for entry in reversed(self.journal):
+            if entry.get("slot") != slot or not entry.get("name"):
+                continue
+            name = str(entry["name"])
+            if name.lower() not in used:
+                return name
+            break
         for coordinator in self.hass.data.get(DOMAIN, {}).values():
             access = getattr(coordinator, "access", None)
             users = getattr(coordinator, "users", None)

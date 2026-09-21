@@ -73,6 +73,19 @@ class VendorVolumeTest(unittest.TestCase):
         self.assertIsNone(facts.vendor_volume("x"))
 
 
+class PlaceholderNameTest(unittest.TestCase):
+    def test_placeholders(self) -> None:
+        self.assertTrue(facts.placeholder_slot_name(None))
+        self.assertTrue(facts.placeholder_slot_name(""))
+        self.assertTrue(facts.placeholder_slot_name("App slot 10"))
+        self.assertTrue(facts.placeholder_slot_name("app slot 4"))
+
+    def test_real_names(self) -> None:
+        self.assertFalse(facts.placeholder_slot_name("Claes"))
+        self.assertFalse(facts.placeholder_slot_name("Isabelle"))
+        self.assertFalse(facts.placeholder_slot_name("App slotrummet"))
+
+
 class SuggestUserNameTest(unittest.TestCase):
     USERS = [
         {"id": "u1", "name": "Claes Häll"},

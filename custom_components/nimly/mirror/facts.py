@@ -5,7 +5,18 @@ No Home Assistant imports: the unit tests load this module by path.
 
 from __future__ import annotations
 
+import re
 from typing import Any
+
+# The v1 import wrote generic names like "App slot 10"; they carry no person
+# and must not stop the naming flow from asking again.
+_PLACEHOLDER_SLOT_NAME = re.compile(r"app slot\s*\d+", re.IGNORECASE)
+
+
+def placeholder_slot_name(name: Any) -> bool:
+    """True when a slot name is empty or the import's generic placeholder."""
+    text = str(name or "").strip()
+    return not text or bool(_PLACEHOLDER_SLOT_NAME.fullmatch(text))
 
 
 def compute_settings_drift(
