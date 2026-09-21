@@ -352,6 +352,32 @@
         "since": { "name": "Since", "description": "Only entries at or after this ISO timestamp." },
         "entry_id": { "name": "Config entry", "description": "Which mirror to read. Leave out to read all of them." }
       }
+    },
+    "create_guest_code": {
+      "name": "Create a guest code",
+      "description": "Writes a PIN to the lock, names the slot and remembers the window. The code is returned once and never stored. Expiry is enforced by Home Assistant, so the code works offline during the window.",
+      "fields": {
+        "name": { "name": "Guest name", "description": "Who the code is for." },
+        "code": { "name": "Code", "description": "4-8 digits. Leave out for a random 6-digit code." },
+        "slot": { "name": "Slot", "description": "Leave out to use the lowest free user slot." },
+        "until": { "name": "Valid until", "description": "ISO timestamp when the code is cleared. Leave out for no expiry." },
+        "entry_id": { "name": "Config entry", "description": "Which mirror to use. Leave out for all of them." }
+      }
+    },
+    "revoke_guest_code": {
+      "name": "Revoke a guest code",
+      "description": "Clears the code now and forgets the guest window.",
+      "fields": {
+        "slot": { "name": "Slot", "description": "The guest's slot." },
+        "entry_id": { "name": "Config entry", "description": "Which mirror to use. Leave out for all of them." }
+      }
+    },
+    "list_guests": {
+      "name": "List guest codes",
+      "description": "Returns the active guest windows (names, slots and end times - never the codes).",
+      "fields": {
+        "entry_id": { "name": "Config entry", "description": "Which mirror to read. Leave out to read all of them." }
+      }
     }
   }
 }

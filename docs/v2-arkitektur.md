@@ -224,6 +224,17 @@ set/cleared, renaming, settings). A local and a cloud report of the same physica
 are merged into one entry. Read it with `nimly.fetch_journal`, watch the `journal` sensor
 or subscribe to the `nimly_journal_entry` event.
 
+### Guest codes (added 2026-09-21)
+
+The module has no schedules at all (the vendor specification says so and the ZCL schedule
+attributes answer UNSUPPORTED), so a validity window is enforced by Home Assistant: the
+code is written when the guest is created and cleared when the window ends.
+`nimly.create_guest_code` picks the lowest free user slot, writes and names the PIN and
+returns the code once - it is never stored or logged; `nimly.revoke_guest_code` clears it
+early. Windows live in the entry options, so a restart re-arms them and an expiry missed
+while Home Assistant was down runs at the next start. The code works offline during its
+window; the journal records created/revoked/expired with the guest's name.
+
 ## 7. Observability
 
 - Sensors: bridge reachable, emulator firmware version, settings-sync age, last local event,

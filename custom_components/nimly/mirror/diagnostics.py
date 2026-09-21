@@ -34,6 +34,7 @@ async def async_get_config_entry_diagnostics(
         "settings_drift": dict(coordinator.settings_drift),
         "journal_summary": coordinator.journal_summary(),
         "journal_recent": list(coordinator.journal[-5:]),
+        "guests": coordinator.list_guests(),
         "counters": dict(coordinator.counters),
         "last_error": coordinator.last_error,
         "slots": coordinator.slots.snapshot(),

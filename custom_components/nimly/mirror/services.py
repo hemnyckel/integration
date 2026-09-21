@@ -24,6 +24,9 @@ SERVICE_READ_LOCK_ATTRIBUTES = "read_lock_attributes"
 SERVICE_SET_AUTO_LOCK = "set_auto_lock"
 SERVICE_SET_SOUND_VOLUME = "set_sound_volume"
 SERVICE_FETCH_JOURNAL = "fetch_journal"
+SERVICE_CREATE_GUEST = "create_guest_code"
+SERVICE_REVOKE_GUEST = "revoke_guest_code"
+SERVICE_LIST_GUESTS = "list_guests"
 
 PROVISION_SCHEMA = vol.Schema(
     {
@@ -104,6 +107,25 @@ FETCH_JOURNAL_SCHEMA = vol.Schema(
         vol.Optional("entry_id"): cv.string,
     }
 )
+
+CREATE_GUEST_SCHEMA = vol.Schema(
+    {
+        vol.Required("name"): cv.string,
+        vol.Optional("code"): cv.string,
+        vol.Optional("slot"): vol.Coerce(int),
+        vol.Optional("until"): cv.string,
+        vol.Optional("entry_id"): cv.string,
+    }
+)
+
+REVOKE_GUEST_SCHEMA = vol.Schema(
+    {
+        vol.Required("slot"): vol.Coerce(int),
+        vol.Optional("entry_id"): cv.string,
+    }
+)
+
+LIST_GUESTS_SCHEMA = vol.Schema({vol.Optional("entry_id"): cv.string})
 
 
 def _coordinators(hass: HomeAssistant, entry_id: str | None, capability: str):
@@ -239,6 +261,42 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             )
         return results
 
+    async def _async_handle_create_guest(call: ServiceCall) -> dict[str, Any]:
+        entry_id = call.data.get("entry_id")
+        coordinators = _coordinators(hass, entry_id, "async_create_guest")
+        if not coordinators:
+            return {"error": "no matching mirror"}
+        results: dict[str, Any] = {}
+        for coord in coordinators:
+            results[coord.entry.entry_id] = await coord.async_create_guest(
+                str(call.data["name"]),
+                code=call.data.get("code"),
+                slot=call.data.get("slot"),
+                until=call.data.get("until"),
+            )
+        return results
+
+    async def _async_handle_revoke_guest(call: ServiceCall) -> dict[str, Any]:
+        entry_id = call.data.get("entry_id")
+        slot = int(call.data["slot"])
+        coordinators = _coordinators(hass, entry_id, "async_revoke_guest")
+        if not coordinators:
+            return {"error": "no matching mirror"}
+        results: dict[str, Any] = {}
+        for coord in coordinators:
+            results[coord.entry.entry_id] = await coord.async_revoke_guest(slot)
+        return results
+
+    async def _async_handle_list_guests(call: ServiceCall) -> dict[str, Any]:
+        entry_id = call.data.get("entry_id")
+        coordinators = _coordinators(hass, entry_id, "list_guests")
+        if not coordinators:
+            return {"error": "no matching mirror"}
+        results: dict[str, Any] = {}
+        for coord in coordinators:
+            results[coord.entry.entry_id] = coord.list_guests()
+        return results
+
     hass.services.async_register(
         DOMAIN, SERVICE_SET_IEEE, _async_handle_set_ieee, schema=SET_IEEE_SCHEMA
     )
@@ -288,6 +346,27 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         schema=FETCH_JOURNAL_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CREATE_GUEST,
+        _async_handle_create_guest,
+        schema=CREATE_GUEST_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REVOKE_GUEST,
+        _async_handle_revoke_guest,
+        schema=REVOKE_GUEST_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_LIST_GUESTS,
+        _async_handle_list_guests,
+        schema=LIST_GUESTS_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
 
 
 async def async_unload_services(hass: HomeAssistant) -> None:
@@ -301,3 +380,6 @@ async def async_unload_services(hass: HomeAssistant) -> None:
     hass.services.async_remove(DOMAIN, SERVICE_SET_AUTO_LOCK)
     hass.services.async_remove(DOMAIN, SERVICE_SET_SOUND_VOLUME)
     hass.services.async_remove(DOMAIN, SERVICE_FETCH_JOURNAL)
+    hass.services.async_remove(DOMAIN, SERVICE_CREATE_GUEST)
+    hass.services.async_remove(DOMAIN, SERVICE_REVOKE_GUEST)
+    hass.services.async_remove(DOMAIN, SERVICE_LIST_GUESTS)

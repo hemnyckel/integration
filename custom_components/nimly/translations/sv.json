@@ -352,6 +352,32 @@
         "since": { "name": "Från och med", "description": "Endast poster från och med denna ISO-tid." },
         "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska läsas. Utelämna för alla." }
       }
+    },
+    "create_guest_code": {
+      "name": "Skapa en gästkod",
+      "description": "Skriver en PIN till låset, namnger sloten och minns giltighetsfönstret. Koden returneras en gång och sparas aldrig. Utgången upprätthålls av Home Assistant, så koden fungerar offline under fönstret.",
+      "fields": {
+        "name": { "name": "Gästnamn", "description": "Vem koden gäller." },
+        "code": { "name": "Kod", "description": "4-8 siffror. Utelämna för en slumpad 6-siffrig kod." },
+        "slot": { "name": "Slot", "description": "Utelämna för att använda lägsta lediga användarslot." },
+        "until": { "name": "Giltig till", "description": "ISO-tid då koden rensas. Utelämna för ingen utgång." },
+        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska användas. Utelämna för alla." }
+      }
+    },
+    "revoke_guest_code": {
+      "name": "Återkalla en gästkod",
+      "description": "Rensar koden nu och glömmer gästens fönster.",
+      "fields": {
+        "slot": { "name": "Slot", "description": "Gästens slot." },
+        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska användas. Utelämna för alla." }
+      }
+    },
+    "list_guests": {
+      "name": "Lista gästkoder",
+      "description": "Returnerar aktiva gästfönster (namn, slottar och sluttider — aldrig koderna).",
+      "fields": {
+        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska läsas. Utelämna för alla." }
+      }
     }
   }
 }

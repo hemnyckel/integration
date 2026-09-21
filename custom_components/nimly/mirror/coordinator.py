@@ -28,6 +28,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import (
+    async_call_later,
     async_track_state_change_event,
     async_track_time_interval,
 )
@@ -95,6 +96,16 @@ from ..const import (
 )
 
 from .facts import compute_settings_drift, suggest_user_name, vendor_volume
+from .guests import (
+    GUEST_CREATED,
+    GUEST_EXPIRED,
+    GUEST_REVOKED,
+    expired_slots,
+    generate_code,
+    normalize_until,
+    pick_slot,
+    valid_code,
+)
 from .journal import (
     ORIGIN_CLOUD,
     ORIGIN_HA,
@@ -105,7 +116,7 @@ from .journal import (
     summarize as journal_summarize,
     trim as journal_trim,
 )
-from .pin_rules import check_credential_slot
+from .pin_rules import check_credential_slot, first_user_slot, pin_capacity
 from .slots import SlotTable
 from .zha_link import FACTS_ATTRIBUTES, ZhaLink
 
@@ -170,6 +181,8 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._journal_path = hass.config.path(
             ".nimly", f"journal_{entry.entry_id}.jsonl"
         )
+        self.guests: dict[str, dict[str, Any]] = {}
+        self._guest_unsubs: dict[str, Callable[[], None]] = {}
         self.zha: ZhaLink | None = None
         self.last_error: str | None = None
         self.counters: dict[str, int] = {
@@ -290,6 +303,8 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         await self._async_load_journal()
+        self._load_guests()
+        await self._async_resume_guests()
         await self._async_sync_to_app()
         self._publish_snapshot()
         await self._async_health()
@@ -664,6 +679,160 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.hass.async_add_executor_job(_write)
         except OSError as err:
             _LOGGER.warning("Could not write the journal: %s", err)
+
+    # -- guest codes ---------------------------------------------------------
+
+    def list_guests(self) -> list[dict[str, Any]]:
+        """The active guest windows (never the codes themselves)."""
+        result = []
+        for key, guest in sorted(self.guests.items(), key=lambda item: int(item[0])):
+            result.append(
+                {
+                    "slot": int(key),
+                    "name": guest.get("name"),
+                    "until": guest.get("until"),
+                    "created": guest.get("created"),
+                }
+            )
+        return result
+
+    def _load_guests(self) -> None:
+        stored = self.entry.options.get("guests")
+        if isinstance(stored, dict):
+            self.guests = {
+                str(key): dict(value)
+                for key, value in stored.items()
+                if isinstance(value, dict)
+            }
+
+    async def _async_save_guests(self) -> None:
+        self.hass.config_entries.async_update_entry(
+            self.entry,
+            options={
+                **self.entry.options,
+                "guests": {key: dict(value) for key, value in self.guests.items()},
+            },
+        )
+
+    async def async_create_guest(
+        self,
+        name: str,
+        code: str | None = None,
+        slot: int | None = None,
+        until: str | None = None,
+    ) -> dict[str, Any]:
+        """Write a guest PIN, name the slot and remember the window.
+
+        The code is returned once so the caller can hand it to the guest; it is
+        never stored or logged anywhere.
+        """
+        clean_name = str(name or "").strip()
+        if not clean_name:
+            raise RuntimeError("a guest name is required")
+        normalized_until = normalize_until(until) if until else None
+        if until and normalized_until is None:
+            raise RuntimeError("until is not a valid ISO timestamp")
+        if slot is None:
+            occupied = {s for s, _data in self.slots.items() if self.slots.occupied(s)}
+            occupied |= {int(key) for key in self.guests if str(key).isdigit()}
+            slot = pick_slot(
+                occupied,
+                first_user_slot(self.entry.options),
+                pin_capacity(self.lock_facts),
+            )
+            if slot is None:
+                raise RuntimeError("the lock has no free user slot")
+        code_text = str(code) if code else generate_code()
+        if not valid_code(code_text):
+            raise RuntimeError("the code must be 4-8 digits")
+        await self._async_set_pin(
+            slot,
+            code_text,
+            journal={
+                "action": GUEST_CREATED,
+                "name": clean_name,
+                "detail": f"until {normalized_until}" if normalized_until else "no expiry",
+            },
+        )
+        self.slots.set_name(slot, clean_name)
+        await self._async_publish_slot(slot, self.slots.occupied(slot))
+        self.guests[str(slot)] = {
+            "name": clean_name,
+            "until": normalized_until,
+            "created": dt_util.utcnow().isoformat(),
+        }
+        await self._async_save_guests()
+        if normalized_until:
+            self._schedule_guest_expiry(slot, normalized_until)
+        self._publish_snapshot()
+        _LOGGER.info(
+            "Guest code created on slot %s (%s)", slot, normalized_until or "no expiry"
+        )
+        return {
+            "slot": slot,
+            "code": code_text,
+            "name": clean_name,
+            "until": normalized_until,
+        }
+
+    async def async_revoke_guest(
+        self, slot: int, *, reason: str = GUEST_REVOKED
+    ) -> dict[str, Any]:
+        """Clear a guest code now and forget the window."""
+        guest = self.guests.pop(str(slot), None)
+        self._cancel_guest_timer(slot)
+        await self._async_save_guests()
+        await self._async_clear_pin(
+            slot,
+            journal={"action": reason, "name": (guest or {}).get("name")},
+        )
+        self.slots.clear(slot)
+        await self._async_publish_slot(slot, False)
+        self._publish_snapshot()
+        return {"slot": slot, "revoked": guest is not None}
+
+    def _schedule_guest_expiry(self, slot: int, until: str) -> None:
+        """Clear the code when the window ends; a missed timer fires at startup."""
+        self._cancel_guest_timer(slot)
+        when = dt_util.parse_datetime(until)
+        if when is None:
+            return
+        delay = (when - dt_util.utcnow()).total_seconds()
+        if delay <= 0:
+            self.hass.async_create_task(self._async_expire_guest(slot))
+            return
+
+        async def _expire(_now: Any = None, guest_slot: int = slot) -> None:
+            await self._async_expire_guest(guest_slot)
+
+        # A coroutine callback: HassJob runs it on the event loop, where a
+        # plain lambda would call async_create_task from the wrong thread.
+        self._guest_unsubs[str(slot)] = async_call_later(self.hass, delay, _expire)
+
+    def _cancel_guest_timer(self, slot: int) -> None:
+        unsub = self._guest_unsubs.pop(str(slot), None)
+        if unsub is not None:
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001 - a dead unsubscribe is not an error
+                _LOGGER.debug("Guest timer unsubscribe failed", exc_info=True)
+
+    async def _async_expire_guest(self, slot: int) -> None:
+        guest = self.guests.get(str(slot))
+        if guest is None:
+            return
+        _LOGGER.info("Guest code on slot %s expired", slot)
+        await self.async_revoke_guest(slot, reason=GUEST_EXPIRED)
+
+    async def _async_resume_guests(self) -> None:
+        """After a restart: expire what already ended and re-arm the rest."""
+        now = dt_util.utcnow()
+        for slot in expired_slots(self.guests, now):
+            await self._async_expire_guest(slot)
+        for key, guest in self.guests.items():
+            until = guest.get("until")
+            if until and str(key).isdigit():
+                self._schedule_guest_expiry(int(key), str(until))
 
     # -- OTA ---------------------------------------------------------------
 
@@ -1252,7 +1421,9 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- PIN / fingerprint towards ZHA ---------------------------------------
 
-    async def _async_set_pin(self, slot: int, code: str) -> None:
+    async def _async_set_pin(
+        self, slot: int, code: str, *, journal: dict[str, Any] | None = None
+    ) -> None:
         if self.zha is None:
             raise RuntimeError("the ZHA link is not ready")
         reason = check_credential_slot(slot, self.entry.options, self.lock_facts)
@@ -1264,15 +1435,22 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_publish_slot(slot, self.slots.occupied(slot))
         await self._async_journal_add(
             make_entry(
-                action="pin_set",
                 time=dt_util.utcnow().isoformat(),
                 origin=ORIGIN_HA,
                 slot=slot,
-                name=self.slots.name(slot, fallback=False) or None,
+                **(
+                    journal
+                    or {
+                        "action": "pin_set",
+                        "name": self.slots.name(slot, fallback=False) or None,
+                    }
+                ),
             )
         )
 
-    async def _async_clear_pin(self, slot: int) -> None:
+    async def _async_clear_pin(
+        self, slot: int, *, journal: dict[str, Any] | None = None
+    ) -> None:
         if self.zha is None:
             raise RuntimeError("the ZHA link is not ready")
         reason = check_credential_slot(slot, self.entry.options, self.lock_facts)
@@ -1284,10 +1462,10 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_publish_slot(slot, self.slots.occupied(slot))
         await self._async_journal_add(
             make_entry(
-                action="pin_cleared",
                 time=dt_util.utcnow().isoformat(),
                 origin=ORIGIN_HA,
                 slot=slot,
+                **(journal or {"action": "pin_cleared"}),
             )
         )
 

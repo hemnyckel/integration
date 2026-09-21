@@ -15,3 +15,6 @@ read_lock_attributes:
 set_auto_lock:
 set_sound_volume:
 fetch_journal:
+create_guest_code:
+revoke_guest_code:
+list_guests:
