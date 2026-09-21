@@ -92,7 +92,8 @@
           "slot_name": "Namnge en slot",
           "slot_clear": "Rensa en slot",
           "channels": "Speglingskanaler",
-          "firmware": "Firmwarekälla"
+          "firmware": "Firmwarekälla",
+          "reserved": "Master-slots"
         }
       },
       "firmware": {
@@ -100,6 +101,13 @@
         "description": "OTA-manifestets URL som uppdaterings-entiteterna läser. Behåll standardvärdet om du inte hostar egna byggen.",
         "data": {
           "ota_manifest_url": "Manifest-URL"
+        }
+      },
+      "reserved": {
+        "title": "Master-slots",
+        "description": "Hur många slots låset reserverar för masteruppgifter. Manualerna säger 0-2 på alla modeller utom Code Pro, som bara reserverar slot 0. Slot 0 skrivs aldrig.",
+        "data": {
+          "reserved_slots": "Reserverade slots"
         }
       },
       "channels": {

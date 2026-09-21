@@ -92,7 +92,8 @@ from ..const import (
     ZCL_CMD_FP_ENROLL,
 )
 
-from .facts import compute_settings_drift
+from .facts import compute_settings_drift, suggest_user_name
+from .pin_rules import check_credential_slot
 from .slots import SlotTable
 from .zha_link import FACTS_ATTRIBUTES, ZhaLink
 
@@ -408,6 +409,49 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_publish_slot(slot, self.slots.occupied(slot))
         self._publish_snapshot()
         _LOGGER.info("Named slot %s as %s", slot, name)
+
+    def suggest_slot_name(self, slot: int) -> str | None:
+        """A cloud user name for a freshly learned slot, when exactly one fits.
+
+        The cloud maps users to credentials but never exposes slot numbers (the
+        gateway translates internally), so the suggestion is conservative and
+        the user still confirms it in the repair flow.
+        """
+        wanted = set(self.slots.credentials(slot))
+        if not wanted or self._slot_is_named(slot):
+            return None
+        used = {
+            str(data.get("name") or "").lower()
+            for _slot, data in self.slots.items()
+            if data.get("name")
+        }
+        for coordinator in self.hass.data.get(DOMAIN, {}).values():
+            access = getattr(coordinator, "access", None)
+            users = getattr(coordinator, "users", None)
+            devices = getattr(coordinator, "devices", None)
+            if not access or not users or not devices:
+                continue
+            device_id = self._cloud_device_id(devices)
+            if device_id is None:
+                continue
+            return suggest_user_name(wanted, used, users, access.get(device_id) or [])
+        return None
+
+    def _cloud_device_id(self, devices: list[dict[str, Any]]) -> str | None:
+        """The cloud device whose serial number is this lock's module (IEEE)."""
+        mine = str(self.ieee or "").replace(":", "").replace("-", "").lower()
+        if not mine:
+            return None
+        for device in devices:
+            serial = (
+                str(device.get("serialNumber") or "")
+                .replace(":", "")
+                .replace("-", "")
+                .lower()
+            )
+            if serial and serial == mine:
+                return str(device.get("id") or "") or None
+        return None
 
     async def async_set_slot_pin(self, slot: int, code: str) -> None:
         """Write a PIN to a slot on the real lock (config UI and service path)."""
@@ -838,10 +882,15 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not isinstance(action, int):
             return
         slot = data.get("user_slot")
-        if isinstance(slot, int) and source in (
-            SRC_KEYPAD,
-            SRC_FINGERPRINT,
-            SRC_RFID,
+        master = bool(data.get("master"))
+        if (
+            isinstance(slot, int)
+            and slot > 0
+            and source in (
+                SRC_KEYPAD,
+                SRC_FINGERPRINT,
+                SRC_RFID,
+            )
         ):
             # Learn which credential type the slot holds, and ask once for a name
             # if it has none, so attribution stays local.
@@ -855,11 +904,17 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # System locks (auto) need no notification - mirrored anyway for consistency.
         if source is not None and source not in HUMAN_SOURCES:
             _LOGGER.debug("Skipping system event source=%s", source)
+        if master:
+            slot_name = self.slots.name(0, fallback=False) or "Master"
+        elif isinstance(slot, int):
+            slot_name = self.slots.name(slot)
+        else:
+            slot_name = None
         self.last_event = {
             "action": ACTION_NAMES.get(action),
             "source": SOURCE_NAMES.get(source) if isinstance(source, int) else None,
             "slot": slot,
-            "name": self.slots.name(slot) if isinstance(slot, int) else None,
+            "name": slot_name,
             "time": dt_util.utcnow().isoformat(),
             "direction": "lock->app",
         }
@@ -1039,6 +1094,9 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_set_pin(self, slot: int, code: str) -> None:
         if self.zha is None:
             raise RuntimeError("the ZHA link is not ready")
+        reason = check_credential_slot(slot, self.entry.options, self.lock_facts)
+        if reason is not None:
+            raise RuntimeError(reason)
         if not await self.zha.set_pin(slot, code):
             raise RuntimeError("the lock did not accept the PIN command")
         self.slots.mark_pin(slot, True)
@@ -1047,6 +1105,9 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_clear_pin(self, slot: int) -> None:
         if self.zha is None:
             raise RuntimeError("the ZHA link is not ready")
+        reason = check_credential_slot(slot, self.entry.options, self.lock_facts)
+        if reason is not None:
+            raise RuntimeError(reason)
         if not await self.zha.clear_pin(slot):
             raise RuntimeError("the lock did not accept the clear command")
         self.slots.mark_pin(slot, False)

@@ -62,5 +62,48 @@ class CapabilitySummaryTest(unittest.TestCase):
         self.assertIsNone(facts.capability_summary({}))
 
 
+class SuggestUserNameTest(unittest.TestCase):
+    USERS = [
+        {"id": "u1", "name": "Claes Häll"},
+        {"id": "u2", "name": "Carro Häll"},
+    ]
+    ENTRIES = [
+        {"userId": "u1", "type": "finger"},
+        {"userId": "u1", "type": "pin"},
+        {"userId": "u2", "type": "finger"},
+        {"userId": "u2", "type": "pin"},
+    ]
+
+    def test_single_candidate(self) -> None:
+        self.assertEqual(
+            facts.suggest_user_name({"pin"}, {"claes häll"}, self.USERS, self.ENTRIES),
+            "Carro Häll",
+        )
+
+    def test_ambiguous_is_no_suggestion(self) -> None:
+        self.assertIsNone(
+            facts.suggest_user_name({"finger"}, set(), self.USERS, self.ENTRIES)
+        )
+
+    def test_no_matching_type(self) -> None:
+        self.assertIsNone(
+            facts.suggest_user_name({"tag"}, set(), self.USERS, self.ENTRIES)
+        )
+
+    def test_used_names_are_skipped(self) -> None:
+        self.assertIsNone(
+            facts.suggest_user_name(
+                {"pin"}, {"claes häll", "carro häll"}, self.USERS, self.ENTRIES
+            )
+        )
+
+    def test_users_without_access_do_not_count(self) -> None:
+        users = self.USERS + [{"id": "u3", "name": "Utomstående"}]
+        self.assertEqual(
+            facts.suggest_user_name({"pin"}, {"claes häll"}, users, self.ENTRIES),
+            "Carro Häll",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

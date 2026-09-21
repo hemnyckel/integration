@@ -49,6 +49,12 @@ from .const import (
     TYPE_CLOUD,
     TYPE_MIRROR,
 )
+from .mirror.pin_rules import (  # noqa: E402 - after the const imports
+    OPTION_RESERVED_SLOTS,
+    RESERVED_SLOTS_MAX,
+    RESERVED_SLOTS_MIN,
+    first_user_slot,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -409,6 +415,7 @@ class NimlyOptionsFlow(config_entries.OptionsFlow):
                 "slot_clear",
                 "channels",
                 "firmware",
+                "reserved",
             ],
         )
 
@@ -441,6 +448,27 @@ class NimlyOptionsFlow(config_entries.OptionsFlow):
         )
 
     # -- mirror: channels ---------------------------------------------------
+
+    async def async_step_reserved(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """How many slots the lock keeps for master credentials."""
+        if user_input is not None:
+            options = dict(self.config_entry.options)
+            options[OPTION_RESERVED_SLOTS] = int(user_input[OPTION_RESERVED_SLOTS])
+            return self.async_create_entry(data=options)
+        current = first_user_slot(self.config_entry.options)
+        return self.async_show_form(
+            step_id="reserved",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(OPTION_RESERVED_SLOTS, default=current): vol.All(
+                        int,
+                        vol.Range(min=RESERVED_SLOTS_MIN, max=RESERVED_SLOTS_MAX),
+                    )
+                }
+            ),
+        )
 
     def _current_channels(self) -> dict[str, bool]:
         entry = self.config_entry

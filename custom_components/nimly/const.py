@@ -232,15 +232,19 @@ def decode_operation_event(value: int) -> dict[str, Any] | None:
     """Decode attribute 0x0100 (bitmap32): slot, action and source.
 
     Bits 0-15 are the slot (0 means none), 16-23 the action, 24-31 the source.
-    Unknown codes come back as None names rather than a guess.
+    A slot 0 with a human source (keypad, fingerprint, rfid) is the master
+    credential; with an automatic source it means no user at all. Unknown
+    codes come back as None names rather than a guess.
     """
     if not isinstance(value, int) or not 0 <= value <= 0xFFFFFFFF:
         return None
     slot = value & 0xFFFF
     action_code = (value >> 16) & 0xFF
     source_code = (value >> 24) & 0xFF
+    master = slot == 0 and source_code in (SRC_KEYPAD, SRC_FINGERPRINT, SRC_RFID)
     return {
-        "user_slot": slot if slot > 0 else None,
+        "user_slot": slot if (slot > 0 or master) else None,
+        "master": master,
         "action_code": action_code,
         "source_code": source_code,
         "action": ACTION_NAMES.get(action_code),

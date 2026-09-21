@@ -43,3 +43,35 @@ def capability_summary(facts: dict[str, Any]) -> str | None:
     if total is not None:
         parts.append(f"{total} total")
     return " · ".join(parts)
+
+
+def suggest_user_name(
+    wanted_types: set[str],
+    used_names: set[str],
+    users: list[dict[str, Any]],
+    entries: list[dict[str, Any]],
+) -> str | None:
+    """A cloud user name for a slot, when exactly one user fits.
+
+    The cloud maps users to credential types but never exposes slot numbers
+    (the gateway translates internally), so the match is deliberately
+    conservative: only a single user holding one of the slot's credential
+    types, with a name no local slot uses yet, is suggested.
+    """
+    types_by_user: dict[str, set[str]] = {}
+    for entry in entries:
+        user_id = str(entry.get("userId") or "")
+        kind = str(entry.get("type") or "")
+        if user_id and kind:
+            types_by_user.setdefault(user_id, set()).add(kind)
+    candidates: list[str] = []
+    for user in users:
+        name = str(user.get("name") or user.get("firstName") or "")
+        user_id = str(user.get("id") or "")
+        if not name or name.lower() in used_names:
+            continue
+        if wanted_types & types_by_user.get(user_id, set()):
+            candidates.append(name)
+    if len(candidates) == 1:
+        return candidates[0]
+    return None

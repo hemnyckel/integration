@@ -39,8 +39,23 @@ class DecodeOperationEventTest(unittest.TestCase):
         decoded = const.decode_operation_event(0x05010000)
         self.assertIsNotNone(decoded)
         self.assertIsNone(decoded["user_slot"])
+        self.assertFalse(decoded["master"])
         self.assertEqual(decoded["action"], "lock")
         self.assertEqual(decoded["source"], "unattributed")
+
+    def test_master_credential_is_slot_zero_with_a_human_source(self) -> None:
+        decoded = const.decode_operation_event(0x02020000)
+        self.assertIsNotNone(decoded)
+        self.assertEqual(decoded["user_slot"], 0)
+        self.assertTrue(decoded["master"])
+        self.assertEqual(decoded["action"], "unlock")
+        self.assertEqual(decoded["source"], "keypad")
+
+    def test_slot_zero_without_a_human_source_is_no_user(self) -> None:
+        decoded = const.decode_operation_event(0x0A010000)
+        self.assertIsNotNone(decoded)
+        self.assertIsNone(decoded["user_slot"])
+        self.assertFalse(decoded["master"])
 
     def test_auto_relock(self) -> None:
         decoded = const.decode_operation_event(0x0A010000)

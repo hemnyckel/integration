@@ -31,11 +31,21 @@ class NewSlotRepairFlow(RepairsFlow):
                     break
             return self.async_create_entry(data={})
 
+        # A cloud user name is offered as the default when exactly one fits,
+        # but the user still confirms or replaces it.
+        suggestion = None
+        for coordinator in self.hass.data.get(DOMAIN, {}).values():
+            suggest = getattr(coordinator, "suggest_slot_name", None)
+            if suggest is not None:
+                suggestion = suggest(self._slot)
+                break
+        if suggestion:
+            name_field: vol.Marker = vol.Required("name", default=suggestion)
+        else:
+            name_field = vol.Required("name")
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
-                {vol.Required("name"): selector.TextSelector()}
-            ),
+            data_schema=vol.Schema({name_field: selector.TextSelector()}),
             description_placeholders={"slot": str(self._slot)},
         )
 

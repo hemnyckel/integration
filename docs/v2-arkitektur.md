@@ -107,6 +107,18 @@ notifications with who/how. One product, installable in stages (cloud only, or c
 - **There is no door sensor.** `door_state` (`0x0003`) is readable but always reports `4`
   (unspecified), before and after lock/unlock; neither the cloud feature list nor the action
   vocabulary has a door event. Door status, if wanted, comes from a separate contact sensor.
+- **Slot rules (from the vendor manuals, see the onesti-lock project):** slots 0-2 are
+  reserved for master credentials on every model but the Code Pro (which reserves only slot
+  0 and documents 1-999 as user slots); user slots start at 3. Fingerprints have their own
+  numbering (000-199 on the Touch Pro/EasyFingerTouch), so a fingerprint 5 and a code 5 can
+  be two different credentials - the source byte of `0x0100` tells them apart. Codes are 4-8
+  digits. `set_pin`, `clear_pin` and `clear_slot` refuse slots below the per-lock reserved
+  count and slots at or above the lock's reported PIN capacity (`pin_rules.py`); naming
+  stays allowed on every slot.
+- **The cloud knows users, not slots.** `GET /devices/{id}/access` lists a user's credential
+  types (pin/tag/finger/otp/digitalKey) with the user id, never the slot number - the gateway
+  translates internally. Slot names therefore stay local; the cloud only supplies name
+  suggestions for freshly learned slots when exactly one user fits (`facts.suggest_user_name`).
 
 ## 5. Decisions (ratified 2026-09-20)
 
@@ -217,12 +229,18 @@ drift, timestamp).
 
 ## 9. Open items carried forward
 
-1. **Vendor settings-write endpoint** (app display) — needs a phone-side capture (mitm).
-   Until then, app display of auto-lock/volume cannot be driven from HA.
+1. **Vendor settings-write endpoint** — found in the onesti-lock OpenAPI spec
+   (`PATCH /devices/{id}/settings`), see item 6. No phone-side capture needed.
 2. **Repeated same-credential unlocks** produce no Zigbee report; attribution for those is
    history-only by nature.
 3. **Multi-model scope** for the absorbed ZHA layer (start with our own models).
 4. **Push CI** blocked: the stored GitHub token lacks the `workflow` scope.
+5. **Device claiming (cloud):** `POST /devices` and `GET /home/{id}/new-devices/{type}` can
+   add a new module to the account (needed for locks 2-3). Reverse-engineered and unverified;
+   do it with the second lock at hand.
+6. **Vendor settings write:** `PATCH /devices/{id}/settings` accepts the app's record
+   (`autolock`, `volume`, `masterpinmode`, alarm profiles, report flags). Verify live and use
+   it so the app display follows HA's local setting writes.
 
 ## 10. Phases
 
