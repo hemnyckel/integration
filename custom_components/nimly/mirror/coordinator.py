@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import pathlib
 import time
 from collections import deque
 from datetime import timedelta
@@ -63,6 +64,7 @@ from ..const import (
     DEFAULT_OTA_MANIFEST_URL,
     DOMAIN,
     ECHO_WINDOW,
+    EVENT_JOURNAL,
     EVENT_NIMLY_CLOUD_ACTIVITY,
     EV_ACTION,
     EV_FP_CLEAR,
@@ -93,6 +95,16 @@ from ..const import (
 )
 
 from .facts import compute_settings_drift, suggest_user_name, vendor_volume
+from .journal import (
+    ORIGIN_CLOUD,
+    ORIGIN_HA,
+    ORIGIN_LOCK,
+    add as journal_add,
+    make_entry,
+    query as journal_query,
+    summarize as journal_summarize,
+    trim as journal_trim,
+)
 from .pin_rules import check_credential_slot
 from .slots import SlotTable
 from .zha_link import FACTS_ATTRIBUTES, ZhaLink
@@ -154,6 +166,10 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.settings_drift: dict[str, dict[str, Any]] = {}
         self._facts_refresh_monotonic: float = 0.0
         self._facts_task: asyncio.Task[Any] | None = None
+        self.journal: list[dict[str, Any]] = []
+        self._journal_path = hass.config.path(
+            ".nimly", f"journal_{entry.entry_id}.jsonl"
+        )
         self.zha: ZhaLink | None = None
         self.last_error: str | None = None
         self.counters: dict[str, int] = {
@@ -273,6 +289,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         )
 
+        await self._async_load_journal()
         await self._async_sync_to_app()
         self._publish_snapshot()
         await self._async_health()
@@ -407,6 +424,15 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_publish_slot(slot, self.slots.occupied(slot))
         self._publish_snapshot()
         _LOGGER.info("Named slot %s as %s", slot, name)
+        await self._async_journal_add(
+            make_entry(
+                action="slot_named",
+                time=dt_util.utcnow().isoformat(),
+                origin=ORIGIN_HA,
+                slot=slot,
+                detail=name,
+            )
+        )
 
     def suggest_slot_name(self, slot: int) -> str | None:
         """A cloud user name for a freshly learned slot, when exactly one fits.
@@ -518,6 +544,14 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if bool(actual) != bool(enabled):
             raise RuntimeError("the lock kept a different auto-lock setting")
         await self._async_push_app_setting({"autolock": bool(enabled)})
+        await self._async_journal_add(
+            make_entry(
+                action="setting_changed",
+                time=dt_util.utcnow().isoformat(),
+                origin=ORIGIN_HA,
+                detail=f"auto_lock={'on' if enabled else 'off'}",
+            )
+        )
         return facts
 
     async def async_set_lock_volume(self, level: int) -> dict[str, Any]:
@@ -534,6 +568,14 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         vendor = vendor_volume(int(level))
         if vendor is not None:
             await self._async_push_app_setting({"volume": vendor})
+        await self._async_journal_add(
+            make_entry(
+                action="setting_changed",
+                time=dt_util.utcnow().isoformat(),
+                origin=ORIGIN_HA,
+                detail=f"sound_volume={int(level)}",
+            )
+        )
         return facts
 
     async def _async_push_app_setting(self, payload: dict[str, Any]) -> None:
@@ -555,6 +597,73 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except Exception as err:  # noqa: BLE001 - convenience only
                 _LOGGER.debug("Could not push settings to the cloud: %s", err)
             return
+
+    # -- journal -------------------------------------------------------------
+
+    def journal_entries(self, **filters: Any) -> list[dict[str, Any]]:
+        """Query the timeline (the fetch_journal service path)."""
+        return journal_query(self.journal, **filters)
+
+    def journal_summary(self) -> dict[str, int]:
+        return journal_summarize(self.journal, now=time.time())
+
+    async def _async_load_journal(self) -> None:
+        """Read the on-disk journal once at startup; a broken file starts empty."""
+
+        def _read() -> list[dict[str, Any]]:
+            path = pathlib.Path(self._journal_path)
+            if not path.exists():
+                return []
+            loaded: list[dict[str, Any]] = []
+            try:
+                with path.open(encoding="utf-8") as handle:
+                    for line in handle:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            entry = json.loads(line)
+                        except ValueError:
+                            continue
+                        if isinstance(entry, dict) and entry.get("time"):
+                            loaded.append(entry)
+            except OSError as err:
+                _LOGGER.warning("Could not read the journal: %s", err)
+                return []
+            return loaded
+
+        self.journal = await self.hass.async_add_executor_job(_read)
+        if journal_trim(self.journal, now=time.time()):
+            await self._async_save_journal(rewrite=True)
+
+    async def _async_journal_add(self, candidate: dict[str, Any]) -> None:
+        """Store one event, merging it with its twin from the other source."""
+        stored, merged, trimmed = journal_add(self.journal, candidate, now=time.time())
+        await self._async_save_journal(rewrite=merged or trimmed)
+        if not merged:
+            self.hass.bus.async_fire(EVENT_JOURNAL, dict(stored))
+        self._publish_snapshot()
+
+    async def _async_save_journal(self, *, rewrite: bool) -> None:
+        """Rewrite the file for merges and trims, else append the newest entry."""
+
+        def _write() -> None:
+            path = pathlib.Path(self._journal_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if rewrite or not path.exists():
+                tmp = path.with_suffix(".tmp")
+                with tmp.open("w", encoding="utf-8") as handle:
+                    for entry in self.journal:
+                        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                tmp.replace(path)
+            else:
+                with path.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(self.journal[-1], ensure_ascii=False) + "\n")
+
+        try:
+            await self.hass.async_add_executor_job(_write)
+        except OSError as err:
+            _LOGGER.warning("Could not write the journal: %s", err)
 
     # -- OTA ---------------------------------------------------------------
 
@@ -944,6 +1053,20 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._schedule_facts_refresh()
         self._publish_snapshot()
         self.hass.async_create_task(
+            self._async_journal_add(
+                make_entry(
+                    action=ACTION_NAMES.get(action) or "unknown",
+                    time=str(self.last_event.get("time")),
+                    origin=ORIGIN_LOCK,
+                    source=SOURCE_NAMES.get(source)
+                    if isinstance(source, int)
+                    else None,
+                    slot=slot,
+                    name=slot_name,
+                )
+            )
+        )
+        self.hass.async_create_task(
             self._async_publish(
                 {
                     "cmd": CMD_EVENT,
@@ -991,6 +1114,22 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
         self.counters["events"] += 1
         self._publish_snapshot()
+        self.hass.async_create_task(
+            self._async_journal_add(
+                make_entry(
+                    action=str(data.get("action") or "unknown"),
+                    time=str(
+                        data.get("time")
+                        or data.get("vendor_time")
+                        or dt_util.utcnow().isoformat()
+                    ),
+                    origin=ORIGIN_CLOUD,
+                    source=str(data.get("source")) if data.get("source") else None,
+                    slot=slot,
+                    name=name,
+                )
+            )
+        )
 
     def _slot_from_name(self, name: Any) -> int | None:
         """The local slot whose name matches a cloud user name, when unambiguous.
@@ -1123,6 +1262,15 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise RuntimeError("the lock did not accept the PIN command")
         self.slots.mark_pin(slot, True)
         await self._async_publish_slot(slot, self.slots.occupied(slot))
+        await self._async_journal_add(
+            make_entry(
+                action="pin_set",
+                time=dt_util.utcnow().isoformat(),
+                origin=ORIGIN_HA,
+                slot=slot,
+                name=self.slots.name(slot, fallback=False) or None,
+            )
+        )
 
     async def _async_clear_pin(self, slot: int) -> None:
         if self.zha is None:
@@ -1134,6 +1282,14 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise RuntimeError("the lock did not accept the clear command")
         self.slots.mark_pin(slot, False)
         await self._async_publish_slot(slot, self.slots.occupied(slot))
+        await self._async_journal_add(
+            make_entry(
+                action="pin_cleared",
+                time=dt_util.utcnow().isoformat(),
+                origin=ORIGIN_HA,
+                slot=slot,
+            )
+        )
 
     async def _async_zcl(self, command: int, arg: int) -> None:
         if self.zha is None:

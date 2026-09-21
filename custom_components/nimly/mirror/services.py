@@ -23,6 +23,7 @@ SERVICE_CLEAR_SLOT = "clear_slot"
 SERVICE_READ_LOCK_ATTRIBUTES = "read_lock_attributes"
 SERVICE_SET_AUTO_LOCK = "set_auto_lock"
 SERVICE_SET_SOUND_VOLUME = "set_sound_volume"
+SERVICE_FETCH_JOURNAL = "fetch_journal"
 
 PROVISION_SCHEMA = vol.Schema(
     {
@@ -87,6 +88,19 @@ SET_AUTO_LOCK_SCHEMA = vol.Schema(
 SET_SOUND_VOLUME_SCHEMA = vol.Schema(
     {
         vol.Required("level"): vol.All(vol.Coerce(int), vol.Range(min=0, max=2)),
+        vol.Optional("entry_id"): cv.string,
+    }
+)
+
+FETCH_JOURNAL_SCHEMA = vol.Schema(
+    {
+        vol.Optional("limit", default=50): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=500)
+        ),
+        vol.Optional("person"): cv.string,
+        vol.Optional("slot"): vol.Coerce(int),
+        vol.Optional("action"): cv.string,
+        vol.Optional("since"): cv.string,
         vol.Optional("entry_id"): cv.string,
     }
 )
@@ -209,6 +223,22 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             results[coord.entry.entry_id] = await coord.async_set_lock_volume(level)
         return results
 
+    async def _async_handle_fetch_journal(call: ServiceCall) -> dict[str, Any]:
+        entry_id = call.data.get("entry_id")
+        coordinators = _coordinators(hass, entry_id, "journal_entries")
+        if not coordinators:
+            return {"error": "no matching mirror"}
+        results: dict[str, Any] = {}
+        for coord in coordinators:
+            results[coord.entry.entry_id] = coord.journal_entries(
+                person=call.data.get("person"),
+                slot=call.data.get("slot"),
+                action=call.data.get("action"),
+                since=call.data.get("since"),
+                limit=int(call.data.get("limit") or 50),
+            )
+        return results
+
     hass.services.async_register(
         DOMAIN, SERVICE_SET_IEEE, _async_handle_set_ieee, schema=SET_IEEE_SCHEMA
     )
@@ -251,6 +281,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         schema=SET_SOUND_VOLUME_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_FETCH_JOURNAL,
+        _async_handle_fetch_journal,
+        schema=FETCH_JOURNAL_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
 
 
 async def async_unload_services(hass: HomeAssistant) -> None:
@@ -263,3 +300,4 @@ async def async_unload_services(hass: HomeAssistant) -> None:
     hass.services.async_remove(DOMAIN, SERVICE_READ_LOCK_ATTRIBUTES)
     hass.services.async_remove(DOMAIN, SERVICE_SET_AUTO_LOCK)
     hass.services.async_remove(DOMAIN, SERVICE_SET_SOUND_VOLUME)
+    hass.services.async_remove(DOMAIN, SERVICE_FETCH_JOURNAL)

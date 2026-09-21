@@ -340,6 +340,18 @@
         "level": { "name": "Nivå", "description": "0, 1 eller 2." },
         "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska användas. Utelämna för alla." }
       }
+    },
+    "fetch_journal": {
+      "name": "Läs låsjournalen",
+      "description": "Returnerar låsets tidslinje över åtkomst- och adminhändelser, nyaste sist.",
+      "fields": {
+        "limit": { "name": "Antal", "description": "Hur många poster som returneras (1-500)." },
+        "person": { "name": "Person", "description": "Endast poster vars namn innehåller texten." },
+        "slot": { "name": "Slot", "description": "Endast poster för denna slot." },
+        "action": { "name": "Åtgärd", "description": "Endast poster med denna åtgärd, till exempel unlock eller pin_set." },
+        "since": { "name": "Från och med", "description": "Endast poster från och med denna ISO-tid." },
+        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska läsas. Utelämna för alla." }
+      }
     }
   }
 }

@@ -340,6 +340,18 @@
         "level": { "name": "Level", "description": "0, 1 or 2." },
         "entry_id": { "name": "Config entry", "description": "Which mirror to act on. Leave out to target all of them." }
       }
+    },
+    "fetch_journal": {
+      "name": "Read the lock journal",
+      "description": "Returns the lock's timeline of access and admin events, newest last.",
+      "fields": {
+        "limit": { "name": "Limit", "description": "How many entries to return (1-500)." },
+        "person": { "name": "Person", "description": "Only entries whose name contains this text." },
+        "slot": { "name": "Slot", "description": "Only entries for this slot." },
+        "action": { "name": "Action", "description": "Only entries with this action, for example unlock or pin_set." },
+        "since": { "name": "Since", "description": "Only entries at or after this ISO timestamp." },
+        "entry_id": { "name": "Config entry", "description": "Which mirror to read. Leave out to read all of them." }
+      }
     }
   }
 }

@@ -32,6 +32,8 @@ async def async_get_config_entry_diagnostics(
         "lock_facts": dict(coordinator.lock_facts),
         "lock_facts_at": coordinator.lock_facts_at,
         "settings_drift": dict(coordinator.settings_drift),
+        "journal_summary": coordinator.journal_summary(),
+        "journal_recent": list(coordinator.journal[-5:]),
         "counters": dict(coordinator.counters),
         "last_error": coordinator.last_error,
         "slots": coordinator.slots.snapshot(),

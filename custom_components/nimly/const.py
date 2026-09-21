@@ -262,6 +262,9 @@ EVENT_NIMLY_LOCK_ACTIVITY = "onesti_lock_activity"
 # Fired by the cloud layer for every activity the vendor attributes. The mirror listens so
 # the local view gains who/how when the lock itself cannot report it over Zigbee.
 EVENT_NIMLY_CLOUD_ACTIVITY = "nimly_cloud_activity"
+# Fired for every new journal entry (access and admin events), so automations can
+# react to "who opened the door" without polling the journal.
+EVENT_JOURNAL = "nimly_journal_entry"
 
 # --- The vendor account (cloud) ---------------------------------------------
 CONF_EMAIL = "email"

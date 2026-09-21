@@ -202,7 +202,6 @@ until feature parity is verified, then entries are recreated and the old package
   zero-touch via Improv (kept from the v1 roadmap).
 
 ### Local facts layer (added 2026-09-21)
-
 The mirror reads the lock's own standard DoorLock attributes - capabilities and settings,
 never credentials - through the ZHA cluster object (`mirror/facts.py` plus
 `read_attributes`/`write_attributes` in `zha_link.py`). Reads happen at startup (best
@@ -215,10 +214,21 @@ back. A drift check compares the lock's own values with the app's record
 diagnostic sensor (state: the capability summary; attributes: own settings, app values,
 drift, timestamp).
 
+### The journal (added 2026-09-21)
+
+Every access event and admin action lands in one timeline per lock, stored as JSONL next
+to the HA configuration (`.nimly/journal_<entry>.jsonl`, retention 5 000 entries or 12
+months). Local `0x0100` events carry the slot and source; the cloud's attributed feed
+adds the person's name; the integration itself contributes admin actions (PIN
+set/cleared, renaming, settings). A local and a cloud report of the same physical event
+are merged into one entry. Read it with `nimly.fetch_journal`, watch the `journal` sensor
+or subscribe to the `nimly_journal_entry` event.
+
 ## 7. Observability
 
 - Sensors: bridge reachable, emulator firmware version, settings-sync age, last local event,
-  last cloud event, lock facts (capabilities, own settings, drift vs the app).
+  last cloud event, lock facts (capabilities, own settings, drift vs the app), journal
+  (totals and the last entry).
 - Repairs: master credentials missing, bridge wedged (stale feedback), firmware mismatch or
   rollback happened, ZHA device rebuilt.
 - Diagnostics with redaction; no PIN codes in any log.

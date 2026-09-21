@@ -40,6 +40,7 @@ async def async_setup_entry(
             MirrorBridgeFirmware(coordinator),
             MirrorLastError(coordinator),
             MirrorLockFacts(coordinator),
+            MirrorJournal(coordinator),
         ]
     )
     _setup_slot_sensors(coordinator, async_add_entities)
@@ -255,7 +256,6 @@ class BridgeFirmware(BridgeEntity, SensorEntity):
 
 class MirrorLockFacts(MirrorEntity, SensorEntity):
     """What the lock itself reports: capabilities and settings, over Zigbee."""
-
     _attr_name = "Lock facts"
     _attr_icon = "mdi:information-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -285,4 +285,37 @@ class MirrorLockFacts(MirrorEntity, SensorEntity):
             "app_volume": self.coordinator.app_volume,
             "settings_drift": dict(self.coordinator.settings_drift),
             "updated": self.coordinator.lock_facts_at,
+        }
+
+
+class MirrorJournal(MirrorEntity, SensorEntity):
+    """The lock's timeline: who opened it, when and how."""
+
+    _attr_name = "Journal"
+    _attr_icon = "mdi:book-open-variant"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.entry_id}_journal"
+
+    @property
+    def native_value(self) -> str | None:
+        if not self.coordinator.journal:
+            return None
+        entry = self.coordinator.journal[-1]
+        who = entry.get("name") or entry.get("detail")
+        if not who and entry.get("slot") is not None:
+            who = f"slot {entry['slot']}"
+        if not who:
+            who = entry.get("source") or ""
+        action = str(entry.get("action") or "")
+        return " · ".join(part for part in (action, str(who)) if part)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        summary = self.coordinator.journal_summary()
+        return {
+            "count_total": summary.get("total"),
+            "count_last_24h": summary.get("last_24h"),
+            "entries": list(self.coordinator.journal[-10:]),
         }
