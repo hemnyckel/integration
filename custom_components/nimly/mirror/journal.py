@@ -20,7 +20,7 @@ ORIGIN_LOCK = "lock"
 ORIGIN_CLOUD = "cloud"
 ORIGIN_HA = "ha"
 
-MERGE_WINDOW_SECONDS = 90.0
+MERGE_WINDOW_SECONDS = 240.0  # covers the cloud feed's poll lag after skew correction
 DEFAULT_MAX_ENTRIES = 5000
 DEFAULT_MAX_AGE_DAYS = 365
 

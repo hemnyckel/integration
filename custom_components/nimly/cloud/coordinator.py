@@ -140,6 +140,10 @@ class NimlyCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # action) must not erase who last opened the door.
         self.last_persons: dict[str, dict[str, Any]] = {}
         self.clock_skew_seconds: float | None = None
+        # The feed's clock offset, derived from its server-computed expires
+        # fields: the gateway stamps events DST-unaware (an hour ahead through
+        # the summer) while the server's own arithmetic stays true.
+        self._feed_offset_seconds: float = 0.0
 
         self._users_by_id: dict[str, dict[str, Any]] = {}
         self._seen_entries: set[str] = set()
@@ -233,6 +237,7 @@ class NimlyCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         if isinstance(history, list):
+            self._feed_offset_seconds = self._feed_offset(history)
             self._ingest_history(device, history)
 
     # -- activity -----------------------------------------------------------
@@ -300,9 +305,30 @@ class NimlyCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "user_name": name,
             "action": entry.get("action"),
             "source": entry.get("source"),
-            "vendor_time": entry.get("lastUpdated") or entry.get("vendor_time"),
+            "vendor_time": entry.get("time")
+            or entry.get("lastUpdated")
+            or entry.get("vendor_time"),
             "observed_at": entry.get("observed_at"),
         }
+
+    def _feed_offset(self, entries: list[dict[str, Any]]) -> float:
+        """The feed clock's offset, from a server-computed expires field.
+
+        State entries carry `expires`, which the vendor server computes with a
+        true clock (lastUpdated + 30 days), while `lastUpdated` itself comes
+        from the event source's DST-unaware clock. The difference is the offset
+        to apply to every stamp; a candidate outside a sane range is ignored
+        rather than guessed at.
+        """
+        for entry in entries:
+            parsed = _parse_stamp(entry.get("lastUpdated"))
+            expires = _parse_stamp(entry.get("expires"))
+            if parsed is None or expires is None:
+                continue
+            candidate = (expires - timedelta(days=30) - parsed).total_seconds()
+            if abs(candidate) <= 7200:
+                return candidate
+        return 0.0
 
     def _build_activity(
         self,
@@ -321,12 +347,22 @@ class NimlyCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         user_id, user_name = self._attribute(entry, siblings)
         stamp = entry.get("lastUpdated")
         observed = datetime.now().astimezone().isoformat(timespec="seconds")
+        corrected = stamp
 
         parsed = _parse_stamp(stamp)
         if parsed is not None:
             skew = (datetime.now(parsed.tzinfo) - parsed).total_seconds()
             if abs(skew) < 86400:
                 self.clock_skew_seconds = skew
+            if abs(self._feed_offset_seconds) > 60:
+                # The feed's DST-unaware clock: shift the stamp by the offset the
+                # server's own expires fields revealed, so ordering, the journal
+                # and the app-visible sensors agree with real time.
+                corrected = (
+                    (parsed + timedelta(seconds=self._feed_offset_seconds))
+                    .astimezone(parsed.tzinfo)
+                    .isoformat()
+                )
 
         return {
             "device_id": device.get("id"),
@@ -342,8 +378,9 @@ class NimlyCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "slot": None,
             "user_id": user_id,
             "user_name": user_name,
-            "time": stamp,  # the contract's shorthand for the vendor's timestamp
-            "vendor_time": stamp,
+            "time": corrected,  # corrected for the feed's DST-unaware clock
+            "vendor_time": corrected,
+            "vendor_time_raw": stamp,  # exactly as the feed sent it, for diagnostics
             "observed_at": observed,
             "feature_state": entry.get("featureState"),
         }
@@ -390,13 +427,27 @@ class NimlyCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         combined.sort(key=lambda item: str(item.get("vendor_time") or ""), reverse=True)
         return combined[:MAX_EVENTS]
 
-    @staticmethod
-    def _as_event(entry: dict[str, Any]) -> dict[str, Any]:
-        """A raw feed entry, shaped like an activity but without interpretation."""
+    def _as_event(self, entry: dict[str, Any]) -> dict[str, Any]:
+        """A raw feed entry, shaped like an activity but without interpretation.
+
+        The feed clock's offset is applied here, so every consumer - the event
+        list, the last-event sensor, fetch_history - sees real time. The stamp
+        exactly as the feed sent it stays in vendor_time_raw for diagnostics.
+        """
+        stamp = entry.get("lastUpdated")
+        corrected = stamp
+        parsed = _parse_stamp(stamp)
+        if parsed is not None and abs(self._feed_offset_seconds) > 60:
+            corrected = (
+                (parsed + timedelta(seconds=self._feed_offset_seconds))
+                .astimezone(parsed.tzinfo)
+                .isoformat()
+            )
         return {
             "device_id": entry.get("deviceId"),
             "raw": entry.get("value"),
-            "vendor_time": entry.get("lastUpdated"),
+            "vendor_time": corrected,
+            "vendor_time_raw": stamp,
             "user_id": entry.get("userId"),
             "user_name": entry.get("userName"),
             "feature_state": entry.get("featureState"),
