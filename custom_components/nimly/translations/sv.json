@@ -308,6 +308,30 @@
         "slot": { "name": "Slot", "description": "Sloten som ska rensas." },
         "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska användas. Utelämna för alla." }
       }
+    },
+    "read_lock_attributes": {
+      "name": "Läs låsets attribut",
+      "description": "Läser låsets standardattribut (DoorLock) över Zigbee och returnerar dem. PIN-koder läses aldrig.",
+      "fields": {
+        "attributes": { "name": "Attribut", "description": "Attributnamn eller id:n. Utelämna för standardlistan." },
+        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska användas. Utelämna för alla." }
+      }
+    },
+    "set_auto_lock": {
+      "name": "Ställ in låsets auto-lås",
+      "description": "Skriver låsets egen auto-lås-inställning över Zigbee och läser tillbaka den.",
+      "fields": {
+        "enabled": { "name": "Aktiverat", "description": "true slår på auto-låset, false slår av det." },
+        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska användas. Utelämna för alla." }
+      }
+    },
+    "set_sound_volume": {
+      "name": "Ställ in låsets volym",
+      "description": "Skriver låsets egen volym över Zigbee och läser tillbaka den.",
+      "fields": {
+        "level": { "name": "Nivå", "description": "0, 1 eller 2." },
+        "entry_id": { "name": "Konfigurationspost", "description": "Vilken spegel som ska användas. Utelämna för alla." }
+      }
     }
   }
 }

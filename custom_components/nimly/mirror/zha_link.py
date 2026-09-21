@@ -22,6 +22,68 @@ _LOGGER = logging.getLogger(__name__)
 ATTR_OPERATION_EVENT = 0x0100
 ZHA_DOMAIN = "zha"
 
+# Standard DoorLock attributes worth reading for diagnostics, by name so a
+# zigpy version difference cannot break the read. Credential material is never
+# read: attribute 0x0101 stays write-only (repository rules).
+DEFAULT_READ_NAMES: list[int | str] = [
+    "lock_state",
+    "actuator_enabled",
+    "door_state",
+    "num_of_total_users_supported",
+    "num_of_pin_users_supported",
+    "num_of_rfid_users_supported",
+    "max_pin_len",
+    "min_pin_len",
+    "max_rfid_len",
+    "min_rfid_len",
+    "auto_relock_time",
+    "sound_volume",
+    "operating_mode",
+    "supported_operating_modes",
+]
+
+# Attribute ids that must never be read (PIN codes).
+NEVER_READ_IDS: set[int] = {0x0101}
+
+# The lock's own capabilities and settings, refreshed opportunistically while
+# the lock is awake and on demand through the services.
+FACTS_ATTRIBUTES: list[int | str] = [
+    "lock_state",
+    "door_state",
+    "num_of_total_users_supported",
+    "num_of_pin_users_supported",
+    "num_of_rfid_users_supported",
+    "auto_relock_time",
+    "sound_volume",
+]
+
+
+def _json_safe(data: Any, cluster: Any = None) -> dict[str, Any]:
+    """Normalize a zigpy result dict into JSON-safe, labeled values."""
+    result: dict[str, Any] = {}
+    try:
+        items = data.items()
+    except AttributeError:
+        return result
+    for key, value in items:
+        if isinstance(value, (bytes, bytearray)):
+            value = value.hex()
+        elif hasattr(value, "value"):
+            value = value.value
+        label: Any = key
+        try:
+            attr_id = int(key)
+            definition = (cluster.attributes if cluster is not None else {}).get(
+                attr_id
+            )
+            label = getattr(definition, "name", None) or f"0x{attr_id:04x}"
+        except (TypeError, ValueError):
+            label = key
+        if not isinstance(value, (int, float, str, bool, type(None))):
+            value = str(value)
+        result[str(label)] = value
+    return result
+
 
 class ZhaLink:
     """One lock's Zigbee access: cluster lookup, raw reports and commands."""
@@ -222,6 +284,95 @@ class ZhaLink:
                     "Cluster request for 0x%02x failed, trying the service", command
                 )
         return await self.send_command(command, args=[slot])
+
+    # -- attribute reads ------------------------------------------------------
+
+    async def read_attributes(
+        self, attributes: list[int | str] | None = None, *, wake: bool = True
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Read standard DoorLock attributes, waking the lock once on timeout.
+
+        Names or ids are accepted; attributes unknown to this zigpy build and
+        credential material (0x0101) are skipped and reported, never read.
+        ``wake=False`` never actuates the lock - used for background refreshes
+        right after the lock was awake anyway.
+        Returns (success, failure) with JSON-safe, labeled values.
+        """
+        cluster = self._find_cluster()
+        if cluster is None:
+            return {}, {"error": "the DoorLock cluster was not found"}
+        wanted: list[int | str] = attributes if attributes is not None else list(
+            DEFAULT_READ_NAMES
+        )
+        resolved: list[int] = []
+        skipped: list[str] = []
+        for item in wanted:
+            try:
+                attr_id = int(item)
+                if attr_id in NEVER_READ_IDS:
+                    skipped.append(f"{item} (credential attribute) ")
+                    continue
+                cluster.find_attribute(attr_id)
+            except (TypeError, ValueError):
+                try:
+                    attr_id = cluster.find_attribute(str(item)).id
+                except Exception:  # noqa: BLE001 - unknown to this zigpy build
+                    skipped.append(str(item))
+                    continue
+            except Exception:  # noqa: BLE001 - unknown to this zigpy build
+                skipped.append(str(item))
+                continue
+            resolved.append(attr_id)
+        if not resolved:
+            return {}, {"error": "no known attributes", "skipped": skipped}
+        for attempt in range(2):
+            try:
+                async with asyncio.timeout(45):
+                    success, failure = await cluster.read_attributes(
+                        resolved, allow_cache=False
+                    )
+                ok = _json_safe(success, cluster)
+                failed = _json_safe(failure, cluster)
+                if skipped:
+                    failed["skipped"] = skipped
+                return ok, failed
+            except TimeoutError:
+                if attempt == 0 and wake:
+                    _LOGGER.debug("Attribute read timed out - waking the lock")
+                    await self._wake_lock()
+                    continue
+                return {}, {"error": "timeout"}
+            except Exception as err:  # noqa: BLE001 - reported to the caller
+                _LOGGER.debug("Attribute read failed: %s", err, exc_info=True)
+                return {}, {"error": str(err)}
+        return {}, {"error": "unreachable"}
+
+    async def write_attributes(
+        self, attributes: dict[str | int, Any], *, wake: bool = True
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Write ZCL attributes, waking the lock once on timeout if allowed.
+
+        The caller confirms the result by reading the attribute back: some
+        modules acknowledge a write without echoing a value.
+        """
+        cluster = self._find_cluster()
+        if cluster is None:
+            return {}, {"error": "the DoorLock cluster was not found"}
+        for attempt in range(2):
+            try:
+                async with asyncio.timeout(45):
+                    success, failure = await cluster.write_attributes(attributes)
+                return _json_safe(success, cluster), _json_safe(failure, cluster)
+            except TimeoutError:
+                if attempt == 0 and wake:
+                    _LOGGER.debug("Attribute write timed out - waking the lock")
+                    await self._wake_lock()
+                    continue
+                return {}, {"error": "timeout"}
+            except Exception as err:  # noqa: BLE001 - reported to the caller
+                _LOGGER.debug("Attribute write failed: %s", err, exc_info=True)
+                return {}, {"error": str(err)}
+        return {}, {"error": "unreachable"}
 
     async def _wake_lock(self) -> None:
         """Wake the radio by locking through the ZHA lock entity.

@@ -18,6 +18,7 @@ from ..const import CONF_TYPE, DOMAIN, TYPE_BRIDGE
 from .bridge import BridgeEntity
 from .coordinator import MirrorCoordinator
 from .entity import MirrorEntity
+from .facts import capability_summary
 
 
 async def async_setup_entry(
@@ -38,6 +39,7 @@ async def async_setup_entry(
             MirrorFirmware(coordinator),
             MirrorBridgeFirmware(coordinator),
             MirrorLastError(coordinator),
+            MirrorLockFacts(coordinator),
         ]
     )
     _setup_slot_sensors(coordinator, async_add_entities)
@@ -252,3 +254,38 @@ class MirrorLastPin(MirrorEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return dict(self.coordinator.last_pin or {})
+
+
+class MirrorLockFacts(MirrorEntity, SensorEntity):
+    """What the lock itself reports: capabilities and settings, over Zigbee."""
+
+    _attr_name = "Lock facts"
+    _attr_icon = "mdi:information-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.entry.entry_id}_lock_facts"
+
+    @property
+    def native_value(self) -> str | None:
+        return capability_summary(self.coordinator.lock_facts)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        facts = self.coordinator.lock_facts
+        if not facts:
+            return {}
+        auto = facts.get("auto_relock_time")
+        return {
+            "total_users": facts.get("num_of_total_users_supported"),
+            "pin_users": facts.get("num_of_pin_users_supported"),
+            "rfid_users": facts.get("num_of_rfid_users_supported"),
+            "auto_lock": None if auto is None else bool(auto),
+            "sound_volume": facts.get("sound_volume"),
+            "door_state": facts.get("door_state"),
+            "app_auto_lock": self.coordinator.app_autolock,
+            "app_volume": self.coordinator.app_volume,
+            "settings_drift": dict(self.coordinator.settings_drift),
+            "updated": self.coordinator.lock_facts_at,
+        }

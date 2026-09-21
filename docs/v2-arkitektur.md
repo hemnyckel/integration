@@ -27,7 +27,11 @@ notifications with who/how. One product, installable in stages (cloud only, or c
 5. **Every self-healing action is observable** — sensor, log or repair. Silent recovery is
    not recovery.
 6. **Convenience never becomes a security regression:** opt-in, auditable.
-7. English code, docs, commits; no real identifiers, IEEEs or secrets in the repo
+7. **Reads never actuate the lock.** The module is a sleepy end device: waking it means
+   driving the bolt. The local facts layer reads opportunistically - right after the lock
+   was awake for another reason, at startup without a wake-up, or on explicit request.
+   Background code never wakes a lock.
+8. English code, docs, commits; no real identifiers, IEEEs or secrets in the repo
    (`check_pii.py` in CI).
 
 ## 3. Components (v2)
@@ -91,6 +95,18 @@ notifications with who/how. One product, installable in stages (cloud only, or c
 - The app's settings display (`settings.autolock`/`settings.volume`) is **cloud-stored**; no
   module attribute report updates it. Driving it from HA needs the vendor write endpoint
   (open item, §9).
+- **Attribute reads work; read commands do not.** The module answers standard DoorLock
+  attribute reads (through the ZHA cluster object) but silently ignores the read commands
+  (`GetUserStatus`, `GetUserType`, `GetPINCode`, `GetRFIDCode`, `GetLogRecord`), even while
+  awake and answering `LockDoor`. Attribute `0x0101` (last used PIN) is therefore readable -
+  and deliberately never read (principle 3).
+- **Capabilities (measured 2026-09-21):** 100 users total - 50 PIN + 50 RFID; PIN length
+  4-8, RFID length 4-8. Settings: `auto_relock_time` (`0x0023`, 1 = auto-lock on),
+  `sound_volume` (`0x0024`, 0-2). `operating_mode`/`supported_operating_modes` are
+  unsupported (ZCL status `0x86`).
+- **There is no door sensor.** `door_state` (`0x0003`) is readable but always reports `4`
+  (unspecified), before and after lock/unlock; neither the cloud feature list nor the action
+  vocabulary has a door event. Door status, if wanted, comes from a separate contact sensor.
 
 ## 5. Decisions (ratified 2026-09-20)
 
@@ -170,10 +186,24 @@ until feature parity is verified, then entries are recreated and the old package
 - **Provisioning:** master-credential precondition check, install code + IEEE pairing,
   zero-touch via Improv (kept from the v1 roadmap).
 
+### Local facts layer (added 2026-09-21)
+
+The mirror reads the lock's own standard DoorLock attributes - capabilities and settings,
+never credentials - through the ZHA cluster object (`mirror/facts.py` plus
+`read_attributes`/`write_attributes` in `zha_link.py`). Reads happen at startup (best
+effort, no wake-up), opportunistically right after a lock-originated activity (at most once
+per five minutes) and on explicit request; a failed read is not an error, the lock is
+simply asleep and gets read the next time it is awake anyway. Setting writes
+(`nimly.set_auto_lock`, `nimly.set_sound_volume`) are confirmed by reading the attribute
+back. A drift check compares the lock's own values with the app's record
+(`app_autolock`/`app_volume`), logs any difference and exposes it on the `lock_facts`
+diagnostic sensor (state: the capability summary; attributes: own settings, app values,
+drift, timestamp).
+
 ## 7. Observability
 
 - Sensors: bridge reachable, emulator firmware version, settings-sync age, last local event,
-  last cloud event.
+  last cloud event, lock facts (capabilities, own settings, drift vs the app).
 - Repairs: master credentials missing, bridge wedged (stale feedback), firmware mismatch or
   rollback happened, ZHA device rebuilt.
 - Diagnostics with redaction; no PIN codes in any log.

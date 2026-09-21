@@ -9,6 +9,7 @@ Everything happens in code: the user writes no automations and no YAML.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -91,10 +92,14 @@ from ..const import (
     ZCL_CMD_FP_ENROLL,
 )
 
+from .facts import compute_settings_drift
 from .slots import SlotTable
-from .zha_link import ZhaLink
+from .zha_link import FACTS_ATTRIBUTES, ZhaLink
 
 _LOGGER = logging.getLogger(__name__)
+
+# Seconds between opportunistic facts reads right after the lock was awake.
+FACTS_MIN_INTERVAL = 300
 
 
 class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -144,6 +149,11 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.last_event: dict[str, Any] | None = None
         self.last_pin: dict[str, Any] | None = None
         self.slots = SlotTable(hass, entry)
+        self.lock_facts: dict[str, Any] = {}
+        self.lock_facts_at: str | None = None
+        self.settings_drift: dict[str, dict[str, Any]] = {}
+        self._facts_refresh_monotonic: float = 0.0
+        self._facts_task: asyncio.Task[Any] | None = None
         self.zha: ZhaLink | None = None
         self.last_error: str | None = None
         self.counters: dict[str, int] = {
@@ -254,6 +264,9 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.hass.async_create_task(self._async_sync_slots())
         if self.zha is not None:
             self.zha.ensure_listener()
+            # Prime the facts best-effort. No wake-up: a sleeping lock is simply
+            # read the next time it is awake for some other reason.
+            self.hass.async_create_task(self.async_refresh_lock_facts(wake=False))
         self._unsubs.append(
             async_track_time_interval(
                 self.hass, self._async_health, timedelta(seconds=HEALTH_INTERVAL)
@@ -406,6 +419,76 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.slots.clear(slot)
         await self._async_publish_slot(slot, False)
         self._publish_snapshot()
+
+    async def async_read_lock_attributes(
+        self, attributes: list[int | str] | None = None
+    ) -> dict[str, Any]:
+        """Read standard DoorLock attributes for diagnostics (never credentials)."""
+        if self.zha is None:
+            return {"success": {}, "failure": {"error": "the ZHA link is not ready"}}
+        success, failure = await self.zha.read_attributes(attributes)
+        return {"success": success, "failure": failure}
+
+    async def async_refresh_lock_facts(self, *, wake: bool = True) -> dict[str, Any]:
+        """Read the lock's own capabilities and settings (never credentials).
+
+        Called on demand by the services, and opportunistically right after the
+        lock was awake for some other reason. ``wake=False`` never actuates it.
+        """
+        if self.zha is None:
+            return self.lock_facts
+        success, _failure = await self.zha.read_attributes(FACTS_ATTRIBUTES, wake=wake)
+        if not success:
+            return self.lock_facts
+        self.lock_facts.update(success)
+        self.lock_facts_at = dt_util.utcnow().isoformat()
+        self.settings_drift = compute_settings_drift(
+            self.lock_facts, self.app_autolock, self.app_volume
+        )
+        if self.settings_drift:
+            _LOGGER.warning(
+                "Lock settings differ from the app's record: %s", self.settings_drift
+            )
+        self._publish_snapshot()
+        return self.lock_facts
+
+    def _schedule_facts_refresh(self) -> None:
+        """Background facts refresh - the lock is awake right now anyway."""
+        now = time.monotonic()
+        if now - self._facts_refresh_monotonic < FACTS_MIN_INTERVAL:
+            return
+        if self._facts_task is not None and not self._facts_task.done():
+            return
+        self._facts_refresh_monotonic = now
+        self._facts_task = self.hass.async_create_task(
+            self.async_refresh_lock_facts(wake=False)
+        )
+
+    async def async_set_lock_autolock(self, enabled: bool) -> dict[str, Any]:
+        """Write the lock's own auto-relock setting and read it back."""
+        if self.zha is None:
+            raise RuntimeError("the ZHA link is not ready")
+        await self.zha.write_attributes({"auto_relock_time": 1 if enabled else 0})
+        facts = await self.async_refresh_lock_facts(wake=True)
+        actual = facts.get("auto_relock_time")
+        if actual is None:
+            raise RuntimeError("the lock did not report the setting back")
+        if bool(actual) != bool(enabled):
+            raise RuntimeError("the lock kept a different auto-lock setting")
+        return facts
+
+    async def async_set_lock_volume(self, level: int) -> dict[str, Any]:
+        """Write the lock's own sound volume and read it back."""
+        if self.zha is None:
+            raise RuntimeError("the ZHA link is not ready")
+        await self.zha.write_attributes({"sound_volume": int(level)})
+        facts = await self.async_refresh_lock_facts(wake=True)
+        actual = facts.get("sound_volume")
+        if actual is None:
+            raise RuntimeError("the lock did not report the volume back")
+        if int(actual) != int(level):
+            raise RuntimeError("the lock kept a different volume")
+        return facts
 
     # -- OTA ---------------------------------------------------------------
 
@@ -781,6 +864,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "direction": "lock->app",
         }
         self.counters["events"] += 1
+        self._schedule_facts_refresh()
         self._publish_snapshot()
         self.hass.async_create_task(
             self._async_publish(

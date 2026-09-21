@@ -308,6 +308,30 @@
         "slot": { "name": "Slot", "description": "The slot to clear." },
         "entry_id": { "name": "Config entry", "description": "Which mirror to act on. Leave out to target all of them." }
       }
+    },
+    "read_lock_attributes": {
+      "name": "Read the lock's attributes",
+      "description": "Reads the lock's standard DoorLock attributes over Zigbee and returns them. PIN codes are never read.",
+      "fields": {
+        "attributes": { "name": "Attributes", "description": "Attribute names or ids. Leave out for the default list." },
+        "entry_id": { "name": "Config entry", "description": "Which mirror to act on. Leave out to target all of them." }
+      }
+    },
+    "set_auto_lock": {
+      "name": "Set the lock's auto-lock",
+      "description": "Writes the lock's own auto-relock setting over Zigbee and reads it back.",
+      "fields": {
+        "enabled": { "name": "Enabled", "description": "true turns auto-lock on, false turns it off." },
+        "entry_id": { "name": "Config entry", "description": "Which mirror to act on. Leave out to target all of them." }
+      }
+    },
+    "set_sound_volume": {
+      "name": "Set the lock's sound volume",
+      "description": "Writes the lock's own sound volume over Zigbee and reads it back.",
+      "fields": {
+        "level": { "name": "Level", "description": "0, 1 or 2." },
+        "entry_id": { "name": "Config entry", "description": "Which mirror to act on. Leave out to target all of them." }
+      }
     }
   }
 }

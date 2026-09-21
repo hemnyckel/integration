@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.helpers import config_validation as cv
 
 from ..const import DOMAIN
@@ -19,6 +20,9 @@ SERVICE_PROVISION = "provision_wifi"
 SERVICE_SET_SLOT_NAME = "set_slot_name"
 SERVICE_SET_PIN = "set_pin"
 SERVICE_CLEAR_SLOT = "clear_slot"
+SERVICE_READ_LOCK_ATTRIBUTES = "read_lock_attributes"
+SERVICE_SET_AUTO_LOCK = "set_auto_lock"
+SERVICE_SET_SOUND_VOLUME = "set_sound_volume"
 
 PROVISION_SCHEMA = vol.Schema(
     {
@@ -62,6 +66,27 @@ SET_PIN_SCHEMA = vol.Schema(
 CLEAR_SLOT_SCHEMA = vol.Schema(
     {
         vol.Required("slot"): vol.Coerce(int),
+        vol.Optional("entry_id"): cv.string,
+    }
+)
+
+READ_LOCK_ATTRIBUTES_SCHEMA = vol.Schema(
+    {
+        vol.Optional("attributes"): [vol.Any(cv.string, vol.Coerce(int))],
+        vol.Optional("entry_id"): cv.string,
+    }
+)
+
+SET_AUTO_LOCK_SCHEMA = vol.Schema(
+    {
+        vol.Required("enabled"): cv.boolean,
+        vol.Optional("entry_id"): cv.string,
+    }
+)
+
+SET_SOUND_VOLUME_SCHEMA = vol.Schema(
+    {
+        vol.Required("level"): vol.All(vol.Coerce(int), vol.Range(min=0, max=2)),
         vol.Optional("entry_id"): cv.string,
     }
 )
@@ -149,6 +174,41 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             call.data.get("password") or "",
         )
 
+    async def _async_handle_read_lock_attributes(call: ServiceCall) -> dict[str, Any]:
+        entry_id = call.data.get("entry_id")
+        attributes = call.data.get("attributes")
+        coordinators = _coordinators(hass, entry_id, "async_read_lock_attributes")
+        if not coordinators:
+            return {"error": "no matching mirror"}
+        results: dict[str, Any] = {}
+        for coord in coordinators:
+            results[coord.entry.entry_id] = await coord.async_read_lock_attributes(
+                attributes
+            )
+        return results
+
+    async def _async_handle_set_auto_lock(call: ServiceCall) -> dict[str, Any]:
+        entry_id = call.data.get("entry_id")
+        enabled = bool(call.data["enabled"])
+        coordinators = _coordinators(hass, entry_id, "async_set_lock_autolock")
+        if not coordinators:
+            return {"error": "no matching mirror"}
+        results: dict[str, Any] = {}
+        for coord in coordinators:
+            results[coord.entry.entry_id] = await coord.async_set_lock_autolock(enabled)
+        return results
+
+    async def _async_handle_set_sound_volume(call: ServiceCall) -> dict[str, Any]:
+        entry_id = call.data.get("entry_id")
+        level = int(call.data["level"])
+        coordinators = _coordinators(hass, entry_id, "async_set_lock_volume")
+        if not coordinators:
+            return {"error": "no matching mirror"}
+        results: dict[str, Any] = {}
+        for coord in coordinators:
+            results[coord.entry.entry_id] = await coord.async_set_lock_volume(level)
+        return results
+
     hass.services.async_register(
         DOMAIN, SERVICE_SET_IEEE, _async_handle_set_ieee, schema=SET_IEEE_SCHEMA
     )
@@ -170,6 +230,27 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, SERVICE_CLEAR_SLOT, _async_handle_clear_slot, schema=CLEAR_SLOT_SCHEMA
     )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_READ_LOCK_ATTRIBUTES,
+        _async_handle_read_lock_attributes,
+        schema=READ_LOCK_ATTRIBUTES_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_AUTO_LOCK,
+        _async_handle_set_auto_lock,
+        schema=SET_AUTO_LOCK_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_SOUND_VOLUME,
+        _async_handle_set_sound_volume,
+        schema=SET_SOUND_VOLUME_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
 
 
 async def async_unload_services(hass: HomeAssistant) -> None:
@@ -179,3 +260,6 @@ async def async_unload_services(hass: HomeAssistant) -> None:
     hass.services.async_remove(DOMAIN, SERVICE_SET_SLOT_NAME)
     hass.services.async_remove(DOMAIN, SERVICE_SET_PIN)
     hass.services.async_remove(DOMAIN, SERVICE_CLEAR_SLOT)
+    hass.services.async_remove(DOMAIN, SERVICE_READ_LOCK_ATTRIBUTES)
+    hass.services.async_remove(DOMAIN, SERVICE_SET_AUTO_LOCK)
+    hass.services.async_remove(DOMAIN, SERVICE_SET_SOUND_VOLUME)
