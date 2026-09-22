@@ -45,6 +45,7 @@ Real lock  ───────────────►  Home Assistant  ◄
 | **Guest codes with schedules** | Temporary codes with an expiry, one-time codes, and recurring guests (a cleaner, a nanny) whose code **never changes** but only works inside weekly windows. |
 | **Cloud insight (optional)** | Sign in with the vendor account for the app's attributed history: *who* opened the door when Zigbee alone cannot say. |
 | **Two-way cloud sync** | Guests created here get a vendor identity and a PIN access automatically — and app-created PINs, tags and fingerprints are paired back to the slot they live in. A **Cloud sync** switch pauses the automatic side. |
+| **Several locks** | The guest card discovers every lock and, when there is more than one, offers a lock picker: create a guest once, choose the doors, and one code lands on each — with edit, pause and revoke following the person across locks. |
 | **Restore after a loss** | `nimly.restore_cloud` replays the catalog onto the cloud: PINs with a stored value are re-created, fingerprints are re-recorded through the emulator (the lock holds the template), and anything only the guest knows is reported instead of guessed. `nimly.audit` shows the drift first. |
 | **Slot virtualization** | App-created credentials never collide with local ones, and vice versa — the app keeps its own slot numbers while the lock keeps its own secrets. |
 | **A journal** | One timeline of access and admin events, local and cloud merged, with a `nimly_journal_entry` event for your automations. |

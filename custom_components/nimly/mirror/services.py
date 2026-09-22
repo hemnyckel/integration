@@ -130,6 +130,7 @@ CREATE_GUEST_SCHEMA = vol.Schema(
         vol.Optional("until"): cv.string,
         vol.Optional("one_time", default=False): cv.boolean,
         vol.Optional("entry_id"): cv.string,
+        vol.Optional("group"): cv.string,
     }
 )
 
@@ -149,6 +150,7 @@ CREATE_RECURRING_GUEST_SCHEMA = vol.Schema(
         vol.Optional("slot"): vol.Coerce(int),
         vol.Optional("paused", default=False): cv.boolean,
         vol.Optional("entry_id"): cv.string,
+        vol.Optional("group"): cv.string,
     }
 )
 
@@ -337,6 +339,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 slot=call.data.get("slot"),
                 until=call.data.get("until"),
                 one_time=bool(call.data.get("one_time")),
+                group=call.data.get("group"),
             )
         return results
 
@@ -353,6 +356,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 windows=call.data.get("schedule"),
                 slot=call.data.get("slot"),
                 paused=bool(call.data.get("paused")),
+                group=call.data.get("group"),
             )
         return results
 

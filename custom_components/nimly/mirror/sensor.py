@@ -340,7 +340,14 @@ class MirrorGuests(MirrorEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         rows = self.coordinator.guest_rows()
         order = sorted(rows, key=lambda key: int(key) if key.isdigit() else 0)
+        lock_state = self.coordinator.hass.states.get(
+            self.coordinator.lock_entity_id
+        )
         return {
             "entry_id": self.coordinator.entry.entry_id,
+            "lock": (
+                lock_state.name if lock_state is not None
+                else self.coordinator.entry.title
+            ),
             "guests": [rows[key] for key in order],
         }

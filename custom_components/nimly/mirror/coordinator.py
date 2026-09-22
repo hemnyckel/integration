@@ -1311,6 +1311,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         slot: int | None = None,
         until: str | None = None,
         one_time: bool = False,
+        group: str | None = None,
     ) -> dict[str, Any]:
         """Write a guest PIN, name the slot and remember the window.
 
@@ -1355,6 +1356,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "one_time": bool(one_time),
             "until": normalized_until,
             "created": dt_util.utcnow().isoformat(),
+            **({"group": str(group)} if group else {}),
         }
         await self._async_save_guests()
         if normalized_until:
@@ -1379,6 +1381,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         windows: Any = None,
         slot: int | None = None,
         paused: bool = False,
+        group: str | None = None,
     ) -> dict[str, Any]:
         """A guest whose code stays the same, valid only inside weekly windows.
 
@@ -1414,6 +1417,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "schedule": schedule,
             "paused": bool(paused),
             "created": dt_util.utcnow().isoformat(),
+            **({"group": str(group)} if group else {}),
         }
         self.slots.set_name(slot, clean_name)
         await self._async_save_guests()
@@ -1581,6 +1585,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "created": guest.get("created"),
                 "has_code": key.isdigit() and "pin" in self.slots.credentials(int(key)),
                 "cloud_users": sorted(set(cloud_users)),
+                "group": guest.get("group"),
             }
             if kind == "recurring":
                 row["schedule"] = windows

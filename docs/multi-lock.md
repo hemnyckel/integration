@@ -52,7 +52,14 @@ mirror options remain the catalog of record. With the index:
 1. **Identity layer** — persons index, cross-lock adoption, maintenance rebuild.
    Tests: two mirrors, same person, one uuid, an access per lock.
 2. **Per-lock presentation** — card filters cloud guests by this lock's device
-   access list; dashboard gets per-lock sections.
+   access list; dashboard gets per-lock sections. **Done:** the card discovers
+   every lock from the guests sensors and shows, per guest, where the person
+   exists; with one lock nothing changes. **Done:** the create form has a lock
+   picker (only shown when there is more than one lock) that creates the guest
+   on every selected lock with one code and one group marker, reporting a lock
+   that fails without losing the rest. Edit, pause and revoke follow the
+   person: a group marker, or one shared cloud identity, ties the records
+   together, and the row shows how many locks the person is on.
 3. **Third lock experiment** — the app refuses more than two locks
    (`doorLocksLimit: 2`). Claiming a third through `POST /devices` may well
    work, since the limit looks like app UI policy; the bridge and the cloud

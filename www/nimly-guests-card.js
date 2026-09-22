@@ -293,6 +293,7 @@ class NimlyGuestsCard extends HTMLElement {
       until: "",
       days: new Set(),
       windows: [{ start: "08:00", end: "12:00" }],
+      locks: new Set(this._entryId() ? [this._entryId()] : []),
       busy: false,
       error: "",
       result: null,
@@ -351,6 +352,87 @@ class NimlyGuestsCard extends HTMLElement {
        entry id they fan out to every mirror. */
     const entryId = this._entryId();
     return entryId ? { ...data, entry_id: entryId } : { ...data };
+  }
+
+  _locks() {
+    /* Every lock in the house, as its guests sensor presents it: the same
+       attributes (entry_id, lock, guests) mark a mirror. Sorted by name, with
+       this card's own lock first, so a household with one door never sees a
+       picker at all. */
+    const locks = [];
+    for (const [entityId, state] of Object.entries(this._hass.states)) {
+      const attrs = state.attributes || {};
+      if (!attrs.entry_id || !Array.isArray(attrs.guests)) continue;
+      locks.push({
+        entity: entityId,
+        entry_id: attrs.entry_id,
+        name: attrs.lock || entityId,
+        guests: attrs.guests,
+      });
+    }
+    const own = this._entryId();
+    locks.sort((a, b) => {
+      if (a.entry_id === own) return -1;
+      if (b.entry_id === own) return 1;
+      return String(a.name).localeCompare(String(b.name), "sv");
+    });
+    return locks;
+  }
+
+  _lockName() {
+    const lock = this._locks().find((item) => item.entry_id === this._entryId());
+    return lock ? lock.name : "detta lås";
+  }
+
+  _newGroup() {
+    if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+    return "g-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+  }
+
+  _editingGuest() {
+    if (this._form.editSlot === null) return null;
+    return (this._guests || []).find((row) => row.slot === this._form.editSlot) || null;
+  }
+
+  _siblings(guest) {
+    /* The same person on other locks: one group marker when the guests were
+       created together, or one shared cloud identity once they are synced. */
+    if (!guest) return [];
+    const mine = this._entryId();
+    const users = new Set(guest.cloud_users || []);
+    const group = guest.group || null;
+    const out = [];
+    for (const lock of this._locks()) {
+      if (lock.entry_id === mine) continue;
+      const row = (lock.guests || []).find((item) => {
+        if (group && item.group && item.group === group) return true;
+        return (
+          users.size > 0 &&
+          (item.cloud_users || []).some((user) => users.has(user))
+        );
+      });
+      if (row) out.push({ lock, slot: row.slot, name: row.name });
+    }
+    return out;
+  }
+
+  async _fanOut(service, guest, build) {
+    /* Apply one action to every lock the person exists on; a lock that
+       refuses is reported, never silently skipped. */
+    const siblings = this._siblings(guest);
+    const failed = [];
+    for (const sibling of siblings) {
+      try {
+        await this._callServiceWS(
+          "nimly",
+          service,
+          build({ ...sibling, entry_id: sibling.lock.entry_id })
+        );
+      } catch (err) {
+        failed.push(`${sibling.lock.name}: ${this._errorText(err)}`);
+      }
+    }
+    return failed;
   }
 
   _renderShell() {
@@ -691,6 +773,12 @@ class NimlyGuestsCard extends HTMLElement {
     const meta = this._meta(guest);
     const recurring = guest.kind === "recurring";
     const confirming = this._confirmSlot === guest.slot;
+    const siblings = this._siblings(guest);
+    const sibBadge = siblings.length
+      ? `<span class="cloudmark" title="Även på ${siblings
+          .map((sibling) => this._esc(sibling.lock.name))
+          .join(", ")}"><ha-icon icon="mdi:door"></ha-icon>${siblings.length + 1} lås</span>`
+      : "";
     row.innerHTML = `
       <div class="avatar">${initial}</div>
       <div class="info">
@@ -698,7 +786,7 @@ class NimlyGuestsCard extends HTMLElement {
         (guest.cloud_users || []).length
           ? '<span class="cloudmark" title="Synkad med appen"><ha-icon icon="mdi:cloud-check-outline"></ha-icon></span>'
           : ""
-      }${this._pill(guest)}</div>
+      }${sibBadge}${this._pill(guest)}</div>
         <div class="meta">${this._esc(meta)}</div>
       </div>
       <div class="actions">
@@ -725,12 +813,21 @@ class NimlyGuestsCard extends HTMLElement {
     row.querySelector('[data-act="edit"]').addEventListener("click", () =>
       this._startEdit(guest)
     );
-    row.querySelector('[data-act="pause"]')?.addEventListener("click", () =>
+    row.querySelector('[data-act="pause"]')?.addEventListener("click", async () => {
+      const failed = await this._fanOut("update_guest", guest, (target) => ({
+        slot: target.slot,
+        entry_id: target.entry_id,
+        paused: !guest.paused,
+      }));
       this._callService(
         "update_guest",
         this._lockData({ slot: guest.slot, paused: !guest.paused })
-      )
-    );
+      );
+      if (failed.length) {
+        this._actionError = `Misslyckades — ${failed.join("; ")}`;
+        this._renderList();
+      }
+    });
     row.querySelector('[data-act="revoke"]').addEventListener("click", () => {
       if (this._confirmSlot !== guest.slot) {
         this._confirmSlot = guest.slot;
@@ -744,7 +841,19 @@ class NimlyGuestsCard extends HTMLElement {
       }
       clearTimeout(this._confirmTimer);
       this._confirmSlot = null;
-      this._callService("revoke_guest_code", this._lockData({ slot: guest.slot }));
+      this._fanOut("revoke_guest_code", guest, (target) => ({
+        slot: target.slot,
+        entry_id: target.entry_id,
+      })).then((failed) => {
+        this._callService(
+          "revoke_guest_code",
+          this._lockData({ slot: guest.slot })
+        );
+        if (failed.length) {
+          this._actionError = `Misslyckades — ${failed.join("; ")}`;
+          this._renderList();
+        }
+      });
     });
     return row;
   }
@@ -865,6 +974,26 @@ class NimlyGuestsCard extends HTMLElement {
         ${segmented}
         <div class="label">Namn</div>
         <input type="text" id="name" placeholder="t.ex. Städfirma" value="${this._esc(form.name)}" />
+        ${(() => {
+          const locks = this._locks();
+          if (editing) {
+            const siblings = this._siblings(this._editingGuest());
+            return siblings.length
+              ? `<div class="empty">Ändringen gäller även ${siblings
+                  .map((sibling) => this._esc(sibling.lock.name))
+                  .join(", ")}.</div>`
+              : "";
+          }
+          if (locks.length < 2) return "";
+          return `
+            <div class="label">Lås</div>
+            <div class="chips">${locks
+              .map(
+                (lock) =>
+                  `<button class="chip ${form.locks.has(lock.entry_id) ? "on" : ""}" data-lock="${this._esc(lock.entry_id)}">${this._esc(lock.name)}</button>`
+              )
+              .join("")}</div>`;
+        })()}
         ${
           recurring
             ? `
@@ -898,6 +1027,14 @@ class NimlyGuestsCard extends HTMLElement {
       this._form = this._blankForm();
       this._renderForm();
     });
+    root.querySelectorAll("[data-lock]").forEach((button) =>
+      button.addEventListener("click", () => {
+        const entry = button.dataset.lock;
+        if (form.locks.has(entry)) form.locks.delete(entry);
+        else form.locks.add(entry);
+        this._renderForm();
+      })
+    );
     root.querySelectorAll("[data-mode]").forEach((button) =>
       button.addEventListener("click", () => {
         form.mode = button.dataset.mode;
@@ -987,6 +1124,7 @@ class NimlyGuestsCard extends HTMLElement {
     this._renderForm();
     try {
       if (editing) {
+        const editingGuest = this._editingGuest();
         const changes = { slot: form.editSlot, name };
         if (form.code.trim()) changes.code = form.code.trim();
         if (recurring) {
@@ -1000,9 +1138,24 @@ class NimlyGuestsCard extends HTMLElement {
           changes.until =
             form.forever || !form.until ? "" : new Date(form.until).toISOString();
         }
-        await this._callServiceWS("nimly", "update_guest", changes);
+        await this._callServiceWS(
+          "nimly",
+          "update_guest",
+          this._lockData(changes)
+        );
+        const failed = editingGuest
+          ? await this._fanOut("update_guest", editingGuest, (target) => ({
+              ...changes,
+              slot: target.slot,
+              entry_id: target.entry_id,
+            }))
+          : [];
         this._form = this._blankForm();
         this._renderForm();
+        if (failed.length) {
+          this._actionError = `Misslyckades på andra lås — ${failed.join("; ")}`;
+          this._renderList();
+        }
         return;
       }
       let data;
@@ -1029,22 +1182,44 @@ class NimlyGuestsCard extends HTMLElement {
         if (form.code.trim()) data.code = form.code.trim();
         if (form.oneTime) data.one_time = true;
       }
-      const response = await this._callServiceWS(
-        "nimly",
-        service,
-        this._lockData(data)
-      );
-      const entryId = this._entryId();
-      const result =
-        (entryId && response && response[entryId]) ||
-        Object.values(response || {})[0] ||
-        {};
+      const locks = this._locks();
+      const targets =
+        locks.length > 1
+          ? locks.filter((lock) => form.locks.has(lock.entry_id))
+          : [{ entry_id: this._entryId(), name: this._lockName() }];
+      if (!targets.length) {
+        throw new Error("Välj minst ett lås.");
+      }
+      const group = targets.length > 1 ? this._newGroup() : null;
+      let created = null;
+      let createdCode = form.code.trim() || null;
+      const failed = [];
+      for (const target of targets) {
+        const payload = { ...data, entry_id: target.entry_id };
+        if (group) payload.group = group;
+        if (createdCode) payload.code = createdCode;
+        try {
+          const response = await this._callServiceWS("nimly", service, payload);
+          const result =
+            (target.entry_id && response && response[target.entry_id]) ||
+            Object.values(response || {})[0] ||
+            {};
+          if (!created) created = result;
+          if (!createdCode && result.code) createdCode = result.code;
+        } catch (err) {
+          failed.push({ name: target.name || "lås", error: this._errorText(err) });
+        }
+      }
+      if (!created) {
+        throw new Error(failed.length ? failed[0].error : "Inget lås svarade.");
+      }
       this._form = this._blankForm();
       this._form.result = {
-        code: result.code || form.code,
+        code: created.code || createdCode,
         name,
-        until: result.until,
-        schedule: result.schedule,
+        until: created.until,
+        schedule: created.schedule,
+        failed,
       };
       this._renderForm();
     } catch (err) {
@@ -1073,12 +1248,19 @@ class NimlyGuestsCard extends HTMLElement {
     const smsHref = isIOS ? `sms:&body=${text}` : `sms:?body=${text}`;
     const smsButton =
       isIOS || isAndroid ? `<a href="${smsHref}">SMS</a>` : "";
+    const failedNote =
+      result.failed && result.failed.length
+        ? `<div class="error">Misslyckades på ${result.failed
+            .map((item) => this._esc(item.name))
+            .join(", ")}: ${this._esc(result.failed[0].error)}</div>`
+        : "";
     return `
       <div class="result">
         <div class="lead">Gästkoden är klar</div>
         <div class="who">${this._esc(result.name)}</div>
         <div class="code">${this._esc(result.code)}</div>
         <div class="validity">${valid}</div>
+        ${failedNote}
         <div class="share">
           <button id="copy">Kopiera</button>
           ${smsButton}
