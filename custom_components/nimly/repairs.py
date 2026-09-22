@@ -63,10 +63,56 @@ class NewSlotRepairFlow(RepairsFlow):
         )
 
 
+class EmulatorNotJoinedRepairFlow(RepairsFlow):
+    """Guided recovery when the emulator cannot join the bridge's network.
+
+    Almost always the vendor account still holds the old device record, which
+    makes the cloud refuse the re-pairing. The first step removes it here (the
+    same call the app's "remove device" makes); the second hands the phone part
+    over with clear instructions, and the repair closes itself once the
+    emulator is back on the network.
+    """
+
+    def __init__(self, entry_id: str | None = None) -> None:
+        self._entry_id = entry_id
+
+    def _mirror(self) -> Any:
+        coordinators = self.hass.data.get(DOMAIN, {})
+        if self._entry_id and self._entry_id in coordinators:
+            return coordinators[self._entry_id]
+        for coordinator in coordinators.values():
+            if getattr(coordinator, "async_reset_app_registration", None) is not None:
+                return coordinator
+        return None
+
+    async def async_step_init(
+        self, user_input: dict | None = None
+    ) -> RepairsFlowResult:
+        if user_input is not None:
+            coordinator = self._mirror()
+            if coordinator is None:
+                return self.async_abort(reason="no_mirror")
+            result = await coordinator.async_reset_app_registration()
+            if not result.get("reset"):
+                return self.async_abort(reason="reset_failed")
+            return await self.async_step_next()
+        return self.async_show_form(step_id="init", data_schema=vol.Schema({}))
+
+    async def async_step_next(
+        self, user_input: dict | None = None
+    ) -> RepairsFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(data={})
+        return self.async_show_form(step_id="next", data_schema=vol.Schema({}))
+
+
 async def async_create_fix_flow(
     hass: HomeAssistant, issue_id: str, data: dict | None
 ) -> RepairsFlow:
-    """The issue data carries the slot and the entry; fall back to parsing the id."""
+    """Dispatch on the issue; the data carries the slot or the entry id."""
+    if issue_id.startswith("emulator_not_joined"):
+        entry_id = data.get("entry_id") if isinstance(data, dict) else None
+        return EmulatorNotJoinedRepairFlow(entry_id if isinstance(entry_id, str) else None)
     slot = data.get("slot") if isinstance(data, dict) else None
     if not isinstance(slot, int):
         try:

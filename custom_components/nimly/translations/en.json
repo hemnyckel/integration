@@ -276,7 +276,23 @@
     },
     "emulator_not_joined": {
       "title": "The emulator is not on the Zigbee network",
-      "description": "The emulator answers Home Assistant but is not joined to the Nimly bridge. Open the Nimly app's add-device flow so the bridge allows the join; the emulator retries by itself."
+      "description": "The emulator answers Home Assistant but is not joined to the Nimly bridge. Open the Nimly app's add-device flow so the bridge allows the join; the emulator retries by itself.",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Repair the app registration",
+            "description": "The emulator answers Home Assistant but the Nimly bridge refuses its join. Usually the app still has the old lock registered, which blocks the re-pairing; removing that record is exactly what the app's remove-device does. Submit to do it from here."
+          },
+          "next": {
+            "title": "Now add the device in the app",
+            "description": "Open the Nimly app, add a device and start the search. The emulator is steering on its own and joins within seconds of the bridge's window opening. This repair closes by itself when it does."
+          }
+        },
+        "abort": {
+          "no_mirror": "No lock mirror is loaded.",
+          "reset_failed": "The app registration could not be removed (no matching cloud device)."
+        }
+      }
     },
     "cloud_feedback_stale": {
       "title": "The vendor cloud is not answering",

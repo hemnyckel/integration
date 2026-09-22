@@ -276,7 +276,23 @@
     },
     "emulator_not_joined": {
       "title": "Emulatorn är inte med i Zigbee-nätet",
-      "description": "Emulatorn svarar Home Assistant men är inte parad mot Nimly-bryggan. Öppna appens lägg-till-enhet-flöde så att bryggan tillåter anslutningen; emulatorn försöker om själv."
+      "description": "Emulatorn svarar Home Assistant men är inte parad mot Nimly-bryggan. Öppna appens lägg-till-enhet-flöde så att bryggan tillåter anslutningen; emulatorn försöker om själv.",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Reparera app-registreringen",
+            "description": "Emulatorn svarar Home Assistant men Nimly-bryggan nekar dess join. Oftast har appen kvar den gamla låsregistreringen som blockerar omparningen; att ta bort den är exakt vad appens ta-bort-enhet gör. Skicka in för att göra det härifrån."
+          },
+          "next": {
+            "title": "Lägg nu till enheten i appen",
+            "description": "Öppna Nimly-appen, lägg till en enhet och starta sökningen. Emulatorn steer:ar själv och hoppar in inom sekunder när bryggans fönster öppnas. Reparationen stängs av sig själv när den gör det."
+          }
+        },
+        "abort": {
+          "no_mirror": "Ingen låsspegel är laddad.",
+          "reset_failed": "App-registreringen kunde inte tas bort (ingen matchande molnenhet)."
+        }
+      }
     },
     "cloud_feedback_stale": {
       "title": "Leverantörens moln svarar inte",

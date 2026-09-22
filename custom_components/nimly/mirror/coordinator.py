@@ -2016,10 +2016,11 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self.hass,
                     DOMAIN,
                     self._issue_id("emulator_not_joined"),
-                    is_fixable=False,
+                    is_fixable=True,
                     is_persistent=True,
                     severity=ir.IssueSeverity.WARNING,
                     translation_key="emulator_not_joined",
+                    data={"entry_id": self.entry.entry_id},
                 )
         elif self.emulator_joined is True:
             self._not_joined_since = None
