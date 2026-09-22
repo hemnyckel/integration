@@ -64,6 +64,24 @@ the retired module).
 - **Open:** how the vendor gateway and the bridge behave with a real second
   module. The experiment needs a spare emulator and a healthy bridge.
 
+## The gateway's clock is DST-unaware
+
+The gateway stamps its own reports an hour ahead through the summer (CET
+without DST): a lock event at 21:56 UTC arrives stamped 22:56. The cloud's own
+timestamps — a gateway's `updatedAt`, the response to a gateway action — are
+correct, and the public API has **no timezone or DST setting for a lock or a
+gateway** (only cameras have one: `PUT /devices/{id}/settings/camera/timezone`
+and `/dst`). Probing for hidden gateway/location settings paths answers 404.
+
+- **We do** read the offset from the server's own `expires` arithmetic and
+  correct every feed timestamp we show (`vendor_time`); the raw value stays as
+  `vendor_time_raw` for diagnostics. If the vendor fixes the clock, the offset
+  becomes zero and the correction does nothing.
+- **The vendor app itself** (its history and push times) stays an hour ahead
+  until the gateway's clock or timezone is fixed. The phone app has been seen
+  offering a timezone setting; it is not reachable through the public API, so
+  the fix there is the app, the gateway's provisioning, or vendor support.
+
 ## Fingerprints cannot be read back
 
 The lock reports nothing while an enrollment runs; there is no way to ask

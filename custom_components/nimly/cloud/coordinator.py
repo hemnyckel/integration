@@ -297,17 +297,38 @@ class NimlyCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         current = self.last_persons.get(device_id)
         if current and not current.get("user_name") and not name:
             return
+        raw = (
+            entry.get("time")
+            or entry.get("lastUpdated")
+            or entry.get("vendor_time")
+        )
         self.last_persons[device_id] = {
             "device_id": device_id,
             "user_id": user_id,
             "user_name": name,
             "action": entry.get("action"),
             "source": entry.get("source"),
-            "vendor_time": entry.get("time")
-            or entry.get("lastUpdated")
-            or entry.get("vendor_time"),
+            "vendor_time": self.corrected_stamp(raw),
+            "vendor_time_raw": raw,
             "observed_at": entry.get("observed_at"),
         }
+
+    def corrected_stamp(self, stamp: Any) -> str | None:
+        """A feed timestamp with the DST-unaware offset applied.
+
+        The gateway stamps its own reports an hour ahead through the summer
+        (the offset is read from the server's expires arithmetic); every sensor
+        that shows a feed time goes through here so the dashboard and the app
+        cannot disagree. The raw value stays available as `vendor_time_raw`.
+        """
+        if not stamp:
+            return None
+        parsed = _parse_stamp(stamp)
+        if parsed is None:
+            return str(stamp)
+        if abs(self._feed_offset_seconds) > 60:
+            parsed = parsed + timedelta(seconds=self._feed_offset_seconds)
+        return parsed.isoformat()
 
     def _feed_offset(self, entries: list[dict[str, Any]]) -> float:
         """The feed clock's offset, from a server-computed expires field.

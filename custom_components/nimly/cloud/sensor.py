@@ -150,6 +150,10 @@ class CloudLastEvent(_DeviceSensor):
             "user_id": event.get("user_id"),
             "user_name": event.get("user_name"),
             "vendor_time": event.get("vendor_time")
+            or self.coordinator.corrected_stamp(
+                self.coordinator.device_last_event(self._device_id).get("lastUpdated")
+            ),
+            "vendor_time_raw": event.get("vendor_time_raw")
             or self.coordinator.device_last_event(self._device_id).get("lastUpdated"),
             "observed_at": event.get("observed_at"),
         }
