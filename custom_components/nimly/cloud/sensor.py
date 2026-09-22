@@ -23,6 +23,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from ..const import DOMAIN, VOLUME_NAMES
 from .coordinator import NimlyCloudCoordinator
+from .guests import guest_row
 from .maintenance import device_name
 
 
@@ -58,6 +59,7 @@ async def async_setup_entry(
         CloudAlarmState(coordinator),
         CloudDeviceCount(coordinator),
         CloudUserCount(coordinator),
+        CloudGuests(coordinator),
     ]
 
     for user in coordinator.users:
@@ -364,6 +366,28 @@ class CloudUserCount(_LocationSensor):
     @property
     def native_value(self) -> int:
         return len(self.coordinator.users)
+
+
+class CloudGuests(_LocationSensor):
+    """The account's guest users, as the app lists them."""
+
+    _attr_translation_key = "guests"
+    _attr_entity_registry_enabled_default = True
+    _attr_icon = "mdi:account-multiple"
+
+    @property
+    def native_value(self) -> int:
+        return len(self.coordinator.guest_users)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            "guests": [
+                guest_row(guest)
+                for guest in self.coordinator.guest_users
+                if guest.get("id")
+            ]
+        }
 
 
 class CloudUserAccess(CoordinatorEntity[NimlyCloudCoordinator], SensorEntity):

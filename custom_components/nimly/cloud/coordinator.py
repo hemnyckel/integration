@@ -126,6 +126,7 @@ class NimlyCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.locations: list[dict[str, Any]] = []
         self.location: dict[str, Any] = {}
         self.users: list[dict[str, Any]] = []
+        self.guest_users: list[dict[str, Any]] = []
         self.home: dict[str, Any] = {}
         self.devices: list[dict[str, Any]] = []
 
@@ -170,6 +171,8 @@ class NimlyCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._users_by_id = {
                     str(user.get("id")): user for user in self.users if user.get("id")
                 }
+            # The app's "Guest user list": identities without an account.
+            self.guest_users = await self.api.async_guest_users(self.location_id)
 
             home = await self.api.async_home(self.location_id)
             if isinstance(home, dict):

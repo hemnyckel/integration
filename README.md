@@ -160,6 +160,7 @@ tools/                     sync-to-HA helper and the PII check
 - [docs/protocol.md](docs/protocol.md) — the MQTT topics and UART line format.
 - [docs/guests.md](docs/guests.md) — guest codes, expiry and schedules.
 - [docs/cloud-sync.md](docs/cloud-sync.md) — the lock/HA/cloud truth model, sync directions and the restore matrix.
+- [docs/matter.md](docs/matter.md) — bridging the lock to Apple Home, Google Home and friends.
 - [docs/privacy.md](docs/privacy.md) — what leaves the house.
 - [docs/dashboard.md](docs/dashboard.md) — the bundled guest-code card.
 

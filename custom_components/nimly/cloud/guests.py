@@ -25,6 +25,26 @@ def validity(now: datetime | None = None) -> tuple[str, str]:
     return start.isoformat(timespec="seconds"), end.isoformat(timespec="seconds")
 
 
+def guest_row(guest: dict[str, Any]) -> dict[str, Any]:
+    """One guest as the sensor and the service both present it.
+
+    A single shape for consumers (the plan card included): the vendor's
+    camelCase stays at the API edge.
+    """
+    return {
+        "id": guest.get("id"),
+        "name": guest.get("name"),
+        "email": guest.get("email"),
+        "valid_from": guest.get("validFrom"),
+        "valid_to": guest.get("validTo"),
+        "has_access": bool(guest.get("hasDoorlockAccess")),
+        "has_pin": bool(guest.get("hasDoorlockPin")),
+        "has_tag": bool(guest.get("hasDoorlockTag")),
+        "has_fingerprint": bool(guest.get("hasDoorlockFingerprint")),
+        "status": guest.get("updateStatus"),
+    }
+
+
 def match_guest(name: str, guests: list[dict[str, Any]]) -> dict[str, Any] | None:
     """A cloud guest with this name and no access of its own, when unambiguous.
 

@@ -176,9 +176,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         return {"results": results}
 
     async def _cloud_guests(call: ServiceCall) -> dict[str, Any]:
+        from .guests import guest_row
+
         coordinator = _coordinator(hass, call.data.get("entry_id"))
         guests = await coordinator.api.async_guest_users(coordinator.location_id)
-        return {"guests": guests}
+        return {"guests": [guest_row(guest) for guest in guests]}
 
     async def _audit(call: ServiceCall) -> dict[str, Any]:
         from ..mirror.coordinator import MirrorCoordinator

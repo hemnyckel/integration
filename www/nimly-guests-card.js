@@ -155,6 +155,17 @@ const STYLE = `
   }
   .share a:hover, .share button:hover { border-color: var(--primary-color); color: var(--primary-color); }
   .done { margin-top: 18px; }
+  .section { border-top: 1px solid var(--divider-color); }
+  .section .shead { display: flex; align-items: center; gap: 8px; padding: 14px 16px 4px; }
+  .section .shead .stitle { font-size: 15px; font-weight: 600; color: var(--primary-text-color); flex: 1; }
+  .section .shead .count { background: var(--secondary-background-color); color: var(--secondary-text-color); }
+  .badges { display: flex; gap: 6px; align-items: center; margin-top: 5px; flex-wrap: wrap; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600;
+           color: var(--secondary-text-color); background: var(--secondary-background-color);
+           border-radius: 8px; padding: 3px 8px; }
+  .badge ha-icon { --mdc-icon-size: 15px; }
+  .badge.warn { color: #ffa600; background: rgba(255, 166, 0, .15); }
+  .cloudrow .avatar { background: var(--secondary-text-color); }
 `;
 
 class NimlyGuestsCard extends HTMLElement {
@@ -167,6 +178,9 @@ class NimlyGuestsCard extends HTMLElement {
     this._form = this._blankForm();
     this._confirmSlot = null;
     this._confirmTimer = null;
+    this._cloudGuests = null;
+    this._cloudLoaded = false;
+    this._cloudLoading = false;
   }
 
   setConfig(config) {
@@ -187,6 +201,38 @@ class NimlyGuestsCard extends HTMLElement {
       this._guests = guests;
       this._renderList();
       this._renderForm();
+    }
+    if (!this._cloudLoaded && !this._cloudLoading && hass) {
+      this._fetchCloud();
+    }
+  }
+
+  async _fetchCloud() {
+    /* The app's guest users: read-only here, managed in the vendor app. The
+       integration's cloud_guests service returns them with validity windows and
+       credential flags; error states show as a warning badge. */
+    this._cloudLoading = true;
+    try {
+      const response = await this._callServiceWS("nimly", "cloud_guests", {});
+      this._cloudGuests = Array.isArray(response.guests) ? response.guests : [];
+      this._cloudLoaded = true;
+    } catch (err) {
+      this._cloudGuests = null;
+    } finally {
+      this._cloudLoading = false;
+      this._renderCloud();
+      this._renderShellHooks();
+    }
+  }
+
+  _renderShellHooks() {
+    const refresh = this.shadowRoot.getElementById("cloudrefresh");
+    if (refresh && !refresh._bound) {
+      refresh._bound = true;
+      refresh.addEventListener("click", () => {
+        this._cloudLoaded = false;
+        this._fetchCloud();
+      });
     }
   }
 
@@ -268,10 +314,86 @@ class NimlyGuestsCard extends HTMLElement {
         </div>
         <div class="list" id="list"></div>
         <div id="form"></div>
+        <div class="section" id="cloud" hidden>
+          <div class="shead">
+            <ha-icon icon="mdi:cloud-outline"></ha-icon>
+            <div class="stitle">I appen</div>
+            <div class="count" id="cloudcount">0</div>
+            <button class="icon" id="cloudrefresh" title="Uppdatera">
+              <ha-icon icon="mdi:refresh"></ha-icon></button>
+          </div>
+          <div class="list" id="cloudlist"></div>
+        </div>
       </ha-card>
     `;
     this._renderList();
     this._renderForm();
+  }
+
+  _renderCloud() {
+    const section = this.shadowRoot.getElementById("cloud");
+    const list = this.shadowRoot.getElementById("cloudlist");
+    const count = this.shadowRoot.getElementById("cloudcount");
+    if (!section || !list) return;
+    const local = new Set(
+      (this._guests || []).map((g) => (g.name || "").trim().toLowerCase())
+    );
+    const guests = (this._cloudGuests || []).filter(
+      (g) => !local.has((g.name || "").trim().toLowerCase())
+    );
+    if (count) count.textContent = String(guests.length);
+    if (!guests.length) {
+      section.hidden = true;
+      return;
+    }
+    section.hidden = false;
+    list.innerHTML = "";
+    for (const guest of guests) list.appendChild(this._cloudRow(guest));
+  }
+
+  _cloudRow(guest) {
+    const row = document.createElement("div");
+    row.className = "row cloudrow";
+    const initial = (guest.name || "?").trim().charAt(0);
+    const badges = [];
+    if (guest.has_pin) badges.push(this._cloudBadge("mdi:dialpad", "PIN"));
+    if (guest.has_fingerprint) badges.push(this._cloudBadge("mdi:fingerprint", "Finger"));
+    if (guest.has_tag) badges.push(this._cloudBadge("mdi:tag-outline", "Tag"));
+    if (guest.status) {
+      badges.push(
+        `<span class="badge warn" title="${guest.status}">` +
+          `<ha-icon icon="mdi:alert-circle-outline"></ha-icon>(!)</span>`
+      );
+    }
+    row.innerHTML = `
+      <div class="avatar">${initial}</div>
+      <div class="info">
+        <div class="name"><span>${guest.name || "Namnlös"}</span></div>
+        <div class="meta">${this._cloudValidity(guest)}</div>
+        <div class="badges">${badges.join("")}</div>
+      </div>
+    `;
+    return row;
+  }
+
+  _cloudBadge(icon, label) {
+    return `<span class="badge"><ha-icon icon="${icon}"></ha-icon>${label}</span>`;
+  }
+
+  _cloudValidity(guest) {
+    const from = this._cloudDate(guest.valid_from);
+    const to = this._cloudDate(guest.valid_to);
+    if (!from && !to) return "Giltighet saknas";
+    return `${from || "?"} – ${to || "?"}`;
+  }
+
+  _cloudDate(value) {
+    if (!value) return "";
+    try {
+      return new Date(value).toLocaleDateString("sv-SE");
+    } catch (err) {
+      return "";
+    }
   }
 
   _renderList() {

@@ -235,6 +235,9 @@
       },
       "user_access": {
         "name": "Åtkomst för {name}"
+      },
+      "guests": {
+        "name": "Gäster"
       }
     },
     "binary_sensor": {

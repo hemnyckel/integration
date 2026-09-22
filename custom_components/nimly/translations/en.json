@@ -235,6 +235,9 @@
       },
       "user_access": {
         "name": "Access for {name}"
+      },
+      "guests": {
+        "name": "Guests"
       }
     },
     "binary_sensor": {
