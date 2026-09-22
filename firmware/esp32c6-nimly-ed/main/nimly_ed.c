@@ -461,8 +461,13 @@ static bool app_signal_handler(const ezb_app_signal_t *app_signal)
         ESP_LOGI(TAG, "SIGNAL: %s status=0x%02x factory_new=%d",
                  ezb_app_signal_to_string(signal_type), status, ezb_bdb_is_factory_new());
         if (status != EZB_BDB_STATUS_SUCCESS) {
-            ESP_LOGW(TAG, "%s misslyckades (0x%02x). Återställ enheten och försök igen.",
-                     ezb_app_signal_to_string(signal_type), status);
+            // A rejoin can fail for a moment (the coordinator still booting, the
+            // device evicted from a re-formed network): keep trying instead of
+            // stranding the module until someone resets it.
+            ESP_LOGW(TAG, "%s misslyckades (0x%02x) - nytt forsok om %d s",
+                     ezb_app_signal_to_string(signal_type), status,
+                     NIMLY_STEER_RETRY_SEC);
+            nimly_schedule_rejoin("misslyckad ateranslutning");
             break;
         }
         if (ezb_bdb_is_factory_new()) {
@@ -537,7 +542,11 @@ static bool app_signal_handler(const ezb_app_signal_t *app_signal)
             s_local_reset_requested = false;
             nimly_schedule_rejoin("LEAVE (lokal återställning)");
         } else {
-            ESP_LOGW(TAG, "Borttagen av koordinatorn – stannar fabriksny tills ny parning");
+            // The coordinator removed us (for example after a bridge reset). The
+            // device is factory new again, so steering keeps looking for the
+            // bridge's joining window instead of waiting to be told twice.
+            ESP_LOGW(TAG, "Borttagen av koordinatorn - borjar steer:a mot ny parning");
+            nimly_schedule_rejoin("borttagen av koordinatorn");
         }
     } break;
 
