@@ -201,6 +201,9 @@ class NimlyGuestsCard extends HTMLElement {
     this._cloudConfirmTimer = null;
     this._cloudError = "";
     this._cloudNotice = "";
+    this._cloudFailedAt = 0;
+    this._actionError = "";
+    this._actionTimer = null;
   }
 
   setConfig(config) {
@@ -223,7 +226,8 @@ class NimlyGuestsCard extends HTMLElement {
       this._renderForm();
     }
     if (!this._cloudLoaded && !this._cloudLoading && hass) {
-      this._fetchCloud();
+      const retryAt = (this._cloudFailedAt || 0) + 60000;
+      if (Date.now() >= retryAt) this._fetchCloud();
     }
   }
 
@@ -246,6 +250,7 @@ class NimlyGuestsCard extends HTMLElement {
     } catch (err) {
       this._cloudGuests = null;
       this._cloudError = this._errorText(err);
+      this._cloudFailedAt = Date.now();
     } finally {
       this._cloudLoading = false;
       this._renderCloud();
@@ -336,6 +341,18 @@ class NimlyGuestsCard extends HTMLElement {
     return this._config.entity || DEFAULT_ENTITY;
   }
 
+  _entryId() {
+    const state = this._hass && this._hass.states[this._entityId()];
+    return (state && state.attributes && state.attributes.entry_id) || null;
+  }
+
+  _lockData(data) {
+    /* With several locks the services need to know which one: without the
+       entry id they fan out to every mirror. */
+    const entryId = this._entryId();
+    return entryId ? { ...data, entry_id: entryId } : { ...data };
+  }
+
   _renderShell() {
     this.shadowRoot.innerHTML = `
       <style>${STYLE}</style>
@@ -361,6 +378,7 @@ class NimlyGuestsCard extends HTMLElement {
     `;
     this._renderList();
     this._renderForm();
+    this._renderShellHooks();
   }
 
   _renderCloud() {
@@ -528,7 +546,7 @@ class NimlyGuestsCard extends HTMLElement {
       <div class="label">Ny PIN (lämna tom för att behålla)</div>
       <input type="text" id="cecode" inputmode="numeric" pattern="[0-9]{4,10}"
              placeholder="4–10 siffror" autocomplete="off">
-      ${edit.error ? `<div class="error">${edit.error}</div>` : ""}
+      ${edit.error ? `<div class="error">${this._esc(edit.error)}</div>` : ""}
       <div class="actions2">
         <button class="ghost" id="cecancel">Avbryt</button>
         <button class="submit" id="cesave" ${edit.busy ? "disabled" : ""}>
@@ -658,7 +676,9 @@ class NimlyGuestsCard extends HTMLElement {
       list.innerHTML = `<div class="empty">Inga gäster just nu.</div>`;
       return;
     }
-    list.innerHTML = "";
+    list.innerHTML = this._actionError
+      ? `<div class="empty error">${this._esc(this._actionError)}</div>`
+      : "";
     for (const guest of guests) {
       list.appendChild(this._guestRow(guest));
     }
@@ -679,7 +699,7 @@ class NimlyGuestsCard extends HTMLElement {
           ? '<span class="cloudmark" title="Synkad med appen"><ha-icon icon="mdi:cloud-check-outline"></ha-icon></span>'
           : ""
       }${this._pill(guest)}</div>
-        <div class="meta">${meta}</div>
+        <div class="meta">${this._esc(meta)}</div>
       </div>
       <div class="actions">
         <button class="icon" data-act="edit" title="Redigera">
@@ -706,7 +726,10 @@ class NimlyGuestsCard extends HTMLElement {
       this._startEdit(guest)
     );
     row.querySelector('[data-act="pause"]')?.addEventListener("click", () =>
-      this._callService("update_guest", { slot: guest.slot, paused: !guest.paused })
+      this._callService(
+        "update_guest",
+        this._lockData({ slot: guest.slot, paused: !guest.paused })
+      )
     );
     row.querySelector('[data-act="revoke"]').addEventListener("click", () => {
       if (this._confirmSlot !== guest.slot) {
@@ -721,7 +744,7 @@ class NimlyGuestsCard extends HTMLElement {
       }
       clearTimeout(this._confirmTimer);
       this._confirmSlot = null;
-      this._callService("revoke_guest_code", { slot: guest.slot });
+      this._callService("revoke_guest_code", this._lockData({ slot: guest.slot }));
     });
     return row;
   }
@@ -841,7 +864,7 @@ class NimlyGuestsCard extends HTMLElement {
       <div class="form">
         ${segmented}
         <div class="label">Namn</div>
-        <input type="text" id="name" placeholder="t.ex. Städfirma" value="${form.name}" />
+        <input type="text" id="name" placeholder="t.ex. Städfirma" value="${this._esc(form.name)}" />
         ${
           recurring
             ? `
@@ -859,7 +882,7 @@ class NimlyGuestsCard extends HTMLElement {
         <input type="text" id="code" inputmode="numeric" placeholder="${
           editing ? "Lämna tomt för att behålla nuvarande" : "Lämna tomt för slumpad"
         }" value="${form.code}" />
-        ${form.error ? `<div class="error">${form.error}</div>` : ""}
+        ${form.error ? `<div class="error">${this._esc(form.error)}</div>` : ""}
         <button class="submit" id="submit" ${form.busy ? "disabled" : ""}>
           ${form.busy ? "Sparar…" : editing ? "Spara ändringar" : "Skapa gästkod"}
         </button>
@@ -1006,8 +1029,16 @@ class NimlyGuestsCard extends HTMLElement {
         if (form.code.trim()) data.code = form.code.trim();
         if (form.oneTime) data.one_time = true;
       }
-      const response = await this._callServiceWS("nimly", service, data);
-      const result = Object.values(response || {})[0] || {};
+      const response = await this._callServiceWS(
+        "nimly",
+        service,
+        this._lockData(data)
+      );
+      const entryId = this._entryId();
+      const result =
+        (entryId && response && response[entryId]) ||
+        Object.values(response || {})[0] ||
+        {};
       this._form = this._blankForm();
       this._form.result = {
         code: result.code || form.code,
@@ -1045,8 +1076,8 @@ class NimlyGuestsCard extends HTMLElement {
     return `
       <div class="result">
         <div class="lead">Gästkoden är klar</div>
-        <div class="who">${result.name}</div>
-        <div class="code">${result.code}</div>
+        <div class="who">${this._esc(result.name)}</div>
+        <div class="code">${this._esc(result.code)}</div>
         <div class="validity">${valid}</div>
         <div class="share">
           <button id="copy">Kopiera</button>
@@ -1101,8 +1132,15 @@ class NimlyGuestsCard extends HTMLElement {
   async _callService(service, data) {
     try {
       await this._callServiceWS("nimly", service, data);
+      this._actionError = "";
     } catch (err) {
-      /* the sensor state will show the outcome; nothing more to do here */
+      this._actionError = this._errorText(err);
+      clearTimeout(this._actionTimer);
+      this._actionTimer = setTimeout(() => {
+        this._actionError = "";
+        this._renderList();
+      }, 6000);
+      this._renderList();
     }
   }
 }

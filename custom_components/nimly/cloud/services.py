@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any
 
 import voluptuous as vol
@@ -35,6 +36,7 @@ from ..const import (
 )
 from .api import NimlyCloudError
 from .coordinator import NimlyCloudCoordinator
+from ..mirror.coordinator import MirrorCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -125,7 +127,7 @@ SCHEMA_SET_CLOUD_CODE = vol.Schema(
         vol.Optional("user_id"): cv.string,
         vol.Optional("guest"): cv.string,
         vol.Required("type", default="pin"): vol.In(["pin", "tag"]),
-        vol.Required("value"): vol.All(cv.string, vol.Match(r"^\d{4,10}$")),
+        vol.Required("value"): vol.All(cv.string, vol.Length(min=4, max=32)),
     }
 )
 
@@ -155,6 +157,38 @@ async def _delete_access_resilient(
             raise HomeAssistantError(
                 f"could not remove the access: {second}"
             ) from second
+
+
+async def _create_access_after_delete(
+    coordinator: NimlyCloudCoordinator,
+    device_id: str,
+    user_id: str,
+    access_type: str,
+    value: str,
+) -> None:
+    """Create the access, retrying while the vendor's delete settles.
+
+    The vendor processes an access deletion asynchronously (the module has to
+    answer first), so an immediate create can still see the old record and
+    answer 409 "already exists". Re-read and retry instead of failing a change
+    that is really only waiting.
+    """
+    for attempt in range(6):
+        try:
+            await coordinator.api.async_create_access(
+                device_id, user_id, access_type, value
+            )
+            return
+        except NimlyCloudError as err:
+            if "already exists" not in str(err).lower() or attempt == 5:
+                raise
+            await asyncio.sleep(3)
+            await coordinator.async_request_refresh()
+            try:
+                live = await coordinator.api.async_device_access(device_id)
+                coordinator.access[device_id] = live
+            except NimlyCloudError:
+                pass
 
 
 def _mirrors(hass: HomeAssistant) -> list[Any]:
@@ -244,9 +278,25 @@ def _coordinator(hass: HomeAssistant, entry_id: str | None = None) -> NimlyCloud
     }
     if not entries:
         raise HomeAssistantError("the Nimly cloud account is not configured")
-    if entry_id and entry_id in entries:
+    if not entry_id:
+        return next(iter(entries.values()))
+    if entry_id in entries:
         return entries[entry_id]
-    return next(iter(entries.values()))
+    # A lock's entry id is accepted wherever the account is implied: services
+    # that also take a lock (the card passes the sensor's entry id) must not
+    # silently act on the wrong account when an id is given but unknown.
+    mirrors = {
+        key: coordinator
+        for key, coordinator in hass.data.get(DOMAIN, {}).items()
+        if isinstance(coordinator, MirrorCoordinator)
+    }
+    if entry_id in mirrors:
+        if len(entries) > 1:
+            raise HomeAssistantError(
+                "several cloud accounts are configured; pass the account entry id"
+            )
+        return next(iter(entries.values()))
+    raise HomeAssistantError(f"no account or lock with entry id {entry_id}")
 
 
 async def async_setup_services(hass: HomeAssistant) -> None:
@@ -513,7 +563,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         guest = _find_guest(guests, call.data.get("user_id"), call.data.get("guest"))
         user_id = str(guest["id"])
         access_type: str = call.data["type"]
-        value: str = call.data["value"]
+        value: str = call.data["value"].strip()
+        if access_type == "pin" and not re.fullmatch(r"\d{4,10}", value):
+            raise HomeAssistantError("a PIN is 4-10 digits")
+        if access_type == "tag" and not re.fullmatch(r"[0-9A-Fa-f]{4,32}", value):
+            raise HomeAssistantError("a tag value is 4-32 hex characters")
         mirror, device_id = _lock_device(hass, coordinator, call.data.get("entry_id"))
 
         # When the identity is one of our own guests, teach the catalog the new
@@ -523,12 +577,21 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         previous: str | None = None
         if slot is not None:
             previous = str((mirror.guests.get(str(slot)) or {}).get("code") or "")
-            await mirror.async_note_cloud_code(user_id, value)
+            # The local side owns the value: write it into the lock and the
+            # catalog before the cloud push, so the arriving write binds here
+            # instead of adding a second copy of a code we already changed.
+            await mirror.async_apply_guest_code(slot, value)
 
+        # Read the device's accesses fresh: the polled copy can be a minute old,
+        # and the delete-then-create decision depends on it.
+        try:
+            live = await coordinator.api.async_device_access(device_id)
+        except NimlyCloudError:
+            live = coordinator.access.get(device_id) or []
         exists = any(
             str(access.get("userId")) == user_id
             and str(access.get("type")) == access_type
-            for access in coordinator.access.get(device_id, [])
+            for access in live
         )
         try:
             if exists:
@@ -539,14 +602,15 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 await _delete_access_resilient(
                     coordinator, device_id, user_id, access_type
                 )
-            await coordinator.api.async_create_access(
-                device_id, user_id, access_type, value
+            await _create_access_after_delete(
+                coordinator, device_id, user_id, access_type, value
             )
         except (NimlyCloudError, HomeAssistantError) as err:
-            if slot is not None:
-                # Put the catalog back so it never claims a code the vendor
-                # does not have.
-                await mirror.async_note_cloud_code(user_id, previous or "")
+            if slot is not None and previous:
+                # Put the lock and the catalog back so neither claims a code
+                # the vendor does not have. An empty previous value has no
+                # write to restore.
+                await mirror.async_apply_guest_code(slot, previous)
             if isinstance(err, HomeAssistantError):
                 raise
             raise HomeAssistantError(f"the cloud rejected the code: {err}") from err

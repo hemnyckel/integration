@@ -144,6 +144,26 @@ Controls that make tier 1 trustworthy:
 Triggers: immediately after a credential is created here, on the periodic
 reconcile, and on demand through the services.
 
+## Lifecycle of a synced guest
+
+A guest that HA owns has a full lifecycle, and each step keeps the cloud in
+step with the lock:
+
+- **Created** (with the sync channel on): the identity and the access are made
+  in the cloud right away; the vendor's push of the code binds to the guest's
+  own slot — the code is never written twice.
+- **Code changed** (`nimly.set_cloud_code`): the new value goes into the lock
+  and the catalog *first*, then the cloud access is replaced (delete, then
+  create; the vendor's delete is asynchronous and the create retries until it
+  lands). The arriving push binds by the new value, so nothing is duplicated,
+  and a failure restores the old value in both places.
+- **Revoked / expired**: the lock is cleared first and the record is dropped
+  only when that succeeded; a linked fingerprint is cleared in the lock, the
+  identity links are removed, and the cloud's accesses for the guest go away.
+  The identity itself is deleted when no other lock and no other guest still
+  needs it — a revocation must not leave a working access behind for the
+  vendor to push back.
+
 ## Open questions
 
 - **Slot alignment for finger attribution:** the gateway picks the slot during an

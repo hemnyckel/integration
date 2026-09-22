@@ -79,18 +79,18 @@ def is_expired(until: str | None, now: datetime) -> bool:
 
 
 def code_owner(guests: dict[str, dict[str, Any]], code: str) -> int | None:
-    """The slot of the recurring guest whose stored code this is, if any.
+    """The slot of the guest whose stored code this is, if any.
 
     Used when the cloud pushes a code back that we already hold: the push must
-    bind to the guest's existing slot instead of writing a second copy.
+    bind to the guest's existing slot instead of writing a second copy. Both
+    guest kinds count — a temporary guest's synced access must not leave a twin
+    behind when the guest is revoked or expires.
     """
     wanted = str(code or "")
     if not wanted:
         return None
     for key, guest in guests.items():
         if not isinstance(guest, dict):
-            continue
-        if guest.get("kind") != "recurring":
             continue
         if str(guest.get("code") or "") != wanted:
             continue

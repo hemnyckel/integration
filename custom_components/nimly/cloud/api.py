@@ -51,7 +51,8 @@ _LOGGER = logging.getLogger(__name__)
 
 # Anything that looks like a credential is masked before a probe body is returned.
 _SCRUB = re.compile(
-    r'("(?:[a-z_]*token|[a-z_]*password|[a-z_]*secret|[a-z_]*pin[a-z_]*|[a-z_]*code)"'
+    r'("(?:[a-z_]*token|[a-z_]*password|[a-z_]*secret|[a-z_]*pin[a-z_]*|[a-z_]*code'
+    r'|[a-z_]*value|[a-z_]*uid)"'
     r"\s*:\s*)\"[^\"]*\"",
     re.IGNORECASE,
 )

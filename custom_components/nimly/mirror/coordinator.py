@@ -205,7 +205,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # tied to the guest's real slot, but the slot stays ours — only a
         # relocation or a passthrough makes the app the slot's owner.
         self.bound: dict[int, int] = load_map(entry.options.get(OPTION_SLOT_BINDS))
-        self._migrate_slot_binds()
         self.lock_facts: dict[str, Any] = {}
         self.lock_facts_at: str | None = None
         self.settings_drift: dict[str, dict[str, Any]] = {}
@@ -349,6 +348,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         await self._async_load_journal()
         self._load_guests()
+        self._migrate_slot_binds()
         await self._async_resume_guests()
         await self._async_sync_to_app()
         self._publish_snapshot()
@@ -475,18 +475,26 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- app slot virtualization --------------------------------------------
 
     def _local_pin_slots(self) -> set[int]:
-        """Slots that hold a local PIN and must never be overwritten by the app.
+        """Slots the local side owns and the app must never overwrite.
 
-        App-owned slots are excluded: a passthrough write is remembered as an
-        identity mapping, so the app always owns what it wrote, whichever real
-        slot it ended up in.
+        That is every slot a guest calls home — also outside its window, when
+        the code is cleared but the slot is reserved for the next opening — and
+        every slot that currently holds a local PIN. App-owned slots are
+        excluded: a passthrough write is remembered as an identity mapping, so
+        the app always owns what it wrote, whichever real slot it ended up in.
         """
         app_owned = set(self.slot_map.values())
-        return {
+        owned = {
             slot
             for slot, data in self.slots.items()
             if data.get("has_pin") and slot not in app_owned
         }
+        owned |= {
+            int(key)
+            for key in self.guests
+            if key.isdigit() and int(key) not in app_owned
+        }
+        return owned
 
     def _slot_bounds(self) -> tuple[int, int]:
         return first_user_slot(self.entry.options), pin_capacity(self.lock_facts)
@@ -515,6 +523,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         local clear of that slot and hide the slot from the local side.
         """
         local = {slot for slot, data in self.slots.items() if data.get("has_pin")}
+        local |= {int(key) for key in self.guests if key.isdigit()}
         moved: dict[int, int] = {}
         for virtual, real in list(self.slot_map.items()):
             if real in local:
@@ -882,17 +891,23 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_journal_add(self, candidate: dict[str, Any]) -> None:
         """Store one event, merging it with its twin from the other source."""
         stored, merged, trimmed = journal_add(self.journal, candidate, now=time.time())
-        await self._async_save_journal(rewrite=merged or trimmed)
+        await self._async_save_journal(rewrite=merged or trimmed, entry=stored)
         if not merged:
             self.hass.bus.async_fire(EVENT_JOURNAL, dict(stored))
         self._publish_snapshot()
 
-    async def _async_save_journal(self, *, rewrite: bool) -> None:
-        """Rewrite the file for merges and trims, else append the newest entry.
+    async def _async_save_journal(
+        self, *, rewrite: bool, entry: dict[str, Any] | None = None
+    ) -> None:
+        """Rewrite the file for merges and trims, else append the stored entry.
 
-        Serialized: two writers sharing the temporary file used to race, and the
-        loser's rename failed with ENOENT, silently dropping an entry.
+        The entry to append is passed in rather than read back from the list:
+        an append queued behind another add must not write whatever happens to
+        be newest when the executor runs. Serialized: two writers sharing the
+        temporary file used to race, and the loser's rename failed with ENOENT,
+        silently dropping an entry.
         """
+        to_append = entry if entry is not None else (self.journal[-1] if self.journal else None)
 
         def _write() -> None:
             path = pathlib.Path(self._journal_path)
@@ -903,9 +918,9 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     for entry in self.journal:
                         handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
                 tmp.replace(path)
-            else:
+            elif to_append is not None:
                 with path.open("a", encoding="utf-8") as handle:
-                    handle.write(json.dumps(self.journal[-1], ensure_ascii=False) + "\n")
+                    handle.write(json.dumps(to_append, ensure_ascii=False) + "\n")
 
         async with self._journal_lock:
             try:
@@ -996,28 +1011,31 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         return removed
 
+    async def async_apply_guest_code(self, slot: int, code: str) -> None:
+        """Write a new value for a guest's code into the lock and the catalog.
+
+        The local side owns the value, so it goes into the lock first: the
+        vendor's own write of the same code then binds to this slot instead of
+        adding a second copy, and a later restore replays the new value.
+        """
+        guest = self.guests.get(str(slot))
+        if not isinstance(guest, dict):
+            raise RuntimeError(f"no guest in slot {slot}")
+        await self._async_set_pin(
+            slot,
+            code,
+            journal={"action": "code_changed", "name": guest.get("name")},
+        )
+        guest["code"] = str(code)
+        await self._async_save_guests()
+        self._publish_snapshot()
+
     def slot_for_cloud_user(self, user_id: str) -> int | None:
         """The slot of the local guest a vendor identity belongs to, if any."""
         for slot_key, guest in self.guests.items():
             if isinstance(guest, dict) and slot_key.isdigit():
                 if self.cloud_user(int(slot_key)) == str(user_id):
                     return int(slot_key)
-        return None
-
-    async def async_note_cloud_code(self, user_id: str, value: str) -> int | None:
-        """Record a code the cloud owns for one of our guests (edited via the app).
-
-        The vendor keeps the only copy of the value; mirroring it into the local
-        catalog keeps restore honest, because the catalog is what we would replay.
-        """
-        for slot_key, guest in list(self.guests.items()):
-            if not isinstance(guest, dict) or not slot_key.isdigit():
-                continue
-            slot = int(slot_key)
-            if self.cloud_user(slot) == str(user_id):
-                guest["code"] = str(value)
-                await self._async_save_guests()
-                return slot
         return None
 
     def cloud_sync_candidates(self) -> list[dict[str, Any]]:
@@ -1097,6 +1115,81 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 detail=f"slot {slot}",
             )
 
+    async def _async_cloud_remove_guest(self, slot: int, user_id: str) -> None:
+        """After a revoke: take the guest's cloud accesses away, and its identity
+        when no lock or other guest still needs it.
+
+        Best effort — the audit reports whatever this could not do — and it
+        runs as its own task so a slow vendor never delays the revoke.
+        """
+        if not self.active(CH_CLOUD):
+            return
+        from ..cloud.coordinator import NimlyCloudCoordinator
+        from ..cloud.sync import cloud_device_for
+
+        clouds = [
+            item
+            for item in self.hass.data.get(DOMAIN, {}).values()
+            if isinstance(item, NimlyCloudCoordinator)
+        ]
+        if not clouds:
+            return
+        cloud = clouds[0]
+        try:
+            device_id = cloud_device_for(cloud, self)
+            for device in cloud.home.get("devices") or []:
+                device_key = str(device.get("id") or "")
+                if not device_key or device_key != device_id:
+                    continue
+                for access in list(cloud.access.get(device_key, [])):
+                    if str(access.get("userId")) != user_id:
+                        continue
+                    try:
+                        await cloud.api.async_delete_access(
+                            device_key, user_id, str(access.get("type"))
+                        )
+                    except Exception as err:  # noqa: BLE001
+                        _LOGGER.warning(
+                            "Cloud access removal for %s on %s failed: %s",
+                            user_id,
+                            device_key,
+                            err,
+                        )
+            keeps = False
+            for device in cloud.home.get("devices") or []:
+                device_key = str(device.get("id") or "")
+                if not device_key or device_key == device_id:
+                    continue
+                if any(
+                    str(access.get("userId")) == user_id
+                    for access in cloud.access.get(device_key, [])
+                ):
+                    keeps = True
+            others = [
+                item
+                for item in self.hass.data.get(DOMAIN, {}).values()
+                if isinstance(item, MirrorCoordinator) and item is not self
+            ]
+            for other in others:
+                if user_id in set(other.cloud_links().values()):
+                    keeps = True
+                for key in other.guests:
+                    if key.isdigit() and other.cloud_user(int(key)) == user_id:
+                        keeps = True
+            if not keeps:
+                await cloud.api.async_delete_guest(cloud.location_id, user_id)
+            await self._async_journal_add(
+                make_entry(
+                    action="cloud_removed",
+                    time=dt_util.utcnow().isoformat(),
+                    origin=ORIGIN_HA,
+                    slot=slot,
+                    detail="identity kept (used elsewhere)" if keeps else "identity removed",
+                )
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Cloud cleanup of a revoked guest failed: %s", err)
+
     def cloud_links(self) -> dict[str, str]:
         """The catalog's credential links: ``"<slot>:<type>" -> vendor uuid``."""
         stored = self.entry.options.get("cloud_links")
@@ -1149,7 +1242,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if access_type == "pin":
             # A synced guest's uuid lives on the guest record, not in the flat store.
             for key, guest in self.guests.items():
-                if str(guest.get("kind") or "") != "recurring" or not key.isdigit():
+                if not isinstance(guest, dict) or not key.isdigit():
                     continue
                 if user_id := self.cloud_user(int(key)):
                     linked.add(user_id)
@@ -1529,6 +1622,38 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._cancel_guest_timer(slot)
         await self._async_save_guests()
         self.slots.clear(slot)
+        # A dead guest's identity links must not outlive it: a future guest in
+        # this slot would inherit them and the sync would trust that mapping.
+        users = dict(self.entry.options.get("cloud_users") or {})
+        links = dict(self.cloud_links())
+        dropped = users.pop(str(slot), None)
+        linked_users = {
+            value
+            for key, value in links.items()
+            if key.startswith(f"{slot}:")
+        }
+        if dropped:
+            linked_users.add(dropped)
+        had_finger = any(
+            key.startswith(f"{slot}:finger") for key in links
+        )
+        for key in [key for key in links if key.startswith(f"{slot}:")]:
+            links.pop(key, None)
+        if dropped is not None or len(links) != len(self.cloud_links()):
+            self.hass.config_entries.async_update_entry(
+                self.entry,
+                options={**self.entry.options, "cloud_users": users, "cloud_links": links},
+            )
+        # The person is losing access everywhere: take the fingerprint out of
+        # the lock, and have the cloud forget what is now nobody's.
+        if had_finger:
+            try:
+                await self._async_zcl(ZCL_CMD_FP_CLEAR, slot)
+                self.slots.mark_fingerprint(slot, False)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Clearing the fingerprint of slot %s failed: %s", slot, err)
+        for user_id in sorted(linked_users):
+            self.hass.async_create_task(self._async_cloud_remove_guest(slot, user_id))
         stale = [virtual for virtual, real in self.bound.items() if real == slot]
         if stale:
             for virtual in stale:
@@ -1550,7 +1675,16 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         async def _expire(_now: Any = None, guest_slot: int = slot) -> None:
-            await self._async_expire_guest(guest_slot)
+            try:
+                await self._async_expire_guest(guest_slot)
+            except Exception as err:  # noqa: BLE001
+                # The guest stays and the next start retries; a consumed timer
+                # must not hide a live code.
+                _LOGGER.warning(
+                    "Expiry of guest slot %s failed (retried at next start): %s",
+                    guest_slot,
+                    err,
+                )
 
         # A coroutine callback: HassJob runs it on the event loop, where a
         # plain lambda would call async_create_task from the wrong thread.
@@ -2057,9 +2191,14 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not isinstance(action, int):
             return
         slot = data.get("user_slot")
-        # The credential may live in a relocated slot; the app only knows its own
-        # number, so events are translated back before they leave for the bridge.
-        shown = self._virtual_slot(slot) if isinstance(slot, int) else None
+        # The credential may live in a relocated slot, or in the guest's own
+        # slot as a bind; the app only knows its own number, so events are
+        # translated back before they leave for the bridge.
+        shown = None
+        if isinstance(slot, int):
+            shown = self._virtual_slot(slot)
+            if shown is None:
+                shown = virtual_of(slot, self.bound)
         if not isinstance(shown, int):
             shown = slot
         master = bool(data.get("master"))
