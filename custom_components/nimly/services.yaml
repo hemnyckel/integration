@@ -18,5 +18,6 @@ fetch_journal:
 create_guest_code:
 create_recurring_guest:
 update_guest:
+reset_app_registration:
 revoke_guest_code:
 list_guests:

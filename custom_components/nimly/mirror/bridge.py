@@ -140,7 +140,11 @@ class BridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         manifest = self.manifest or {}
         builds = manifest.get("builds") or {}
         target = self.info.get("target")
-        name = builds.get(target)
+        name = builds.get(target) if target else None
+        if not isinstance(name, str) and len(builds) == 1:
+            # An older bridge firmware may not announce its target; one
+            # published build is unambiguous.
+            name = next(iter(builds.values()))
         if not isinstance(name, str):
             return None
         return f"{self.ota_manifest_url.rsplit('/', 1)[0]}/{name}"

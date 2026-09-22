@@ -266,6 +266,15 @@ class NimlyCloudApi:
             PATH_DEVICE_LOCK.format(device_id=device_id), {"lock": locked}
         )
 
+    async def async_delete_device(self, device_id: str) -> Any:
+        """Delete a device record, like the app's "remove device".
+
+        The vendor cloud refuses to (re)pair a module whose serial is still
+        registered, so a recovery after an eviction needs the record gone
+        first. Reverse-engineered endpoint (docs/architecture.md).
+        """
+        return await self._request("DELETE", PATH_DEVICE.format(device_id=device_id))
+
     async def async_update_device_settings(
         self, device_id: str, settings: dict[str, Any]
     ) -> Any:

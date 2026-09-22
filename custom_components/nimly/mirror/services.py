@@ -30,6 +30,7 @@ SERVICE_CREATE_RECURRING_GUEST = "create_recurring_guest"
 SERVICE_UPDATE_GUEST = "update_guest"
 SERVICE_REVOKE_GUEST = "revoke_guest_code"
 SERVICE_LIST_GUESTS = "list_guests"
+SERVICE_RESET_APP = "reset_app_registration"
 
 PROVISION_SCHEMA = vol.Schema(
     {
@@ -370,6 +371,16 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             results[coord.entry.entry_id] = await coord.async_revoke_guest(slot)
         return results
 
+    async def _async_handle_reset_app(call: ServiceCall) -> dict[str, Any]:
+        entry_id = call.data.get("entry_id")
+        coordinators = _coordinators(hass, entry_id, "async_reset_app_registration")
+        if not coordinators:
+            return {"error": "no matching mirror"}
+        results: dict[str, Any] = {}
+        for coord in coordinators:
+            results[coord.entry.entry_id] = await coord.async_reset_app_registration()
+        return results
+
     async def _async_handle_list_guests(call: ServiceCall) -> dict[str, Any]:
         entry_id = call.data.get("entry_id")
         coordinators = _coordinators(hass, entry_id, "list_guests")
@@ -459,6 +470,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN,
+        SERVICE_RESET_APP,
+        _validated(_async_handle_reset_app),
+        schema=vol.Schema({vol.Optional("entry_id"): cv.string}),
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_LIST_GUESTS,
         _validated(_async_handle_list_guests),
         schema=LIST_GUESTS_SCHEMA,
@@ -481,4 +499,5 @@ async def async_unload_services(hass: HomeAssistant) -> None:
     hass.services.async_remove(DOMAIN, SERVICE_CREATE_RECURRING_GUEST)
     hass.services.async_remove(DOMAIN, SERVICE_UPDATE_GUEST)
     hass.services.async_remove(DOMAIN, SERVICE_REVOKE_GUEST)
+    hass.services.async_remove(DOMAIN, SERVICE_RESET_APP)
     hass.services.async_remove(DOMAIN, SERVICE_LIST_GUESTS)

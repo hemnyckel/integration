@@ -182,7 +182,11 @@ class MirrorBridgeUpdate(MirrorEntity, UpdateEntity):
         manifest = self.coordinator.firmware_manifest or {}
         builds = manifest.get("builds") or {}
         target = self.coordinator.bridge_info.get("target")
-        name = builds.get(target)
+        name = builds.get(target) if target else None
+        if not isinstance(name, str) and len(builds) == 1:
+            # A bridge still running an older firmware may not announce its
+            # target; a single published build is unambiguous.
+            name = next(iter(builds.values()))
         if not isinstance(name, str):
             return None
         base = self.coordinator.ota_manifest_url.rsplit("/", 1)[0]

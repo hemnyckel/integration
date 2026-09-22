@@ -643,8 +643,45 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning(
                 "Lock settings differ from the app's record: %s", self.settings_drift
             )
+        # Fresh facts are exactly when a drifted app record can be corrected
+        # (and when a fresh registration's defaults show up).
+        await self._async_heal_app_settings()
         self._publish_snapshot()
         return self.lock_facts
+
+    async def _async_heal_app_settings(self) -> None:
+        """Correct the app's record when it differs from the lock's own settings.
+
+        A fresh cloud registration starts from the app's defaults, so after a
+        (re)pairing the record can disagree with the lock; the lock is the source
+        of truth. The comparison reads the cloud's own view (its settings object
+        and the module values it reports), not the local mirror's copy.
+        """
+        for coordinator in self.hass.data.get(DOMAIN, {}).values():
+            devices = getattr(coordinator, "devices", None)
+            setting = getattr(coordinator, "device_setting", None)
+            state = getattr(coordinator, "device_state", None)
+            if not devices:
+                continue
+            device_id = self._cloud_device_id(devices)
+            if device_id is None:
+                continue
+            payload: dict[str, Any] = {}
+            lock_auto = self.lock_facts.get("auto_relock_time")
+            if lock_auto is not None and setting is not None:
+                if bool(setting(device_id, "autolock")) != bool(lock_auto):
+                    payload["autolock"] = bool(lock_auto)
+            lock_volume = self.lock_facts.get("sound_volume")
+            if lock_volume is not None and state is not None:
+                module_volume = state(device_id, "lock", "soundvolume")
+                if isinstance(module_volume, int) and module_volume != int(lock_volume):
+                    vendor = vendor_volume(int(lock_volume))
+                    if vendor:
+                        payload["volume"] = vendor
+            if payload:
+                _LOGGER.info("Healing the app's settings from the lock: %s", payload)
+                await self._async_push_app_setting(payload)
+            return
 
     def _schedule_facts_refresh(self) -> None:
         """Background facts refresh - the lock is awake right now anyway."""
@@ -723,6 +760,42 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except Exception as err:  # noqa: BLE001 - convenience only
                 _LOGGER.debug("Could not push settings to the cloud: %s", err)
             return
+
+    async def async_reset_app_registration(self) -> dict[str, Any]:
+        """Remove this lock's device record from the vendor account.
+
+        Exactly what the app's "remove device" does, so a recovery does not
+        depend on finding that menu: the cloud refuses to (re)pair a module
+        whose serial is still registered. Run the app's add-device search
+        afterwards; the emulator steers on its own.
+        """
+        for coordinator in self.hass.data.get(DOMAIN, {}).values():
+            devices = getattr(coordinator, "devices", None)
+            api = getattr(coordinator, "api", None)
+            if not devices or api is None:
+                continue
+            device_id = self._cloud_device_id(devices)
+            if device_id is None:
+                continue
+            # SAFETY: only ever delete the record whose serial is this lock's.
+            meta = (getattr(coordinator, "device_meta", {}) or {}).get(device_id) or {}
+            serial = str(meta.get("serialNumber") or "").replace(":", "").lower()
+            mine = str(self.ieee or "").replace(":", "").lower()
+            if not mine or serial != mine:
+                return {"reset": False, "reason": "serial mismatch, refusing"}
+            await api.async_delete_device(device_id)
+            await coordinator.async_request_refresh()
+            await self._async_journal_add(
+                make_entry(
+                    action="app_registration_reset",
+                    time=dt_util.utcnow().isoformat(),
+                    origin=ORIGIN_HA,
+                    detail="the app's device record was removed; run add-device",
+                )
+            )
+            _LOGGER.warning("Removed the app's device record for %s", self.ieee)
+            return {"device_id": device_id, "reset": True}
+        return {"reset": False, "reason": "no cloud device matches this lock"}
 
     # -- journal -------------------------------------------------------------
 
@@ -1810,6 +1883,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.config_entries.async_update_entry(self.entry, options=options)
 
     async def _async_sync_to_app(self) -> None:
+        await self._async_heal_app_settings()
         if not self.active(CH_SYNC):
             return
         if self.active(CH_VOLUME) and (
