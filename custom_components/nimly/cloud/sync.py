@@ -12,7 +12,7 @@ import logging
 from typing import Any
 
 from .coordinator import NimlyCloudCoordinator
-from .guests import match_guest, same_named, validity
+from .guests import choose_identity, validity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -106,18 +106,28 @@ async def _async_sync_candidate(
         user_id = None  # the remembered identity is gone; a new one is needed
 
     if user_id is None:
-        adopted = match_guest(name, guests)
-        if adopted is not None:
-            user_id = str(adopted.get("id") or "") or None
+        on_this_lock = {user for user, _type in accesses}
+        linked = {
+            value
+            for value in (
+                {mirror.cloud_user(slot)} | set(mirror.cloud_links().values())
+            )
+            if value
+        }
+        action, adopted_id = choose_identity(
+            name, guests, on_this_lock=on_this_lock, linked=linked
+        )
+        if action == "conflict":
+            # Two people, one name — or a same-named identity already holding a
+            # code here that is not recorded as ours. A human decides.
+            note("conflict")
+            return actions
+        if action == "adopt":
+            user_id = adopted_id or None
             note("adopt_guest", user_id=user_id)
             if not dry_run and user_id:
                 await mirror.async_set_cloud_user(slot, user_id)
         else:
-            if same_named(name, guests):
-                # A same-named guest already holds an access: two people, one name.
-                # A human decides; never guess.
-                note("conflict")
-                return actions
             note("create_guest")
             if not dry_run:
                 start, end = validity()

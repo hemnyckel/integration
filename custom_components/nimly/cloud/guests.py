@@ -45,25 +45,6 @@ def guest_row(guest: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def match_guest(name: str, guests: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """A cloud guest with this name and no access of its own, when unambiguous.
-
-    Adopting an identity the app already made (instead of creating a twin) keeps
-    the guest list free of duplicates; it is only done when the candidate holds no
-    access — taking over one that does could hand our code to the wrong person.
-    """
-    wanted = str(name or "").strip().casefold()
-    if not wanted:
-        return None
-    free = [
-        guest
-        for guest in guests
-        if str(guest.get("name") or "").strip().casefold() == wanted
-        and not guest.get("hasDoorlockAccess")
-    ]
-    return free[0] if len(free) == 1 else None
-
-
 def same_named(name: str, guests: list[dict[str, Any]]) -> bool:
     """True when any cloud guest carries this name (used to flag conflicts)."""
     wanted = str(name or "").strip().casefold()
@@ -72,3 +53,47 @@ def same_named(name: str, guests: list[dict[str, Any]]) -> bool:
     return any(
         str(guest.get("name") or "").strip().casefold() == wanted for guest in guests
     )
+
+
+def same_named_all(name: str, guests: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every cloud guest with this name, in the order the account lists them."""
+    wanted = str(name or "").strip().casefold()
+    if not wanted:
+        return []
+    return [
+        guest
+        for guest in guests
+        if str(guest.get("name") or "").strip().casefold() == wanted
+    ]
+
+
+def choose_identity(
+    name: str,
+    guests: list[dict[str, Any]],
+    *,
+    on_this_lock: set[str],
+    linked: set[str],
+) -> tuple[str, str]:
+    """Which cloud identity a local guest should use, across every lock.
+
+    One person, one identity, however many locks: a name that already has an
+    access elsewhere is adopted here too — the access is added, never a second
+    identity. A same-named identity holding an access on *this* lock that the
+    catalog does not record as ours is a conflict for a human, because adopting
+    it could hand the code to the wrong person.
+
+    Returns ``(action, user_id)`` with action one of ``create``, ``adopt`` or
+    ``conflict``.
+    """
+    candidates = same_named_all(name, guests)
+    if not candidates:
+        return "create", ""
+    ours = [str(guest.get("id")) for guest in candidates if str(guest.get("id")) in linked]
+    if len(ours) == 1:
+        return "adopt", ours[0]
+    if len(candidates) > 1:
+        return "conflict", ""
+    candidate = str(candidates[0].get("id") or "")
+    if candidate in on_this_lock:
+        return "conflict", ""
+    return "adopt", candidate

@@ -165,7 +165,22 @@ const STYLE = `
            border-radius: 8px; padding: 3px 8px; }
   .badge ha-icon { --mdc-icon-size: 15px; }
   .badge.warn { color: #ffa600; background: rgba(255, 166, 0, .15); }
+  .badge.dim { opacity: .5; }
+  .badge.locknote { background: none; border: 1px dashed var(--divider-color); }
+  .cloudform { padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 12px;
+               background: var(--secondary-background-color); }
+  .cloudform .row2 { display: flex; gap: 10px; }
+  .cloudform .row2 > div { flex: 1; min-width: 0; }
+  .cloudform .actions2 { display: flex; gap: 8px; }
+  .cloudform .actions2 button { flex: 1; }
+  .cloudform input[type=date] {
+    width: 100%; box-sizing: border-box; border: 1px solid var(--divider-color);
+    background: var(--card-background-color); color: var(--primary-text-color);
+    border-radius: 10px; padding: 10px 12px; font-size: 15px; outline: none;
+  }
   .cloudrow .avatar { background: var(--secondary-text-color); }
+  .cloudmark { display: inline-flex; color: var(--secondary-text-color); }
+  .cloudmark ha-icon { --mdc-icon-size: 16px; }
 `;
 
 class NimlyGuestsCard extends HTMLElement {
@@ -181,6 +196,11 @@ class NimlyGuestsCard extends HTMLElement {
     this._cloudGuests = null;
     this._cloudLoaded = false;
     this._cloudLoading = false;
+    this._cloudEdit = null;
+    this._cloudConfirm = null;
+    this._cloudConfirmTimer = null;
+    this._cloudError = "";
+    this._cloudNotice = "";
   }
 
   setConfig(config) {
@@ -208,21 +228,34 @@ class NimlyGuestsCard extends HTMLElement {
   }
 
   async _fetchCloud() {
-    /* The app's guest users: read-only here, managed in the vendor app. The
-       integration's cloud_guests service returns them with validity windows and
-       credential flags; error states show as a warning badge. */
+    /* The app's guest users: identities created in the vendor app. The
+       integration answers with each guest's accesses per lock, so the card can
+       tell what actually lives on this door, on another door, or nowhere. */
     this._cloudLoading = true;
+    this._cloudError = "";
     try {
-      const response = await this._callServiceWS("nimly", "cloud_guests", {});
+      const state = this._hass.states[this._entityId()];
+      const entryId = state && state.attributes && state.attributes.entry_id;
+      const response = await this._callServiceWS(
+        "nimly",
+        "cloud_guests",
+        entryId ? { entry_id: entryId } : {}
+      );
       this._cloudGuests = Array.isArray(response.guests) ? response.guests : [];
       this._cloudLoaded = true;
     } catch (err) {
       this._cloudGuests = null;
+      this._cloudError = this._errorText(err);
     } finally {
       this._cloudLoading = false;
       this._renderCloud();
       this._renderShellHooks();
     }
+  }
+
+  _errorText(err) {
+    const text = (err && (err.message || err.error || String(err))) || "okänt fel";
+    return text.replace(/^.*?Error:\s*/, "");
   }
 
   _renderShellHooks() {
@@ -348,42 +381,255 @@ class NimlyGuestsCard extends HTMLElement {
         !localNames.has((g.name || "").trim().toLowerCase())
     );
     if (count) count.textContent = String(guests.length);
-    if (!guests.length) {
+    if (!guests.length && !this._cloudEdit && !this._cloudError && !this._cloudNotice) {
       section.hidden = true;
       return;
     }
     section.hidden = false;
     list.innerHTML = "";
+    if (this._cloudError) {
+      const line = document.createElement("div");
+      line.className = "empty error";
+      line.textContent = this._cloudError;
+      list.appendChild(line);
+    }
+    if (this._cloudNotice) {
+      const line = document.createElement("div");
+      line.className = "empty";
+      line.textContent = this._cloudNotice;
+      list.appendChild(line);
+    }
+    if (this._cloudEdit) list.appendChild(this._cloudForm());
     for (const guest of guests) list.appendChild(this._cloudRow(guest));
+    if (!guests.length && !this._cloudEdit && !this._cloudError) {
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "Inga gäster i appen.";
+      list.appendChild(empty);
+    }
   }
 
   _cloudRow(guest) {
     const row = document.createElement("div");
     row.className = "row cloudrow";
     const initial = (guest.name || "?").trim().charAt(0);
+    const onLock = Array.isArray(guest.on_lock) ? guest.on_lock : null;
+    const elsewhere = Array.isArray(guest.elsewhere) ? guest.elsewhere : [];
+    const ghosts = Array.isArray(guest.ghost) ? guest.ghost : [];
     const badges = [];
-    if (guest.has_pin) badges.push(this._cloudBadge("mdi:dialpad", "PIN"));
-    if (guest.has_fingerprint) badges.push(this._cloudBadge("mdi:fingerprint", "Finger"));
-    if (guest.has_tag) badges.push(this._cloudBadge("mdi:tag-outline", "Tag"));
+    const types = [
+      ["pin", "mdi:dialpad", "PIN"],
+      ["finger", "mdi:fingerprint", "Finger"],
+      ["tag", "mdi:tag-outline", "Tag"],
+    ];
+    for (const [type, icon, label] of types) {
+      const claimed =
+        type === "pin"
+          ? guest.has_pin
+          : type === "finger"
+          ? guest.has_fingerprint
+          : guest.has_tag;
+      if (onLock) {
+        if (onLock.includes(type)) badges.push(this._cloudBadge(icon, label));
+        else if (elsewhere.includes(type)) {
+          badges.push(
+            this._cloudBadge(icon, label, "dim", "på ett annat lås")
+          );
+        } else if (ghosts.includes(type)) {
+          badges.push(
+            this._cloudBadge(
+              icon,
+              label,
+              "warn",
+              "finns i appen men koden ligger inte på något aktivt lås"
+            )
+          );
+        }
+      } else if (claimed) {
+        badges.push(this._cloudBadge(icon, label));
+      }
+    }
     if (guest.status) {
       badges.push(
-        `<span class="badge warn" title="${guest.status}">` +
+        `<span class="badge warn" title="${this._esc(guest.status)}">` +
           `<ha-icon icon="mdi:alert-circle-outline"></ha-icon>(!)</span>`
       );
     }
+    const confirming = this._cloudConfirm === guest.id;
     row.innerHTML = `
       <div class="avatar">${initial}</div>
       <div class="info">
-        <div class="name"><span>${guest.name || "Namnlös"}</span></div>
+        <div class="name"><span>${this._esc(guest.name) || "Namnlös"}</span></div>
         <div class="meta">${this._cloudValidity(guest)}</div>
         <div class="badges">${badges.join("")}</div>
       </div>
+      <div class="actions">
+        <button class="icon" data-act="edit" title="Redigera">
+          <ha-icon icon="mdi:pencil"></ha-icon></button>
+        <button class="icon ${confirming ? "confirm" : "danger"}" data-act="delete" title="Ta bort gäst">
+          ${
+            confirming
+              ? "Ta bort?"
+              : `<ha-icon icon="mdi:trash-can-outline"></ha-icon>`
+          }
+        </button>
+      </div>
     `;
+    row.querySelector('[data-act="edit"]').addEventListener("click", () =>
+      this._startCloudEdit(guest)
+    );
+    row.querySelector('[data-act="delete"]').addEventListener("click", () => {
+      if (this._cloudConfirm !== guest.id) {
+        this._cloudConfirm = guest.id;
+        this._renderCloud();
+        clearTimeout(this._cloudConfirmTimer);
+        this._cloudConfirmTimer = setTimeout(() => {
+          this._cloudConfirm = null;
+          this._renderCloud();
+        }, 3000);
+        return;
+      }
+      clearTimeout(this._cloudConfirmTimer);
+      this._cloudConfirm = null;
+      this._deleteCloudGuest(guest);
+    });
     return row;
   }
 
-  _cloudBadge(icon, label) {
-    return `<span class="badge"><ha-icon icon="${icon}"></ha-icon>${label}</span>`;
+  _startCloudEdit(guest) {
+    this._cloudError = "";
+    this._cloudNotice = "";
+    this._cloudEdit = {
+      id: guest.id,
+      original: guest,
+      name: guest.name || "",
+      validFrom: (guest.valid_from || "").slice(0, 10),
+      validTo: (guest.valid_to || "").slice(0, 10),
+      code: "",
+      busy: false,
+      error: "",
+    };
+    this._renderCloud();
+  }
+
+  _cloudForm() {
+    const edit = this._cloudEdit;
+    const box = document.createElement("div");
+    box.className = "cloudform";
+    box.innerHTML = `
+      <div class="label">Namn</div>
+      <input type="text" id="cename" value="${this._esc(edit.name)}" autocomplete="off">
+      <div class="row2">
+        <div><div class="label">Giltig från</div>
+          <input type="date" id="cefrom" value="${edit.validFrom}"></div>
+        <div><div class="label">Giltig till</div>
+          <input type="date" id="ceto" value="${edit.validTo}"></div>
+      </div>
+      <div class="label">Ny PIN (lämna tom för att behålla)</div>
+      <input type="text" id="cecode" inputmode="numeric" pattern="[0-9]{4,10}"
+             placeholder="4–10 siffror" autocomplete="off">
+      ${edit.error ? `<div class="error">${edit.error}</div>` : ""}
+      <div class="actions2">
+        <button class="ghost" id="cecancel">Avbryt</button>
+        <button class="submit" id="cesave" ${edit.busy ? "disabled" : ""}>
+          ${edit.busy ? "Sparar…" : "Spara"}</button>
+      </div>
+    `;
+    box.querySelector("#cecancel").addEventListener("click", () => {
+      this._cloudEdit = null;
+      this._renderCloud();
+    });
+    box.querySelector("#cesave").addEventListener("click", () => {
+      this._saveCloudEdit(
+        box.querySelector("#cename").value.trim(),
+        box.querySelector("#cefrom").value,
+        box.querySelector("#ceto").value,
+        box.querySelector("#cecode").value.trim()
+      );
+    });
+    return box;
+  }
+
+  async _saveCloudEdit(name, validFrom, validTo, code) {
+    const edit = this._cloudEdit;
+    if (!edit || edit.busy) return;
+    edit.busy = true;
+    edit.error = "";
+    this._renderCloud();
+    const state = this._hass.states[this._entityId()];
+    const entryId = state && state.attributes && state.attributes.entry_id;
+    try {
+      const original = edit.original;
+      const windowChanged =
+        validFrom !== (original.valid_from || "").slice(0, 10) ||
+        validTo !== (original.valid_to || "").slice(0, 10);
+      const nameChanged = name && name !== original.name;
+      if (nameChanged || windowChanged) {
+        const data = { user_id: edit.id };
+        if (nameChanged) data.new_name = name;
+        if (windowChanged) {
+          if (validFrom) data.valid_from = validFrom;
+          if (validTo) data.valid_to = validTo;
+        }
+        await this._callServiceWS("nimly", "update_cloud_guest", data);
+      }
+      if (code) {
+        if (!/^\d{4,10}$/.test(code)) {
+          throw new Error("koden måste vara 4–10 siffror");
+        }
+        const data = { user_id: edit.id, type: "pin", value: code };
+        if (entryId) data.entry_id = entryId;
+        await this._callServiceWS("nimly", "set_cloud_code", data);
+      }
+      this._cloudEdit = null;
+      this._cloudNotice = "Sparat.";
+      setTimeout(() => {
+        if (this._cloudNotice === "Sparat.") {
+          this._cloudNotice = "";
+          this._renderCloud();
+        }
+      }, 2500);
+      this._cloudLoaded = false;
+      await this._fetchCloud();
+    } catch (err) {
+      edit.busy = false;
+      edit.error = this._errorText(err);
+      this._renderCloud();
+    }
+  }
+
+  async _deleteCloudGuest(guest) {
+    this._cloudError = "";
+    this._cloudNotice = "";
+    try {
+      await this._callServiceWS("nimly", "delete_cloud_guest", {
+        user_id: guest.id,
+      });
+      this._cloudNotice = `${guest.name || "Gästen"} borttagen.`;
+      setTimeout(() => {
+        this._cloudNotice = "";
+        this._renderCloud();
+      }, 2500);
+      this._cloudLoaded = false;
+      await this._fetchCloud();
+    } catch (err) {
+      this._cloudError = this._errorText(err);
+      this._renderCloud();
+    }
+  }
+
+  _cloudBadge(icon, label, extraClass, title) {
+    const cls = extraClass ? `badge ${extraClass}` : "badge";
+    const tip = title ? ` title="${title}"` : "";
+    return `<span class="${cls}"${tip}><ha-icon icon="${icon}"></ha-icon>${label}</span>`;
+  }
+
+  _esc(value) {
+    return String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   }
 
   _cloudValidity(guest) {
@@ -428,7 +674,11 @@ class NimlyGuestsCard extends HTMLElement {
     row.innerHTML = `
       <div class="avatar">${initial}</div>
       <div class="info">
-        <div class="name"><span>${guest.name || "Namnlös"}</span>${this._pill(guest)}</div>
+        <div class="name"><span>${this._esc(guest.name) || "Namnlös"}</span>${
+        (guest.cloud_users || []).length
+          ? '<span class="cloudmark" title="Synkad med appen"><ha-icon icon="mdi:cloud-check-outline"></ha-icon></span>'
+          : ""
+      }${this._pill(guest)}</div>
         <div class="meta">${meta}</div>
       </div>
       <div class="actions">

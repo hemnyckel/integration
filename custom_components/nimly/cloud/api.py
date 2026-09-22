@@ -36,8 +36,10 @@ from ..const import (
     PATH_GATEWAY_ACTION,
     PATH_DEVICE_SCAN,
     PATH_GUEST_USERS,
+    PATH_GUEST_USER,
     PATH_HOME,
     PATH_LOCATION_USERS,
+    PATH_LOCATION_USER,
     PATH_LOCATIONS,
     PATH_ME,
     PATH_REFRESH,
@@ -287,6 +289,37 @@ class NimlyCloudApi:
         if email:
             payload["email"] = email
         return await self.async_post(PATH_GUEST_USERS, payload) or {}
+
+    async def async_update_guest(
+        self, user_id: str, fields: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Edit a guest identity: name, validity window or contact details."""
+        payload = {key: value for key, value in fields.items() if value is not None}
+        if not payload:
+            raise NimlyCloudError("nothing to update")
+        return await self.async_patch(
+            PATH_GUEST_USER.format(user_id=user_id), payload
+        ) or {}
+
+    async def async_delete_guest(self, location_id: str, user_id: str) -> None:
+        """Remove a guest identity from the location (the app's delete).
+
+        The vendor cleans access records asynchronously; callers that want a
+        deterministic end state delete the accesses first.
+        """
+        await self._request(
+            "DELETE",
+            PATH_LOCATION_USER.format(location_id=location_id, user_id=user_id),
+        )
+
+    async def async_update_access(
+        self, device_id: str, user_id: str, access_type: str, value: str
+    ) -> Any:
+        """Change the value of an existing access (the app's "new code")."""
+        return await self.async_patch(
+            PATH_DEVICE_ACCESS.format(device_id=device_id),
+            {"userId": user_id, "type": access_type, "value": value},
+        )
 
     async def async_create_access(
         self, device_id: str, user_id: str, access_type: str, value: str

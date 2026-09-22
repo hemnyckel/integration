@@ -27,3 +27,7 @@ sync_cloud:
 audit:
 restore_cloud:
 link_credential:
+update_cloud_guest:
+delete_cloud_guest:
+set_cloud_code:
+link_cloud_guest:

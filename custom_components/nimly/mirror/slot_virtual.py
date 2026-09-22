@@ -28,6 +28,7 @@ from collections.abc import Mapping
 from typing import Any
 
 OPTION_SLOT_MAP = "slot_map"
+OPTION_SLOT_BINDS = "bound_slots"
 
 # Resolver outcomes.
 PASS = "pass"  # write as-is; the slot is free

@@ -748,6 +748,110 @@
           "description": "Defaults to true: report the plan without writing to the cloud."
         }
       }
+    },
+    "update_cloud_guest": {
+      "name": "Edit app guest",
+      "description": "Change the name, validity window or contact details of a guest that lives in the vendor app (the identity only; the vendor keeps the codes).",
+      "fields": {
+        "user_id": {
+          "name": "Guest id",
+          "description": "The guest's uuid. Preferred when a name could be ambiguous."
+        },
+        "guest": {
+          "name": "Guest name",
+          "description": "Match by (unique) name instead of id."
+        },
+        "new_name": {
+          "name": "New name",
+          "description": "Rename the guest in the app."
+        },
+        "valid_from": {
+          "name": "Valid from",
+          "description": "Start of the validity window (YYYY-MM-DD)."
+        },
+        "valid_to": {
+          "name": "Valid to",
+          "description": "End of the validity window (ISO date-time)."
+        },
+        "email": {
+          "name": "Email",
+          "description": "Guest email."
+        },
+        "phone": {
+          "name": "Phone",
+          "description": "Guest phone number."
+        },
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which cloud account, when several are configured."
+        }
+      }
+    },
+    "delete_cloud_guest": {
+      "name": "Delete app guest",
+      "description": "Remove a guest identity created in the vendor app, after removing its accesses on every live lock so no code keeps working.",
+      "fields": {
+        "user_id": {
+          "name": "Guest id",
+          "description": "The guest's uuid. Preferred when a name could be ambiguous."
+        },
+        "guest": {
+          "name": "Guest name",
+          "description": "Match by (unique) name instead of id."
+        },
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which cloud account, when several are configured."
+        }
+      }
+    },
+    "set_cloud_code": {
+      "name": "Set app guest code",
+      "description": "Set or replace a PIN or tag of a guest that lives in the vendor app, on one lock. The value is written through the vendor cloud to the lock; when the guest is one of ours, the catalog stores the value too.",
+      "fields": {
+        "user_id": {
+          "name": "Guest id",
+          "description": "The guest's uuid. Preferred when a name could be ambiguous."
+        },
+        "guest": {
+          "name": "Guest name",
+          "description": "Match by (unique) name instead of id."
+        },
+        "type": {
+          "name": "Code type",
+          "description": "pin (default) or tag."
+        },
+        "value": {
+          "name": "Code",
+          "description": "The new 4-10 digit code. It is never logged."
+        },
+        "entry_id": {
+          "name": "Lock",
+          "description": "Which lock to write to; required when several are configured."
+        }
+      }
+    },
+    "link_cloud_guest": {
+      "name": "Link app guest to a slot",
+      "description": "Record which vendor identity one of our slots belongs to — the human answer to an adoption conflict. Run sync_cloud afterwards to bring the access in line.",
+      "fields": {
+        "entry_id": {
+          "name": "Lock",
+          "description": "The lock whose slot this concerns."
+        },
+        "slot": {
+          "name": "Slot",
+          "description": "The slot of the local guest."
+        },
+        "user_id": {
+          "name": "Guest id",
+          "description": "The vendor identity's uuid."
+        },
+        "guest": {
+          "name": "Guest name",
+          "description": "Match the identity by (unique) name instead of id."
+        }
+      }
     }
   }
 }

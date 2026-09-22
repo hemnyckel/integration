@@ -135,6 +135,7 @@ from .slot_virtual import (
     IGNORE,
     MOVE,
     OPTION_SLOT_MAP,
+    OPTION_SLOT_BINDS,
     PASS,
     dump_map,
     load_map,
@@ -200,6 +201,11 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Virtual app slots: the vendor app's slot number -> the real slot that
         # holds the credential. Empty while the app's numbers pass through.
         self.slot_map: dict[int, int] = load_map(entry.options.get(OPTION_SLOT_MAP))
+        # Binds are the app's copy of a code we already hold: the vendor slot is
+        # tied to the guest's real slot, but the slot stays ours — only a
+        # relocation or a passthrough makes the app the slot's owner.
+        self.bound: dict[int, int] = load_map(entry.options.get(OPTION_SLOT_BINDS))
+        self._migrate_slot_binds()
         self.lock_facts: dict[str, Any] = {}
         self.lock_facts_at: str | None = None
         self.settings_drift: dict[str, dict[str, Any]] = {}
@@ -439,6 +445,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "channels": dict(self.channels),
             "master_enabled": self.master_enabled,
             "slot_map": dump_map(self.slot_map),
+            "bound_slots": dump_map(self.bound),
         }
 
     @callback
@@ -493,6 +500,31 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.entry,
             options={**self.entry.options, OPTION_SLOT_MAP: dump_map(self.slot_map)},
         )
+
+    def _save_bound_map(self) -> None:
+        self.hass.config_entries.async_update_entry(
+            self.entry,
+            options={**self.entry.options, OPTION_SLOT_BINDS: dump_map(self.bound)},
+        )
+
+    def _migrate_slot_binds(self) -> None:
+        """Move binds that older versions recorded as app ownership.
+
+        A slot_map entry whose real slot holds a local PIN is a bind (the app's
+        copy of our own code), not ownership: left in place it would block every
+        local clear of that slot and hide the slot from the local side.
+        """
+        local = {slot for slot, data in self.slots.items() if data.get("has_pin")}
+        moved: dict[int, int] = {}
+        for virtual, real in list(self.slot_map.items()):
+            if real in local:
+                self.slot_map.pop(virtual, None)
+                moved[virtual] = real
+        if moved:
+            for virtual, real in moved.items():
+                self.bound.setdefault(virtual, real)
+            self._save_slot_map()
+            self._save_bound_map()
 
     def _issue_id(self, key: str) -> str:
         """A repair issue id that is unique to this entry.
@@ -923,6 +955,70 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.config_entries.async_update_entry(
             self.entry, options={**self.entry.options, "cloud_users": stored}
         )
+
+    async def async_forget_cloud_identity(self, user_id: str) -> list[dict[str, Any]]:
+        """Drop every catalog link to a vendor identity that no longer exists.
+
+        Returns the links that were removed so the caller can report them; the
+        local guests themselves stay, they simply lose their cloud mapping.
+        """
+        wanted = str(user_id)
+        removed: list[dict[str, Any]] = []
+        stored = dict(self.entry.options.get("cloud_users") or {})
+        changed = False
+        for slot, value in list(stored.items()):
+            if value == wanted:
+                stored.pop(slot, None)
+                removed.append(
+                    {"slot": int(slot) if str(slot).isdigit() else slot, "type": "pin"}
+                )
+                changed = True
+        links = dict(self.cloud_links())
+        for key, value in list(links.items()):
+            if value == wanted:
+                links.pop(key, None)
+                slot, _, access_type = key.partition(":")
+                removed.append(
+                    {
+                        "slot": int(slot) if slot.isdigit() else slot,
+                        "type": access_type,
+                    }
+                )
+                changed = True
+        if changed:
+            self.hass.config_entries.async_update_entry(
+                self.entry,
+                options={
+                    **self.entry.options,
+                    "cloud_users": stored,
+                    "cloud_links": links,
+                },
+            )
+        return removed
+
+    def slot_for_cloud_user(self, user_id: str) -> int | None:
+        """The slot of the local guest a vendor identity belongs to, if any."""
+        for slot_key, guest in self.guests.items():
+            if isinstance(guest, dict) and slot_key.isdigit():
+                if self.cloud_user(int(slot_key)) == str(user_id):
+                    return int(slot_key)
+        return None
+
+    async def async_note_cloud_code(self, user_id: str, value: str) -> int | None:
+        """Record a code the cloud owns for one of our guests (edited via the app).
+
+        The vendor keeps the only copy of the value; mirroring it into the local
+        catalog keeps restore honest, because the catalog is what we would replay.
+        """
+        for slot_key, guest in list(self.guests.items()):
+            if not isinstance(guest, dict) or not slot_key.isdigit():
+                continue
+            slot = int(slot_key)
+            if self.cloud_user(slot) == str(user_id):
+                guest["code"] = str(value)
+                await self._async_save_guests()
+                return slot
+        return None
 
     def cloud_sync_candidates(self) -> list[dict[str, Any]]:
         """Local guests the cloud can be told about: recurring, with a stored code."""
@@ -1418,18 +1514,29 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_revoke_guest(
         self, slot: int, *, reason: str = GUEST_REVOKED
     ) -> dict[str, Any]:
-        """Clear a guest code now and forget the window."""
-        guest = self.guests.pop(str(slot), None)
-        self._cancel_guest_timer(slot)
-        await self._async_save_guests()
+        """Clear a guest code now and forget the window.
+
+        The lock comes first: the guest record is only dropped once the code is
+        really gone, so a failing clear cannot leave a lost record and a live
+        code behind.
+        """
+        guest = self.guests.get(str(slot))
         await self._async_clear_pin(
             slot,
             journal={"action": reason, "name": (guest or {}).get("name")},
         )
+        revoked = self.guests.pop(str(slot), None)
+        self._cancel_guest_timer(slot)
+        await self._async_save_guests()
         self.slots.clear(slot)
+        stale = [virtual for virtual, real in self.bound.items() if real == slot]
+        if stale:
+            for virtual in stale:
+                self.bound.pop(virtual, None)
+            self._save_bound_map()
         await self._async_publish_slot(slot, False)
         self._publish_snapshot()
-        return {"slot": slot, "revoked": guest is not None}
+        return {"slot": slot, "revoked": revoked is not None}
 
     def _schedule_guest_expiry(self, slot: int, until: str) -> None:
         """Clear the code when the window ends; a missed timer fires at startup."""
@@ -1755,9 +1862,11 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if bound is not None:
             # The cloud pushed a code we already hold (a synced local guest): bind
             # the vendor slot to the slot the guest already lives in instead of
-            # writing a second copy of the same code.
-            self.slot_map[virtual] = bound
-            self._save_slot_map()
+            # writing a second copy of the same code. A bind is not ownership:
+            # the real slot stays ours, so the guest's window and revoke keep
+            # working, and an app-side clear cannot delete our credential.
+            self.bound[virtual] = bound
+            self._save_bound_map()
             await self._async_journal_add(
                 make_entry(
                     action="slot_bound",
@@ -1769,6 +1878,31 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             self._publish_snapshot()
             return
+        rebind = self.bound.get(virtual)
+        if rebind is not None:
+            guest = self.guests.get(str(rebind))
+            if guest is not None:
+                # The app rewrote the access we bound to this guest: keep one
+                # credential per person — write the new value into the guest's
+                # own slot and teach the catalog, instead of growing a twin.
+                await self._async_set_pin(rebind, code, virtual_slot=virtual)
+                guest["code"] = code
+                await self._async_save_guests()
+                await self.async_link_cloud_credential(rebind, "pin")
+                await self._async_journal_add(
+                    make_entry(
+                        action="slot_rebound",
+                        time=dt_util.utcnow().isoformat(),
+                        origin=ORIGIN_HA,
+                        slot=virtual,
+                        detail=f"slot {rebind} updated from the app",
+                    )
+                )
+                self._publish_snapshot()
+                return
+            self.bound.pop(virtual, None)
+            self._save_bound_map()
+
         floor, capacity = self._slot_bounds()
         outcome, real, reason = resolve_write(
             virtual,

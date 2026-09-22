@@ -748,6 +748,110 @@
           "description": "Standard true: visa planen utan att skriva till molnet."
         }
       }
+    },
+    "update_cloud_guest": {
+      "name": "Redigera appgäst",
+      "description": "Ändra namn, giltighetsfönster eller kontaktuppgifter för en gäst som skapats i leverantörens app (endast identiteten; koderna ägs av appen).",
+      "fields": {
+        "user_id": {
+          "name": "Gäst-id",
+          "description": "Gästens uuid. Rekommenderas när namnet kan vara tvetydigt."
+        },
+        "guest": {
+          "name": "Gästnamn",
+          "description": "Matcha på (unikt) namn i stället för id."
+        },
+        "new_name": {
+          "name": "Nytt namn",
+          "description": "Byt namn på gästen i appen."
+        },
+        "valid_from": {
+          "name": "Giltig från",
+          "description": "Start på giltighetsfönstret (ÅÅÅÅ-MM-DD)."
+        },
+        "valid_to": {
+          "name": "Giltig till",
+          "description": "Slut på giltighetsfönstret (ISO-datumtid)."
+        },
+        "email": {
+          "name": "E-post",
+          "description": "Gästens e-post."
+        },
+        "phone": {
+          "name": "Telefon",
+          "description": "Gästens telefonnummer."
+        },
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilket molnkonto, när flera är konfigurerade."
+        }
+      }
+    },
+    "delete_cloud_guest": {
+      "name": "Ta bort appgäst",
+      "description": "Ta bort en gästidentitet som skapats i appen, efter att först ha tagit bort dess accesser på varje aktivt lås så att ingen kod fortsätter fungera.",
+      "fields": {
+        "user_id": {
+          "name": "Gäst-id",
+          "description": "Gästens uuid. Rekommenderas när namnet kan vara tvetydigt."
+        },
+        "guest": {
+          "name": "Gästnamn",
+          "description": "Matcha på (unikt) namn i stället för id."
+        },
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilket molnkonto, när flera är konfigurerade."
+        }
+      }
+    },
+    "set_cloud_code": {
+      "name": "Sätt appgäst-kod",
+      "description": "Sätt eller byt en PIN eller tag för en gäst som lever i appen, på ett lås. Värdet skrivs via molnet till låset; när gästen är vår egen sparar katalogen också värdet.",
+      "fields": {
+        "user_id": {
+          "name": "Gäst-id",
+          "description": "Gästens uuid. Rekommenderas när namnet kan vara tvetydigt."
+        },
+        "guest": {
+          "name": "Gästnamn",
+          "description": "Matcha på (unikt) namn i stället för id."
+        },
+        "type": {
+          "name": "Kodtyp",
+          "description": "pin (standard) eller tag."
+        },
+        "value": {
+          "name": "Kod",
+          "description": "Den nya koden med 4–10 siffror. Loggas aldrig."
+        },
+        "entry_id": {
+          "name": "Lås",
+          "description": "Vilket lås koden skrivs till; krävs när flera är konfigurerade."
+        }
+      }
+    },
+    "link_cloud_guest": {
+      "name": "Länka appgäst till slot",
+      "description": "Registrera vilken leverantörsidentitet en av våra slottar tillhör — människans svar på en adoptionskonflikt. Kör sync_cloud efteråt för att få accessen i linje.",
+      "fields": {
+        "entry_id": {
+          "name": "Lås",
+          "description": "Låset vars slot avses."
+        },
+        "slot": {
+          "name": "Slot",
+          "description": "Den lokala gästens slot."
+        },
+        "user_id": {
+          "name": "Gäst-id",
+          "description": "Leverantörsidentitetens uuid."
+        },
+        "guest": {
+          "name": "Gästnamn",
+          "description": "Matcha identiteten på (unikt) namn i stället för id."
+        }
+      }
     }
   }
 }

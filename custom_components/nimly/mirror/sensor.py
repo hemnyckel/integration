@@ -340,4 +340,7 @@ class MirrorGuests(MirrorEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         rows = self.coordinator.guest_rows()
         order = sorted(rows, key=lambda key: int(key) if key.isdigit() else 0)
-        return {"guests": [rows[key] for key in order]}
+        return {
+            "entry_id": self.coordinator.entry.entry_id,
+            "guests": [rows[key] for key in order],
+        }

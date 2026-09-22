@@ -40,28 +40,55 @@ class ValidityTest(unittest.TestCase):
         self.assertEqual(end, "2100-02-28T08:00:00+00:00")
 
 
-class MatchGuestTest(unittest.TestCase):
-    def test_adopts_the_lone_free_identity(self) -> None:
-        guests = [
-            {"name": "Margareta", "id": "a", "hasDoorlockAccess": False},
-            {"name": "Isabelle", "id": "b", "hasDoorlockAccess": True},
-        ]
-        self.assertEqual(planning.match_guest("Margareta", guests)["id"], "a")
+class ChooseIdentityTest(unittest.TestCase):
+    def choose(self, name, guests, on_this_lock=(), linked=()):
+        return planning.choose_identity(
+            name, guests, on_this_lock=set(on_this_lock), linked=set(linked)
+        )
 
-    def test_never_adopts_an_identity_with_access(self) -> None:
+    def test_creates_when_nothing_matches(self) -> None:
+        guests = [{"name": "Isabelle", "id": "b", "hasDoorlockAccess": True}]
+        self.assertEqual(self.choose("Margareta", guests), ("create", ""))
+
+    def test_adopts_the_lone_identity(self) -> None:
+        guests = [{"name": "Margareta", "id": "a", "hasDoorlockAccess": False}]
+        self.assertEqual(self.choose("Margareta", guests), ("adopt", "a"))
+
+    def test_adopts_across_locks(self) -> None:
+        # The identity already holds a code on another lock; this lock has none.
         guests = [{"name": "Margareta", "id": "a", "hasDoorlockAccess": True}]
-        self.assertIsNone(planning.match_guest("Margareta", guests))
+        self.assertEqual(self.choose("Margareta", guests), ("adopt", "a"))
 
-    def test_ambiguous_match_is_refused(self) -> None:
+    def test_conflict_on_this_lock_when_unrecorded(self) -> None:
+        guests = [{"name": "Margareta", "id": "a", "hasDoorlockAccess": True}]
+        self.assertEqual(
+            self.choose("Margareta", guests, on_this_lock={"a"}), ("conflict", "")
+        )
+
+    def test_adopts_our_linked_identity_even_with_access_here(self) -> None:
+        guests = [{"name": "Margareta", "id": "a", "hasDoorlockAccess": True}]
+        self.assertEqual(
+            self.choose("Margareta", guests, on_this_lock={"a"}, linked={"a"}),
+            ("adopt", "a"),
+        )
+
+    def test_ambiguous_names_are_a_conflict(self) -> None:
         guests = [
             {"name": "Margareta", "id": "a", "hasDoorlockAccess": False},
             {"name": "margareta", "id": "b", "hasDoorlockAccess": False},
         ]
-        self.assertIsNone(planning.match_guest("Margareta", guests))
+        self.assertEqual(self.choose("Margareta", guests), ("conflict", ""))
+
+    def test_several_candidates_pick_the_linked_one(self) -> None:
+        guests = [
+            {"name": "Margareta", "id": "a", "hasDoorlockAccess": False},
+            {"name": "Margareta", "id": "b", "hasDoorlockAccess": True},
+        ]
+        self.assertEqual(self.choose("Margareta", guests, linked={"b"}), ("adopt", "b"))
 
     def test_case_and_space_insensitive(self) -> None:
         guests = [{"name": " Margareta ", "id": "a", "hasDoorlockAccess": False}]
-        self.assertEqual(planning.match_guest("margareta", guests)["id"], "a")
+        self.assertEqual(self.choose("margareta", guests), ("adopt", "a"))
 
 
 class SameNamedTest(unittest.TestCase):
@@ -69,6 +96,14 @@ class SameNamedTest(unittest.TestCase):
         guests = [{"name": "Margareta", "id": "a", "hasDoorlockAccess": True}]
         self.assertTrue(planning.same_named("margareta", guests))
         self.assertFalse(planning.same_named("Städfirma", guests))
+
+    def test_all_returns_every_match(self) -> None:
+        guests = [
+            {"name": "Margareta", "id": "a"},
+            {"name": "MARGARETA", "id": "b"},
+            {"name": "Isabelle", "id": "c"},
+        ]
+        self.assertEqual([g["id"] for g in planning.same_named_all("margareta", guests)], ["a", "b"])
 
 
 if __name__ == "__main__":
