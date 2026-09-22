@@ -106,6 +106,11 @@ class SlotTable:
         self._save()
         self._notify()
 
+    def mark_fingerprint(self, slot: int, present: bool) -> None:
+        self._slots.setdefault(str(slot), {**DEFAULT_SLOT})["has_fingerprint"] = present
+        self._save()
+        self._notify()
+
     def mark_credential(self, slot: int, kind: str) -> bool:
         """Learn a credential type from a usage event. True when it was new."""
         key = _CREDENTIAL_KEYS.get(kind)

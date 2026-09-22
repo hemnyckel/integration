@@ -1506,7 +1506,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         command = ZCL_CMD_FP_ENROLL if enroll else ZCL_CMD_FP_CLEAR
         try:
             await self._async_zcl(command, slot)
-            self.slots.mark_rfid(slot, enroll)
+            self.slots.mark_fingerprint(slot, enroll)
             await self._async_publish_slot(slot, self.slots.occupied(slot))
         except Exception as err:  # noqa: BLE001
             self.counters["errors"] += 1

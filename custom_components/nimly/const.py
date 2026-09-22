@@ -219,7 +219,6 @@ SOURCE_FROM_NAME: dict[str, int] = {v: k for k, v in SOURCE_NAMES.items()}
 HUMAN_SOURCES = {SRC_KEYPAD, SRC_FINGERPRINT, SRC_RFID, SRC_ZIGBEE, SRC_UNATTRIBUTED}
 
 # --- Slots -------------------------------------------------------------------
-SLOT_FIRST_USER = 3
 DEFAULT_SLOT: dict[str, Any] = {
     "name": "",
     "has_pin": False,
