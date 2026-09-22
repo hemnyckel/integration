@@ -335,11 +335,17 @@ class NimlyGuestsCard extends HTMLElement {
     const list = this.shadowRoot.getElementById("cloudlist");
     const count = this.shadowRoot.getElementById("cloudcount");
     if (!section || !list) return;
-    const local = new Set(
+    const localNames = new Set(
       (this._guests || []).map((g) => (g.name || "").trim().toLowerCase())
     );
+    const owned = new Set();
+    for (const g of this._guests || []) {
+      for (const user of g.cloud_users || []) owned.add(user);
+    }
     const guests = (this._cloudGuests || []).filter(
-      (g) => !local.has((g.name || "").trim().toLowerCase())
+      (g) =>
+        !(g.id && owned.has(g.id)) &&
+        !localNames.has((g.name || "").trim().toLowerCase())
     );
     if (count) count.textContent = String(guests.length);
     if (!guests.length) {

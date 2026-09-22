@@ -1375,12 +1375,23 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
             kind = guest.get("kind", "simple")
             windows = guest.get("schedule") or []
+            cloud_users: list[str] = []
+            if key.isdigit():
+                slot = int(key)
+                if pin_user := self.cloud_user(slot):
+                    cloud_users.append(pin_user)
+                cloud_users.extend(
+                    user
+                    for link_key, user in self.cloud_links().items()
+                    if link_key.startswith(f"{slot}:")
+                )
             row: dict[str, Any] = {
                 "slot": int(key) if key.isdigit() else None,
                 "name": guest.get("name"),
                 "kind": kind,
                 "created": guest.get("created"),
                 "has_code": key.isdigit() and "pin" in self.slots.credentials(int(key)),
+                "cloud_users": sorted(set(cloud_users)),
             }
             if kind == "recurring":
                 row["schedule"] = windows
