@@ -635,6 +635,16 @@
           "description": "Which mirror to use. Leave out for all."
         }
       }
+    },
+    "reset_app_registration": {
+      "name": "Reset the app registration",
+      "description": "Removes this lock's device record from the vendor account, exactly like the app's remove-device does. Needed before re-pairing after an eviction; run the app's add-device search afterwards.",
+      "fields": {
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which mirror to use. Leave out for all."
+        }
+      }
     }
   }
 }

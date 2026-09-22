@@ -635,6 +635,16 @@
           "description": "Vilken spegel som ska användas. Utelämna för alla."
         }
       }
+    },
+    "reset_app_registration": {
+      "name": "Återställ app-registreringen",
+      "description": "Tar bort låsets enhetspost hos leverantören, precis som appens ta-bort-enhet. Behövs före omparning efter en eviction; kör appens sökning efteråt.",
+      "fields": {
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilken spegel som ska användas. Utelämna för alla."
+        }
+      }
     }
   }
 }
