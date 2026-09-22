@@ -1,57 +1,168 @@
-# nimly
+# Nimly
 
-A Home Assistant integration for Nimly locks that keeps **local control** and the **vendor
-app** at the same time: the lock's module stays on ZHA, and a small ESP32 emulator keeps the
-vendor bridge and app working. Home Assistant never stops being able to open the door —
-internet or not.
+**Local control and the vendor app, at the same time.**
 
-> **Status: v2, under construction.** The package is being rebuilt from the lessons of the
-> v1 integrations (`nimly_cloud` + `nimly_shadow`). The cloud, mirror and bridge layers are
-> ported, and the mirror owns its ZHA link — the raw `0x0100` listener, the ZCL commands and
-> the slot table — so `onesti_lock` is no longer needed. Next: the C6 OTA reflash. Nothing
-> here is installable yet — the design and the phased plan live in
-> [docs/v2-arkitektur.md](docs/v2-arkitektur.md).
+A Home Assistant integration for [Nimly](https://nimly.se) smart locks (Nimly
+Touch, Code, Keypad, Pro and the Touch Pro families). The lock's module stays on
+ZHA — Home Assistant keeps working when the internet, the vendor cloud or the
+Nimly app does not — and two small ESP32 boards let the lock live on in the
+vendor app as if nothing changed: same app, same notifications, same guest
+codes, same history.
 
-## What this repository is
+The product is three pieces that behave as one:
 
-One integration, `custom_components/nimly`, with three entry types:
+```
+                 Zigbee                 UART                 MQTT
+Real lock  ───────────────►  Home Assistant  ◄──────────►  ESP32-C3 bridge
+  module                     (this integration)                 │
+  (ZHA)                           │       ▲                     │ UART
+                                  │       │                     ▼
+                                  │       │            ESP32-C6 emulator
+                                  │       │                     │
+                                  │       └──── Zigbee ─────────┘
+                                  │                             │
+                                  ▼                             ▼
+                          the real lock                 Nimly Connect Bridge
+                          (local, always)                (vendor app + cloud)
+```
 
-| Entry type | What it is |
+- **The integration** ([`custom_components/nimly`](custom_components/nimly)) owns the
+  real lock through ZHA: state, PIN codes, fingerprints, settings, history.
+- **The emulator** ([`firmware/esp32c6-nimly-ed`](firmware/esp32c6-nimly-ed)) is a
+  Zigbee module with the lock's own IEEE address, paired to the Nimly Connect
+  Bridge. Everything Home Assistant does on the real lock is mirrored to it, so
+  the app still sees the lock, its users and its events.
+- **The bridge** ([`firmware/esp32-uart-mqtt-bridge`](firmware/esp32-uart-mqtt-bridge))
+  carries MQTT between Home Assistant and the emulator, and ferries firmware
+  updates over the air.
+
+## What you get
+
+| | |
 |---|---|
-| `cloud` | The vendor account: history, who/when/how, and an optional second control path. |
-| `mirror` | The local mirror: HA ↔ the lock ↔ the emulator the vendor app talks to. |
-| `bridge` | Provisioning and updates of the ESP32 bridge (Wi-Fi/Improv, OTA). |
+| **Local first** | Lock, unlock, codes, settings and history work with no cloud at all. The vendor app is a convenience, never a dependency. |
+| **The app keeps working** | Notifications, who-unlocked history, guest codes and settings stay in sync through the emulator. |
+| **Guest codes with schedules** | Temporary codes with an expiry, one-time codes, and recurring guests (a cleaner, a nanny) whose code **never changes** but only works inside weekly windows. |
+| **Cloud insight (optional)** | Sign in with the vendor account for the app's attributed history: *who* opened the door when Zigbee alone cannot say. |
+| **Slot virtualization** | App-created credentials never collide with local ones, and vice versa — the app keeps its own slot numbers while the lock keeps its own secrets. |
+| **A journal** | One timeline of access and admin events, local and cloud merged, with a `nimly_journal_entry` event for your automations. |
+| **OTA both ways** | The bridge and the emulator update over the air from Home Assistant. |
+| **Diagnostics and repairs** | Stale bridge, unpaired emulator, cloud feedback and slot conflicts surface as repairs instead of silence. |
 
-## What lives where
+## Requirements
 
-- **This repository** — the Home Assistant integration, its tests and CI.
-- **[nimly-tools](https://github.com/c14ym0re/nimly-tools)** — firmware (ESP32-C6 emulator,
-  ESP32-C3 bridge), the bridge protocol contract, the flasher and web-flash tooling, and the
-  lab documentation.
+- Home Assistant **2025.1** or newer.
+- A Nimly lock with its module on **ZHA** (the Zigbee integration).
+- For the app bridge: an **ESP32-C6** board and an **ESP32-C3** board (or a
+  classic ESP32), plus the lock's original **Nimly Connect Bridge**. The
+  hardware list and wiring are in [docs/hardware.md](docs/hardware.md).
+- The integration works **without the boards too**: the `cloud` entry alone
+  gives you the vendor account's state and history.
+
+## Installation
+
+1. **HACS** → *Custom repositories* → add `https://github.com/c14ym0re/nimly` as
+   an *Integration*, then install **Nimly** and restart Home Assistant.
+   (Or copy `custom_components/nimly` into your configuration directory.)
+2. **Settings → Devices & services → Add integration → Nimly**, and pick a path:
+   - **Nimly account** — email and password of the vendor app. Gives history,
+     attribution and the app's view of devices and settings.
+   - **Lock mirror** — the local lock. Pick the lock entity (ZHA) and the MQTT
+     prefix (auto-detected from the bridge when one is online), then choose how
+     much to mirror.
+   - **Bridge** — appears by itself over Bluetooth when a bridge board is
+     unprovisioned; the card sets up its Wi-Fi with Improv.
+3. **Flash the firmware** if you want the app bridge: see
+   [firmware/](firmware/) — the emulator can be flashed straight from a
+   Chromium browser, the bridge is built with your own Wi-Fi/MQTT credentials.
+
+The full walkthrough, including pairing the emulator with the vendor bridge,
+is in [docs/flashing.md](docs/flashing.md).
+
+## Guest codes
+
+Create a guest from the `nimly-guests-card` (included, see
+[docs/dashboard.md](docs/dashboard.md)) or from the services:
+
+```yaml
+action: nimly.create_guest_code      # one-shot code with an expiry
+data:
+  name: "Anna"
+  until: "2026-10-01T18:00:00+02:00"
+```
+
+```yaml
+action: nimly.create_recurring_guest # a cleaner: same code, weekly windows
+data:
+  name: "Cleaner"
+  schedule:
+    - days: [mon, fri]
+      start: "08:00"
+      end: "12:00"
+```
+
+A recurring guest's code never changes: Home Assistant writes it when a window
+opens and clears the credential when it closes, and repairs the state after a
+restart. The vendor app shows the code as always valid — the schedule is
+enforced locally. Details: [docs/guests.md](docs/guests.md).
+
+## Services
+
+| Service | Purpose |
+|---|---|
+| `nimly.set_lock` | Lock or unlock through the vendor cloud. |
+| `nimly.fetch_history`, `nimly.refresh` | Cloud history and an on-demand poll. |
+| `nimly.create_guest_code`, `nimly.create_recurring_guest`, `nimly.update_guest`, `nimly.revoke_guest_code`, `nimly.list_guests` | Guest codes and their schedules. |
+| `nimly.fetch_journal` | The merged local+cloud journal. |
+| `nimly.set_pin`, `nimly.clear_slot`, `nimly.set_slot_name` | Local slot management on the real lock. |
+| `nimly.read_lock_attributes` | Standard DoorLock attributes (never credentials). |
+| `nimly.set_auto_lock`, `nimly.set_sound_volume` | The lock's own settings, read back and mirrored to the app. |
+| `nimly.ota_install`, `nimly.provision_wifi`, `nimly.set_ieee` | Firmware and provisioning. |
+| `nimly.gateway_scan`, `nimly.probe` | Vendor-side discovery helpers. |
+
+## The vendor cloud, honestly
+
+The `cloud` entry talks to the same API as the official app, with the account
+owner's own credentials. Nothing is sent anywhere else, no telemetry exists,
+and **the local path never depends on the cloud**: if the vendor changes or
+closes their API, your lock keeps working. What is sent and why:
+[docs/privacy.md](docs/privacy.md).
+
+## Repository layout
+
+```
+custom_components/nimly/   the integration
+  cloud/                   the vendor account layer
+  mirror/                  the local layer: ZHA link, slot table, journal, guests
+firmware/                  the two ESP-IDF projects and browser flashing
+tests/                     unit tests (no Home Assistant needed)
+docs/                      architecture, hardware, flashing, protocol, guests
+tools/                     sync-to-HA helper and the PII check
+```
+
+## Documentation
+
+- [docs/architecture.md](docs/architecture.md) — how the layers fit together and why.
+- [docs/hardware.md](docs/hardware.md) — bill of materials and wiring.
+- [docs/flashing.md](docs/flashing.md) — build, flash, pair, update.
+- [docs/protocol.md](docs/protocol.md) — the MQTT topics and UART line format.
+- [docs/guests.md](docs/guests.md) — guest codes, expiry and schedules.
+- [docs/privacy.md](docs/privacy.md) — what leaves the house.
+- [docs/dashboard.md](docs/dashboard.md) — the bundled guest-code card.
 
 ## Development
 
 ```bash
 python3 -m compileall -q custom_components   # syntax
-python3 -m unittest discover -s tests -v     # unit tests (no Home Assistant needed)
+python3 -m unittest discover -s tests        # unit tests (no Home Assistant)
 python3 tools/check_pii.py                   # no real identifiers or secrets
 tools/sync_to_ha.sh /path/to/homeassistant/config
 ```
 
-Home Assistant's own `hassfest` runs on every push; the HACS validation action joins at
-publication.
-
-## Principles
-
-The local path never depends on the cloud. No PIN codes in Home Assistant or its logs. Fail
-locked. Every self-healing action is observable. English code, docs and commits — only
-`translations/*.json` are exempt. See [docs/v2-arkitektur.md](docs/v2-arkitektur.md).
-
-## Migration
-
-Coming from `nimly_cloud` + `nimly_shadow`? The step-by-step plan is in
-[docs/migration.md](docs/migration.md).
+Contributions are welcome — read [CONTRIBUTING.md](CONTRIBUTING.md) first.
+Security reports: [SECURITY.md](SECURITY.md).
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+The integration is licensed under **Apache-2.0** ([LICENSE](LICENSE)); the
+firmware under **MIT** (SPDX headers in each file). See [NOTICE](NOTICE).

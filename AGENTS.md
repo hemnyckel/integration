@@ -1,7 +1,7 @@
 # Agent instructions — nimly
 
-This repository is the Nimly Home Assistant integration (v2). It controls physical access
-to a home; treat everything here as security relevant.
+This repository is the Nimly Home Assistant integration and its firmware. It controls
+physical access to a home; treat everything here as security relevant.
 
 ## Rules
 
@@ -30,9 +30,12 @@ installation. Anything that imports `homeassistant` is verified on hardware thro
 ## Layout
 
 - `custom_components/nimly/` — the integration. `cloud/` and `mirror/` (which also hosts
-  the bridge provisioning and the ZHA link in `zha_link.py`) are ported. Platform files
+  the bridge provisioning and the ZHA link in `zha_link.py`). Platform files
   (`sensor.py`, `binary_sensor.py`, …) are thin routers that dispatch each config entry to
   its layer.
-- `docs/v2-arkitektur.md` — the ratified design; the phased plan is the last section.
-- `docs/migration.md` — how the live v1 installation moves to v2.
-- Firmware and the bridge protocol contract live in the `nimly-tools` repository.
+- `firmware/` — the two ESP-IDF projects (ESP32-C6 emulator, ESP32-C3 bridge) and the
+  browser-flashing assets under `firmware/webflash/`.
+- `www/nimly-guests-card.js` — the bundled Lovelace card (copy it to the Home Assistant
+  configuration's `www/` to use it); the sources live here.
+- `docs/` — architecture, hardware, flashing, protocol, guests, privacy, dashboard.
+- `tools/` — the sync-to-HA helper and the PII check.

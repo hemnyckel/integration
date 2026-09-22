@@ -1,0 +1,14 @@
+# Build configuration for the emulator. Every option a fresh checkout needs is
+# here, so `idf.py set-target esp32c6 && idf.py build` just works.
+#
+# Flash: the DevKitC-1 has 8 MB.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+
+# Dual-OTA partition layout (see partitions.csv).
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Zigbee: the esp-zigbee-lib v2 stack, sleepy end device on the native radio.
+CONFIG_ZB_ENABLED=y
+CONFIG_ZB_ZED=y
+CONFIG_ZB_RADIO_NATIVE=y

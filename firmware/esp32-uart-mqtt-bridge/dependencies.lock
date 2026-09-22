@@ -1,0 +1,18 @@
+dependencies:
+  idf:
+    source:
+      type: idf
+    version: 5.5.4
+  improv/improv:
+    component_hash: 9ef9695adbfe149c804b6f7cba837042280df1ee30689300ab6924eb8bba935a
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.2.7
+direct_dependencies:
+- idf
+- improv/improv
+manifest_hash: 14740cdc0281a59fea5601ebea787a20123f9019691e26c8915ef5bb1c3b4c0d
+target: esp32c3
+version: 2.0.0

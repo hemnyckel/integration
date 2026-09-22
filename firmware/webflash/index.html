@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nimly firmware</title>
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    max-width: 46rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; line-height: 1.55;
+  }
+  h1 { font-size: 1.7rem; margin-bottom: .25rem; }
+  .lede { opacity: .75; margin-top: 0; }
+  .card {
+    border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+    border-radius: .9rem; padding: 1.1rem 1.25rem; margin: 1.4rem 0;
+  }
+  .card h2 { margin-top: 0; font-size: 1.15rem; }
+  ol, ul { padding-left: 1.2rem; }
+  code { font-size: .9em; }
+  .muted { opacity: .7; font-size: .92em; }
+  esp-web-install-button { display: inline-block; margin-top: .6rem; }
+  .note { border-left: 3px solid #d9822b; padding-left: .8rem; }
+</style>
+</head>
+<body>
+  <h1>Nimly firmware</h1>
+  <p class="lede">Two small boards keep a Nimly lock on Home Assistant <em>and</em> on the
+  vendor app at the same time — no cloud in the local path.</p>
+
+  <div class="card">
+    <h2>1. The emulator — ESP32-C6</h2>
+    <p>Acts as the lock's Connect Module towards the Nimly bridge, while the real module
+    stays on ZHA. <strong>This image contains no credentials and can be flashed right
+    here</strong> from Chrome, Edge or Opera on desktop (Web Serial).</p>
+    <ol>
+      <li>Plug the ESP32-C6 into USB.</li>
+      <li>Flash with the button below.</li>
+      <li>Add it to Home Assistant through the nimly integration (the mirror entry).</li>
+    </ol>
+    <esp-web-install-button manifest="manifest-emulator.json"></esp-web-install-button>
+    <p class="muted">Manual flashing, wiring and OTA: see <code>docs/flashing.md</code> in
+    the repository.</p>
+  </div>
+
+  <div class="card">
+    <h2>2. The bridge — ESP32-C3</h2>
+    <p>Carries MQTT between Home Assistant and the emulator over UART, and ferries firmware
+    updates. Its image embeds <em>your</em> Wi-Fi and MQTT credentials, so it is built
+    locally instead of downloaded:</p>
+    <pre><code>cp main/secrets.h.example main/secrets.h   # fill in Wi-Fi + MQTT
+idf.py set-target esp32c3 &amp;&amp; idf.py build
+idf.py -p /dev/ttyUSB0 flash</code></pre>
+    <p class="muted">The bridge then announces itself over MQTT and appears in Home
+    Assistant; its Wi-Fi can also be set up with Improv over Bluetooth from the
+    integration's discovery card.</p>
+  </div>
+
+  <div class="card note">
+    <h2>Before you start</h2>
+    <p>The mirror needs both boards: the C6 talks Zigbee to the Nimly bridge, the C3 talks
+    to Home Assistant. Wiring, the bill of materials and the full story live in the
+    repository's <code>docs/</code> folder.</p>
+  </div>
+</body>
+</html>

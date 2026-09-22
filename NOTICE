@@ -1,10 +1,14 @@
-Nimly Integrations for Home Assistant
+Nimly
 Copyright 2026 Claes Häll
 
-Licensed under the Apache License, Version 2.0 (see LICENSE).
+The Home Assistant integration (custom_components/nimly) is licensed under the
+Apache License, Version 2.0 (see LICENSE).
 
-This product includes software developed as part of the Nimly Integrations project
-(https://github.com/c14ym0re/nimly_integrations).
+The firmware (firmware/) is licensed under the MIT License; each source file
+carries its SPDX header. The bundled Lovelace card (www/nimly-guests-card.js)
+is provided under the same MIT terms.
+
+Project: https://github.com/c14ym0re/nimly
 
 "Nimly", "Nimly Connect" and "Nimly Connect Bridge" are trademarks of Onesti Products AS.
 They are used in this project only to describe compatibility. This project is unofficial

@@ -15,10 +15,7 @@ In scope for this repository:
 
 - The local mirror: the ZHA ownership, the lock control path, and the emulator's MQTT contract.
 - The cloud layer: authentication, token storage, and anything that could expose account data.
-
-The firmware (ESP32-C6 emulator, ESP32-C3 bridge) lives in
-[nimly-tools](https://github.com/c14ym0re/nimly-tools); vulnerabilities there are in scope for
-this project too and can be reported the same way.
+- The firmware (ESP32-C6 emulator, ESP32-C3 bridge) in [`firmware/`](firmware/).
 
 ## Design commitments
 
