@@ -301,6 +301,10 @@
     "slot_conflict": {
       "title": "An app credential for slot {slot} could not be stored",
       "description": "The app provisioned a credential for slot {slot}, but it could not be stored on the lock: {reason}. Nothing was overwritten. Free a slot and try again in the app."
+    },
+    "cloud_link_ambiguous": {
+      "title": "Cloud credentials need linking for slot {slot}",
+      "description": "The lock holds a {type} in slot {slot}, but {count} cloud accesses of that type have no slot yet. Link them before a sync so the app attributes the right person; nimly.link_credential does it, and nimly.audit shows the state."
     }
   },
   "services": {
@@ -703,6 +707,28 @@
         "entry_id": {
           "name": "Account entry",
           "description": "Optional config entry id when more than one account is configured."
+        }
+      }
+    },
+    "link_credential": {
+      "name": "Link a credential to a vendor user",
+      "description": "Records which vendor identity owns a credential in a slot (pin, tag or finger). Used to resolve an ambiguous cloud link reported by the repair flow or nimly.audit.",
+      "fields": {
+        "slot": {
+          "name": "Slot",
+          "description": "The lock's user slot."
+        },
+        "access_type": {
+          "name": "Credential type",
+          "description": "pin, tag or finger."
+        },
+        "user_id": {
+          "name": "Vendor user id",
+          "description": "The cloud guest's uuid."
+        },
+        "entry_id": {
+          "name": "Mirror entry",
+          "description": "Optional config entry id when more than one lock is configured."
         }
       }
     }

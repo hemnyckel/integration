@@ -301,6 +301,10 @@
     "slot_conflict": {
       "title": "An app credential for slot {slot} could not be stored",
       "description": "The app provisioned a credential for slot {slot}, but it could not be stored on the lock: {reason}. Nothing was overwritten. Free a slot and try again in the app."
+    },
+    "cloud_link_ambiguous": {
+      "title": "Cloud credentials need linking for slot {slot}",
+      "description": "The lock holds a {type} in slot {slot}, but {count} cloud accesses of that type have no slot yet. Link them before a sync so the app attributes the right person; nimly.link_credential does it, and nimly.audit shows the state."
     }
   },
   "services": {

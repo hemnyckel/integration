@@ -301,6 +301,10 @@
     "slot_conflict": {
       "title": "En app-uppgift för slot {slot} kunde inte sparas",
       "description": "Appen skapade en uppgift för slot {slot}, men den kunde inte sparas i låset: {reason}. Inget skrevs över. Frigör en slot och försök igen i appen."
+    },
+    "cloud_link_ambiguous": {
+      "title": "Moln-credentials behöver länkas för slot {slot}",
+      "description": "Låset har en {type} i slot {slot}, men {count} molnaccesser av den typen saknar slot. Länka dem innan en sync så appen attribuerar rätt person; nimly.link_credential gör det och nimly.audit visar läget."
     }
   },
   "services": {
@@ -703,6 +707,28 @@
         "entry_id": {
           "name": "Konto-entry",
           "description": "Valfritt config entry-id när fler än ett konto är konfigurerat."
+        }
+      }
+    },
+    "link_credential": {
+      "name": "Länka en credential till en molnanvändare",
+      "description": "Registrerar vilken molnidentitet som äger en credential i en slot (pin, tag eller finger). Används för att lösa en tvetydig molnlänk som reparationsflödet eller nimly.audit rapporterar.",
+      "fields": {
+        "slot": {
+          "name": "Slot",
+          "description": "Låsets användarslot."
+        },
+        "access_type": {
+          "name": "Credential-typ",
+          "description": "pin, tag eller finger."
+        },
+        "user_id": {
+          "name": "Molnanvändarens id",
+          "description": "Moln-gästens uuid."
+        },
+        "entry_id": {
+          "name": "Spegel-entry",
+          "description": "Valfritt config entry-id när fler än ett lås är konfigurerat."
         }
       }
     }

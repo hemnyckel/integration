@@ -25,3 +25,4 @@ cleanup_cloud:
 cloud_guests:
 sync_cloud:
 audit:
+link_credential:

@@ -991,6 +991,116 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 detail=f"slot {slot}",
             )
 
+    def cloud_links(self) -> dict[str, str]:
+        """The catalog's credential links: ``"<slot>:<type>" -> vendor uuid``."""
+        stored = self.entry.options.get("cloud_links")
+        if not isinstance(stored, dict):
+            return {}
+        return {
+            str(key): str(value)
+            for key, value in stored.items()
+            if isinstance(value, str) and value
+        }
+
+    def cloud_link(self, slot: int, access_type: str) -> str | None:
+        """The vendor uuid linked to this slot's credential, if any.
+
+        For a PIN the guest record is the canonical link; the flat store covers
+        the credential types that have no guest record (finger, tag).
+        """
+        if access_type == "pin" and (user_id := self.cloud_user(slot)):
+            return user_id
+        return self.cloud_links().get(f"{slot}:{access_type}")
+
+    async def async_set_cloud_link(
+        self, slot: int, access_type: str, user_id: str
+    ) -> None:
+        """Record which vendor identity owns a credential in a slot."""
+        links = dict(self.cloud_links())
+        links[f"{slot}:{access_type}"] = str(user_id)
+        self.hass.config_entries.async_update_entry(
+            self.entry, options={**self.entry.options, "cloud_links": links}
+        )
+
+    def _cloud_account(self):
+        """The cloud coordinator and the vendor device id for this lock."""
+        from ..cloud.coordinator import NimlyCloudCoordinator
+
+        mine = str(self.ieee or "").replace(":", "").replace("-", "").lower()
+        if len(mine) != 16:
+            return None, None
+        for item in self.hass.data.get(DOMAIN, {}).values():
+            if not isinstance(item, NimlyCloudCoordinator):
+                continue
+            for device in item.devices:
+                if item.device_serial(device.get("id")) == mine:
+                    return item, str(device.get("id"))
+        return None, None
+
+    def _linked_user_ids(self, access_type: str) -> set[str]:
+        """Vendor uuids this lock's catalog already ties to a credential."""
+        linked = set(self.cloud_links().values())
+        if access_type == "pin":
+            # A synced guest's uuid lives on the guest record, not in the flat store.
+            for key, guest in self.guests.items():
+                if str(guest.get("kind") or "") != "recurring" or not key.isdigit():
+                    continue
+                if user_id := self.cloud_user(int(key)):
+                    linked.add(user_id)
+        return linked
+
+    async def async_link_cloud_credential(self, slot: int, access_type: str) -> None:
+        """Pair a fresh local credential with the cloud access it came from.
+
+        The app creates the access around the push we just handled, so at event
+        time exactly one vendor access of that type is usually unlinked. The
+        access list is read live — the polled copy can be a minute old. Anything
+        ambiguous becomes a repair instead of a guess (docs/cloud-sync.md).
+        """
+        if self.cloud_link(slot, access_type):
+            return
+        cloud, device_id = self._cloud_account()
+        if cloud is None or device_id is None:
+            return
+        try:
+            accesses = await cloud.api.async_device_access(device_id)
+        except Exception:  # noqa: BLE001
+            return
+        linked = self._linked_user_ids(access_type)
+        unlinked = sorted(
+            {
+                str(access.get("userId"))
+                for access in accesses
+                if str(access.get("type")) == access_type
+                and str(access.get("userId")) not in linked
+            }
+        )
+        if len(unlinked) == 1:
+            await self.async_set_cloud_link(slot, access_type, unlinked[0])
+            await self.async_journal_note(
+                "cloud_linked",
+                detail=f"slot {slot} {access_type}",
+            )
+            ir.async_delete_issue(
+                self.hass, DOMAIN, self._issue_id(f"cloud_link_{access_type}")
+            )
+            return
+        if len(unlinked) > 1:
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                self._issue_id(f"cloud_link_{access_type}"),
+                is_fixable=False,
+                is_persistent=True,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="cloud_link_ambiguous",
+                translation_placeholders={
+                    "slot": str(slot),
+                    "type": access_type,
+                    "count": str(len(unlinked)),
+                },
+            )
+
     async def async_create_guest(
         self,
         name: str,
@@ -1665,6 +1775,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     detail=f"stored in local slot {real}",
                 )
             )
+        await self.async_link_cloud_credential(real, "pin")
         ir.async_delete_issue(self.hass, DOMAIN, self._issue_id(f"slot_conflict_{virtual}"))
 
     async def _async_app_pin_clear(self, virtual: int) -> None:
@@ -1692,6 +1803,9 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         if enroll:
             self._flag_new_slot(slot, "fingerprint")
+            # The catalog link does not depend on the physical mirroring below,
+            # which can fail on its own; link first so nothing is lost.
+            await self.async_link_cloud_credential(slot, "finger")
         command = ZCL_CMD_FP_ENROLL if enroll else ZCL_CMD_FP_CLEAR
         try:
             await self._async_zcl(command, slot)

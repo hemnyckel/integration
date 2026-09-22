@@ -16,6 +16,7 @@ from ..const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 SERVICE_SET_IEEE = "set_ieee"
+SERVICE_LINK_CREDENTIAL = "link_credential"
 SERVICE_OTA_INSTALL = "ota_install"
 SERVICE_PROVISION = "provision_wifi"
 SERVICE_SET_SLOT_NAME = "set_slot_name"
@@ -43,6 +44,15 @@ PROVISION_SCHEMA = vol.Schema(
 SET_IEEE_SCHEMA = vol.Schema(
     {
         vol.Optional("ieee"): cv.string,
+        vol.Optional("entry_id"): cv.string,
+    }
+)
+
+LINK_CREDENTIAL_SCHEMA = vol.Schema(
+    {
+        vol.Required("slot"): vol.Coerce(int),
+        vol.Required("access_type"): vol.In(["pin", "tag", "finger"]),
+        vol.Required("user_id"): cv.string,
         vol.Optional("entry_id"): cv.string,
     }
 )
@@ -391,6 +401,23 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             results[coord.entry.entry_id] = coord.list_guests()
         return results
 
+    async def _async_handle_link_credential(call: ServiceCall) -> dict[str, Any]:
+        entry_id = call.data.get("entry_id")
+        slot = int(call.data["slot"])
+        access_type = str(call.data["access_type"])
+        user_id = str(call.data["user_id"])
+        coordinators = _coordinators(hass, entry_id, "async_set_cloud_link")
+        if not coordinators:
+            return {"error": "no matching mirror"}
+        linked = []
+        for coord in coordinators:
+            await coord.async_set_cloud_link(slot, access_type, user_id)
+            await coord.async_journal_note(
+                "cloud_linked", detail=f"slot {slot} {access_type} (manual)"
+            )
+            linked.append(coord.entry.entry_id)
+        return {"linked": linked}
+
     hass.services.async_register(
         DOMAIN, SERVICE_SET_IEEE, _validated(_async_handle_set_ieee), schema=SET_IEEE_SCHEMA
     )
@@ -480,6 +507,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_LIST_GUESTS,
         _validated(_async_handle_list_guests),
         schema=LIST_GUESTS_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_LINK_CREDENTIAL,
+        _validated(_async_handle_link_credential),
+        schema=LINK_CREDENTIAL_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
 
