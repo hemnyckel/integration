@@ -220,6 +220,64 @@ class NimlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         )
 
+    # --- Reauthentication ------------------------------------------------------
+
+    async def async_step_reauth(
+        self, entry_data: dict[str, Any]
+    ) -> config_entries.ConfigFlowResult:
+        """The cloud session died; ask for the password again."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        errors: dict[str, str] = {}
+        entry = self._get_reauth_entry()
+        if user_input is not None:
+            api = NimlyCloudApi(self.hass)
+            try:
+                await api.async_login(user_input[CONF_EMAIL], user_input[CONF_PASSWORD])
+                locations = await api.async_locations()
+            except NimlyCloudAuthError:
+                errors["base"] = "invalid_auth"
+            except NimlyCloudError:
+                errors["base"] = "cannot_connect"
+            else:
+                known = entry.data.get(CONF_LOCATION_ID)
+                if known and not any(
+                    item.get("locationId") == known for item in locations
+                ):
+                    errors["base"] = "no_locations"
+                else:
+                    data = {
+                        **entry.data,
+                        CONF_EMAIL: user_input[CONF_EMAIL],
+                        CONF_ACCESS_TOKEN: api.access_token,
+                        CONF_REFRESH_TOKEN: api.refresh_token,
+                    }
+                    if api.company_id:
+                        data[CONF_COMPANY_ID] = api.company_id
+                    self.hass.config_entries.async_update_entry(entry, data=data)
+                    await self.hass.config_entries.async_reload(entry.entry_id)
+                    return self.async_abort(reason="reauth_successful")
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_EMAIL, default=entry.data.get(CONF_EMAIL)
+                    ): selector.TextSelector(),
+                    vol.Required(CONF_PASSWORD): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            type=selector.TextSelectorType.PASSWORD
+                        )
+                    ),
+                }
+            ),
+            errors=errors,
+        )
+
     # --- Mirror ----------------------------------------------------------------
 
     async def async_step_mirror(

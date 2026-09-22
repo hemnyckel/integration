@@ -1,6 +1,12 @@
-"""Repair flow: name a slot that was used on the lock."""
+"""Repair flow: name a slot that was used on the lock.
+
+The issue carries both the slot and the config entry, so a household with more
+than one mirrored lock names the slot on the right one.
+"""
 
 from __future__ import annotations
+
+from typing import Any
 
 import voluptuous as vol
 
@@ -14,31 +20,38 @@ from .const import DOMAIN
 class NewSlotRepairFlow(RepairsFlow):
     """Asks for the user's name and stores it in the slot table."""
 
-    def __init__(self, slot: int) -> None:
+    def __init__(self, slot: int, entry_id: str | None = None) -> None:
         self._slot = slot
+        self._entry_id = entry_id
+
+    def _mirror(self) -> Any:
+        """The coordinator this issue belongs to, with a single-mirror fallback."""
+        coordinators = self.hass.data.get(DOMAIN, {})
+        if self._entry_id and self._entry_id in coordinators:
+            return coordinators[self._entry_id]
+        for coordinator in coordinators.values():
+            if getattr(coordinator, "async_set_slot_name", None) is not None:
+                return coordinator
+        return None
 
     async def async_step_init(
         self, user_input: dict | None = None
     ) -> RepairsFlowResult:
         # The first call carries the flow context, not None, so only a dict
         # with the actual field counts as a submission.
+        coordinator = self._mirror()
         if user_input is not None and "name" in user_input:
-            name = str(user_input["name"])
-            for coordinator in self.hass.data.get(DOMAIN, {}).values():
-                setter = getattr(coordinator, "async_set_slot_name", None)
-                if setter is not None:
-                    await setter(self._slot, name)
-                    break
+            if coordinator is not None:
+                await coordinator.async_set_slot_name(
+                    self._slot, str(user_input["name"])
+                )
             return self.async_create_entry(data={})
 
         # A cloud user name is offered as the default when exactly one fits,
         # but the user still confirms or replaces it.
-        suggestion = None
-        for coordinator in self.hass.data.get(DOMAIN, {}).values():
-            suggest = getattr(coordinator, "suggest_slot_name", None)
-            if suggest is not None:
-                suggestion = suggest(self._slot)
-                break
+        suggestion = (
+            coordinator.suggest_slot_name(self._slot) if coordinator is not None else None
+        )
         if suggestion:
             name_field: vol.Marker = vol.Required("name", default=suggestion)
         else:
@@ -53,11 +66,13 @@ class NewSlotRepairFlow(RepairsFlow):
 async def async_create_fix_flow(
     hass: HomeAssistant, issue_id: str, data: dict | None
 ) -> RepairsFlow:
-    """The issue data carries the slot; fall back to parsing the issue id."""
+    """The issue data carries the slot and the entry; fall back to parsing the id."""
     slot = data.get("slot") if isinstance(data, dict) else None
     if not isinstance(slot, int):
         try:
-            slot = int(issue_id.rsplit("_", 1)[-1])
-        except ValueError:
+            # Ids since 1.0 look like "new_slot_12_ab12cd34".
+            slot = int(issue_id.split("_")[2])
+        except (IndexError, ValueError):
             slot = 0
-    return NewSlotRepairFlow(slot)
+    entry_id = data.get("entry_id") if isinstance(data, dict) else None
+    return NewSlotRepairFlow(slot, entry_id if isinstance(entry_id, str) else None)

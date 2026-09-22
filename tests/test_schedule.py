@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib.util
 import pathlib
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime
 
 RULES_PATH = (
     pathlib.Path(__file__).resolve().parents[1]

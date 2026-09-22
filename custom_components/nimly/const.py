@@ -175,7 +175,7 @@ CMD_OTA = "ota"
 # Filenames are relative to the manifest URL. The user can repoint them in options.
 CONF_OTA_MANIFEST_URL = "ota_manifest_url"
 DEFAULT_OTA_MANIFEST_URL = (
-    "https://raw.githubusercontent.com/c14ym0re/nimly-tools/main/webflash/ota.json"
+    "https://raw.githubusercontent.com/c14ym0re/nimly/main/firmware/webflash/ota.json"
 )
 MANIFEST_REFRESH = 1800  # seconds between fetches of the OTA manifest
 
@@ -258,7 +258,8 @@ HELLO_GAP = 90  # a longer gap between hellos means the emulator rebooted
 ECHO_WINDOW = 8.0  # seconds a mirrored command suppresses its echo
 
 # --- Shared events ----------------------------------------------------------
-EVENT_NIMLY_LOCK_ACTIVITY = "onesti_lock_activity"
+# Fired when the lock itself reports an activity (button, keypad, app command).
+EVENT_NIMLY_LOCK_ACTIVITY = "nimly_lock_activity"
 # Fired by the cloud layer for every activity the vendor attributes. The mirror listens so
 # the local view gains who/how when the lock itself cannot report it over Zigbee.
 EVENT_NIMLY_CLOUD_ACTIVITY = "nimly_cloud_activity"

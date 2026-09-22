@@ -14,7 +14,8 @@ import json
 import logging
 import re
 import time
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 import aiohttp
 
@@ -104,6 +105,12 @@ class NimlyCloudApi:
             self._on_tokens(self._access, self._refresh)
 
     async def _token_request(self, path: str, data: dict[str, str]) -> dict[str, Any]:
+        """Run an auth request; only a rejected credential is an auth error.
+
+        A network problem or a 5xx from the vendor must not look like bad
+        credentials, or Home Assistant would ask the user to sign in again for
+        an outage.
+        """
         try:
             async with self._session.post(
                 API_URL + path,
@@ -112,11 +119,16 @@ class NimlyCloudApi:
                 timeout=aiohttp.ClientTimeout(total=25),
             ) as resp:
                 body = await resp.text()
-                if resp.status >= 400:
+                if resp.status in (400, 401, 403):
                     raise NimlyCloudAuthError(f"auth failed ({resp.status})")
-                return json.loads(body)
-        except (aiohttp.ClientError, TimeoutError, ValueError) as err:
-            raise NimlyCloudAuthError(f"auth request failed: {err}") from err
+                if resp.status >= 400:
+                    raise NimlyCloudError(f"auth endpoint {resp.status}: {body[:120]}")
+                try:
+                    return json.loads(body)
+                except ValueError as err:
+                    raise NimlyCloudError(f"auth response was not JSON: {err}") from err
+        except (aiohttp.ClientError, TimeoutError) as err:
+            raise NimlyCloudError(f"auth request failed: {err}") from err
 
     async def async_login(self, email: str, password: str) -> None:
         token = await self._token_request(
@@ -275,10 +287,14 @@ class NimlyCloudApi:
         )
 
     async def async_gateway_scan(self, gateway_id: str, start: bool = True) -> Any:
-        """Open or close the bridge's join window, so a device can be paired from HA."""
+        """Open or close the bridge's join window, so a device can be paired from HA.
+
+        The vendor's own actions are ``scan.turnOn`` and ``scan.turnOff`` (probed on a
+        real bridge: ``start``/``stop`` answer 2014 "Wrong action parameters").
+        """
         return await self.async_post(
             PATH_GATEWAY_ACTION.format(gateway_id=gateway_id),
-            {"feature": "scan", "action": "start" if start else "stop"},
+            {"feature": "scan", "action": "turnOn" if start else "turnOff"},
         )
 
     # -- diagnostics --------------------------------------------------------

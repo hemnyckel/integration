@@ -8,8 +8,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-# The v1 import wrote generic names like "App slot 10"; they carry no person
-# and must not stop the naming flow from asking again.
+# A slot table imported from the onesti_lock integration carries generic names
+# like "App slot 10"; they hold no person and must not stop the naming flow from
+# asking again.
 _PLACEHOLDER_SLOT_NAME = re.compile(r"app slot\s*\d+", re.IGNORECASE)
 
 

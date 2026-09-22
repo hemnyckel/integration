@@ -16,7 +16,8 @@ import pathlib
 import time
 from collections import deque
 from datetime import timedelta
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 import aiohttp
 
@@ -44,9 +45,7 @@ from ..const import (
     CH_BATTERY,
     CH_FINGERPRINT,
     CH_LOCK,
-    CH_NAMES,
     CH_PIN,
-    CH_RECONCILE,
     CH_SYNC,
     CH_VOLUME,
     CMD_AUTOLOCK,
@@ -208,6 +207,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._journal_path = hass.config.path(
             ".nimly", f"journal_{entry.entry_id}.jsonl"
         )
+        self._journal_lock = asyncio.Lock()
         self.guests: dict[str, dict[str, Any]] = {}
         self._guest_unsubs: dict[str, Callable[[], None]] = {}
         self.zha: ZhaLink | None = None
@@ -482,6 +482,14 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             options={**self.entry.options, OPTION_SLOT_MAP: dump_map(self.slot_map)},
         )
 
+    def _issue_id(self, key: str) -> str:
+        """A repair issue id that is unique to this entry.
+
+        Several mirrors (one per lock) share the issue registry, so a bare
+        "new_slot_5" would point at whichever lock happened to raise it first.
+        """
+        return f"{key}_{self.entry.entry_id[:8]}"
+
     async def _async_slot_conflict(self, virtual: int, reason: str) -> None:
         """Journal and surface an app provisioning we could not place."""
         await self._async_journal_add(
@@ -496,7 +504,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ir.async_create_issue(
             self.hass,
             DOMAIN,
-            f"slot_conflict_{virtual}",
+            self._issue_id(f"slot_conflict_{virtual}"),
             is_fixable=False,
             is_persistent=True,
             severity=ir.IssueSeverity.WARNING,
@@ -516,10 +524,10 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ir.async_create_issue(
             self.hass,
             DOMAIN,
-            f"new_slot_{slot}",
+            self._issue_id(f"new_slot_{slot}"),
             is_fixable=True,
             is_persistent=True,
-            data={"slot": slot},
+            data={"slot": slot, "entry_id": self.entry.entry_id},
             severity=ir.IssueSeverity.WARNING,
             translation_key="new_slot",
             translation_placeholders={"slot": str(slot), "kind": kind},
@@ -528,7 +536,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_set_slot_name(self, slot: int, name: str) -> None:
         """Write a slot name into the table and clear the repair."""
         self.slots.set_name(slot, name)
-        ir.async_delete_issue(self.hass, DOMAIN, f"new_slot_{slot}")
+        ir.async_delete_issue(self.hass, DOMAIN, self._issue_id(f"new_slot_{slot}"))
         await self._async_publish_slot(slot, self.slots.occupied(slot))
         self._publish_snapshot()
         _LOGGER.info("Named slot %s as %s", slot, name)
@@ -763,7 +771,11 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._publish_snapshot()
 
     async def _async_save_journal(self, *, rewrite: bool) -> None:
-        """Rewrite the file for merges and trims, else append the newest entry."""
+        """Rewrite the file for merges and trims, else append the newest entry.
+
+        Serialized: two writers sharing the temporary file used to race, and the
+        loser's rename failed with ENOENT, silently dropping an entry.
+        """
 
         def _write() -> None:
             path = pathlib.Path(self._journal_path)
@@ -778,10 +790,11 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 with path.open("a", encoding="utf-8") as handle:
                     handle.write(json.dumps(self.journal[-1], ensure_ascii=False) + "\n")
 
-        try:
-            await self.hass.async_add_executor_job(_write)
-        except OSError as err:
-            _LOGGER.warning("Could not write the journal: %s", err)
+        async with self._journal_lock:
+            try:
+                await self.hass.async_add_executor_job(_write)
+            except OSError as err:
+                _LOGGER.warning("Could not write the journal: %s", err)
 
     # -- guest codes ---------------------------------------------------------
 
@@ -968,6 +981,13 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             schedule = normalize_windows(changes.get("schedule"))
             if schedule is None:
                 raise RuntimeError("the schedule needs at least one valid window")
+            if not valid_code(str(guest.get("code") or "")):
+                # A simple guest never stored its code, and every window re-opens
+                # with the stored one, so a schedule without a code would write
+                # nothing. Make the caller supply it.
+                raise RuntimeError(
+                    "a recurring guest needs a code; provide one with the schedule"
+                )
             guest["kind"] = "recurring"
             guest["schedule"] = schedule
         if "paused" in changes:
@@ -1233,7 +1253,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.emulator_joined = data["joined"]
             if self.emulator_joined:
                 self._not_joined_since = None
-                ir.async_delete_issue(self.hass, DOMAIN, "emulator_not_joined")
+                ir.async_delete_issue(self.hass, DOMAIN, self._issue_id("emulator_not_joined"))
             self._publish_snapshot()
         elif ev == EV_ACTION:
             self.hass.async_create_task(self._async_handle_action(data))
@@ -1456,7 +1476,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     detail=f"stored in local slot {real}",
                 )
             )
-        ir.async_delete_issue(self.hass, DOMAIN, f"slot_conflict_{virtual}")
+        ir.async_delete_issue(self.hass, DOMAIN, self._issue_id(f"slot_conflict_{virtual}"))
 
     async def _async_app_pin_clear(self, virtual: int) -> None:
         """Apply an app clear to the app's own credential only."""
@@ -1467,14 +1487,14 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_clear_pin(real, virtual_slot=virtual)
             self.slot_map.pop(virtual, None)
             self._save_slot_map()
-            ir.async_delete_issue(self.hass, DOMAIN, f"slot_conflict_{virtual}")
+            ir.async_delete_issue(self.hass, DOMAIN, self._issue_id(f"slot_conflict_{virtual}"))
         elif outcome == IGNORE:
             await self._async_slot_conflict(virtual, "the slot holds a local credential")
         else:
             # Nothing of the app's lives here; repeat the local truth so the
             # gateway does not allocate around a slot the app has freed.
             await self._async_publish_slot(virtual, self.slots.occupied(virtual))
-            ir.async_delete_issue(self.hass, DOMAIN, f"slot_conflict_{virtual}")
+            ir.async_delete_issue(self.hass, DOMAIN, self._issue_id(f"slot_conflict_{virtual}"))
 
     async def _async_handle_fingerprint(self, slot: Any, *, enroll: bool) -> None:
         if not self.active(CH_FINGERPRINT):
@@ -1506,7 +1526,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _on_tracked_change(self, event: Event) -> None:
         entity_id = event.data.get("entity_id")
         new_state = event.data.get("new_state")
-        old_state = event.data.get("old_state")
         if new_state is None or new_state.state in (None, "unknown", "unavailable"):
             return
         if entity_id == self.lock_entity_id:
@@ -1647,15 +1666,16 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         the cloud event originated from this lock's own side, so echoing it back
         would make a cloud -> emulator -> cloud loop.
         """
-        if not self.active(CH_ACTIVITY):
-            return
         data = event.data
         serial = str(data.get("serial") or "").replace(":", "").replace("-", "").lower()
         if not self.ieee or serial != self.ieee.replace(":", "").replace("-", "").lower():
             return
         # Any activity for this lock proves the cloud feedback path is alive,
-        # named or not - the watchdog clears on this even for mirrored events.
+        # named or not, and even when this channel is off - the watchdog that
+        # clears a stale-feedback repair depends on it.
         self._cloud_seen_at = time.monotonic()
+        if not self.active(CH_ACTIVITY):
+            return
         name = data.get("user_name")
         if not name:
             return
@@ -1921,7 +1941,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 ir.async_create_issue(
                     self.hass,
                     DOMAIN,
-                    "emulator_not_joined",
+                    self._issue_id("emulator_not_joined"),
                     is_fixable=False,
                     is_persistent=True,
                     severity=ir.IssueSeverity.WARNING,
@@ -1929,14 +1949,14 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
         elif self.emulator_joined is True:
             self._not_joined_since = None
-            ir.async_delete_issue(self.hass, DOMAIN, "emulator_not_joined")
+            ir.async_delete_issue(self.hass, DOMAIN, self._issue_id("emulator_not_joined"))
 
         # 2) We sent the vendor cloud something that should come back in its feed;
         #    if it never does, the bridge's cloud link is likely wedged.
         if self._cloud_expect_after is not None:
             if self._cloud_seen_at >= self._cloud_expect_after:
                 self._cloud_expect_after = None
-                ir.async_delete_issue(self.hass, DOMAIN, "cloud_feedback_stale")
+                ir.async_delete_issue(self.hass, DOMAIN, self._issue_id("cloud_feedback_stale"))
             elif (
                 now - self._cloud_expect_after > 180
                 and self._cloud_entry_loaded()
@@ -1944,7 +1964,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 ir.async_create_issue(
                     self.hass,
                     DOMAIN,
-                    "cloud_feedback_stale",
+                    self._issue_id("cloud_feedback_stale"),
                     is_fixable=False,
                     is_persistent=True,
                     severity=ir.IssueSeverity.WARNING,

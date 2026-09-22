@@ -61,6 +61,14 @@
           "ssid": "Nätverk (SSID)",
           "password": "Lösenord"
         }
+      },
+      "reauth_confirm": {
+        "title": "Logga in igen",
+        "description": "Moln-sessionen för {email} är inte längre giltig. Ange lösenordet för att återansluta; låset fungerar lokalt under tiden.",
+        "data": {
+          "email": "E-post",
+          "password": "Lösenord"
+        }
       }
     },
     "abort": {

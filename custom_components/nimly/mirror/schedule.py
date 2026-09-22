@@ -16,7 +16,8 @@ with lowercase three-letter day codes and HH:MM times.
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta
-from typing import Any, Mapping
+from typing import Any
+from collections.abc import Mapping
 
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 DAY_INDEX = {name: index for index, name in enumerate(DAYS)}

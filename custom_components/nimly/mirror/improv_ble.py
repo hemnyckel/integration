@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
 
 from bleak import BleakClient
 from bleak.exc import BleakError
@@ -39,60 +38,10 @@ STATE_PROVISIONED = 0x03
 ERROR_UNABLE_TO_CONNECT = 0x03
 
 
-@dataclass
-class ImprovDeviceInfo:
-    """What the device reports via GET_DEVICE_INFO."""
-
-    name: str = ""
-    firmware: str = ""
-    chip: str = ""
-    device: str = ""
-    state: int | None = None
-    raw: list[str] = field(default_factory=list)
-
-
 def build_rpc(command: int, data: bytes = b"") -> bytes:
     """Builds an Improv RPC payload: [cmd][length][data...][checksum]."""
     payload = bytes([command, len(data)]) + data
     return payload + bytes([sum(payload) & 0xFF])
-
-
-def _parse_rpc(payload: bytes) -> list[str]:
-    """Parses an RPC payload: [cmd][length][length-prefixed strings]."""
-    if len(payload) < 2:
-        return []
-    total = payload[1]
-    out: list[str] = []
-    pos = 2
-    end = min(len(payload), 2 + total)
-    while pos < end:
-        length = payload[pos]
-        pos += 1
-        out.append(payload[pos : pos + length].decode(errors="replace"))
-        pos += length
-    return out
-
-
-async def async_fetch_info(hass: HomeAssistant, address: str) -> ImprovDeviceInfo:
-    """Connects and fetches the device info and the current state."""
-    device = bluetooth.async_ble_device_from_address(hass, address, connectable=True)
-    if device is None:
-        raise RuntimeError("The device is not reachable over Bluetooth")
-
-    info = ImprovDeviceInfo()
-    async with BleakClient(device, timeout=20) as client:
-        await client.write_gatt_char(
-            RPC_COMMAND_UUID, build_rpc(CMD_GET_DEVICE_INFO), response=True
-        )
-        await asyncio.sleep(1.0)
-        raw = await client.read_gatt_char(RPC_RESULT_UUID)
-        strings = _parse_rpc(bytes(raw))
-        info.raw = strings
-        if len(strings) >= 4:
-            info.name, info.firmware, info.chip, info.device = strings[:4]
-        state = await client.read_gatt_char(STATUS_UUID)
-        info.state = state[0] if state else None
-    return info
 
 
 async def async_provision(

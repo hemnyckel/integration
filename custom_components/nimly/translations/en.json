@@ -61,6 +61,14 @@
           "ssid": "Network (SSID)",
           "password": "Password"
         }
+      },
+      "reauth_confirm": {
+        "title": "Sign in again",
+        "description": "The cloud session for {email} is no longer valid. Enter the password to reconnect; the lock keeps working locally meanwhile.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
       }
     },
     "abort": {

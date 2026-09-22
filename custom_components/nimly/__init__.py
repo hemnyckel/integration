@@ -170,10 +170,9 @@ async def async_remove_config_entry_device(
 ) -> bool:
     """Allow removing devices that are not this integration's own.
 
-    A legacy v1 device (identifiers under the old `onesti_lock` domain) once
-    attached to a live entry cannot be deleted at all while the integration
-    does not answer this callback: Home Assistant refuses the removal. Our own
-    devices stay protected, since they would just be recreated.
+    Only a device this integration does not manage (for example one left
+    behind by another integration) can be deleted this way; our own devices
+    stay protected, since they would only be recreated.
     """
     return DOMAIN not in {domain for domain, _value in device_entry.identifiers}
 

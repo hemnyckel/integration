@@ -47,7 +47,9 @@ class BridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             hass,
             _LOGGER,
             name=f"{DOMAIN}_bridge",
-            update_interval=timedelta(seconds=MANIFEST_REFRESH),
+            # A short tick so presence can go offline quickly; the manifest is
+            # fetched on its own, slower schedule.
+            update_interval=timedelta(seconds=30),
         )
         self.entry = entry
         self.address: str | None = entry.data.get(CONF_ADDRESS)
@@ -56,6 +58,7 @@ class BridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.manifest: dict[str, Any] | None = None
         self.online = False
         self._last_seen = 0.0
+        self._manifest_at = 0.0
         self._unsubs: list = []
         self.ota_manifest_url = (
             entry.options.get(CONF_OTA_MANIFEST_URL) or DEFAULT_OTA_MANIFEST_URL
@@ -115,6 +118,7 @@ class BridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._publish()
 
     async def _async_fetch_manifest(self) -> None:
+        self._manifest_at = time.monotonic()
         session = async_get_clientsession(self.hass)
         try:
             async with session.get(self.ota_manifest_url, timeout=20) as resp:
@@ -155,7 +159,8 @@ class BridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_set_updated_data(self._snapshot())
 
     async def _async_update_data(self) -> dict[str, Any]:
-        await self._async_fetch_manifest()
+        if time.monotonic() - self._manifest_at >= MANIFEST_REFRESH:
+            await self._async_fetch_manifest()
         return self._snapshot()
 
 
@@ -169,6 +174,7 @@ class BridgeEntity(CoordinatorEntity[BridgeCoordinator]):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"bridge_{coordinator.address}")},
             name="Nimly Bridge",
-            manufacturer="nimly-tools",
+            manufacturer="nimly",
             model=coordinator.info.get("model", "Nimly Bridge"),
+            configuration_url="https://github.com/c14ym0re/nimly",
         )

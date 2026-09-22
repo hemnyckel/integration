@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -190,7 +191,9 @@ class NimlyCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._poll_device(device, device_id)
 
         except NimlyCloudAuthError as err:
-            raise UpdateFailed(f"authentication failed: {err}") from err
+            # The user has to sign in again; Home Assistant shows the reauth flow
+            # instead of retrying with credentials that will keep failing.
+            raise ConfigEntryAuthFailed(f"authentication failed: {err}") from err
         except NimlyCloudError as err:
             raise UpdateFailed(str(err)) from err
 

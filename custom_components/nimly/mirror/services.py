@@ -8,6 +8,7 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 
 from ..const import DOMAIN
@@ -173,6 +174,23 @@ def _coordinators(hass: HomeAssistant, entry_id: str | None, capability: str):
         for key, coord in hass.data.get(DOMAIN, {}).items()
         if (entry_id is None or key == entry_id) and hasattr(coord, capability)
     ]
+
+
+def _validated(handler: Any) -> Any:
+    """Surface a bad request as a service error with the coordinator's message.
+
+    The coordinator raises RuntimeError/ValueError for things the caller can
+    fix (a reserved slot, a bad code, an unreachable lock); Home Assistant
+    turns ServiceValidationError into a clear 400 instead of a bare 500.
+    """
+
+    async def _wrapped(call: ServiceCall) -> Any:
+        try:
+            return await handler(call)
+        except (ValueError, RuntimeError) as err:
+            raise ServiceValidationError(str(err)) from err
+
+    return _wrapped
 
 
 async def async_setup_services(hass: HomeAssistant) -> None:
@@ -363,86 +381,86 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         return results
 
     hass.services.async_register(
-        DOMAIN, SERVICE_SET_IEEE, _async_handle_set_ieee, schema=SET_IEEE_SCHEMA
+        DOMAIN, SERVICE_SET_IEEE, _validated(_async_handle_set_ieee), schema=SET_IEEE_SCHEMA
     )
     hass.services.async_register(
-        DOMAIN, SERVICE_OTA_INSTALL, _async_handle_ota_install, schema=OTA_INSTALL_SCHEMA
+        DOMAIN, SERVICE_OTA_INSTALL, _validated(_async_handle_ota_install), schema=OTA_INSTALL_SCHEMA
     )
     hass.services.async_register(
-        DOMAIN, SERVICE_PROVISION, _async_handle_provision, schema=PROVISION_SCHEMA
+        DOMAIN, SERVICE_PROVISION, _validated(_async_handle_provision), schema=PROVISION_SCHEMA
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_SET_SLOT_NAME,
-        _async_handle_set_slot_name,
+        _validated(_async_handle_set_slot_name),
         schema=SET_SLOT_NAME_SCHEMA,
     )
     hass.services.async_register(
-        DOMAIN, SERVICE_SET_PIN, _async_handle_set_pin, schema=SET_PIN_SCHEMA
+        DOMAIN, SERVICE_SET_PIN, _validated(_async_handle_set_pin), schema=SET_PIN_SCHEMA
     )
     hass.services.async_register(
-        DOMAIN, SERVICE_CLEAR_SLOT, _async_handle_clear_slot, schema=CLEAR_SLOT_SCHEMA
+        DOMAIN, SERVICE_CLEAR_SLOT, _validated(_async_handle_clear_slot), schema=CLEAR_SLOT_SCHEMA
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_READ_LOCK_ATTRIBUTES,
-        _async_handle_read_lock_attributes,
+        _validated(_async_handle_read_lock_attributes),
         schema=READ_LOCK_ATTRIBUTES_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_SET_AUTO_LOCK,
-        _async_handle_set_auto_lock,
+        _validated(_async_handle_set_auto_lock),
         schema=SET_AUTO_LOCK_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_SET_SOUND_VOLUME,
-        _async_handle_set_sound_volume,
+        _validated(_async_handle_set_sound_volume),
         schema=SET_SOUND_VOLUME_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_FETCH_JOURNAL,
-        _async_handle_fetch_journal,
+        _validated(_async_handle_fetch_journal),
         schema=FETCH_JOURNAL_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_CREATE_GUEST,
-        _async_handle_create_guest,
+        _validated(_async_handle_create_guest),
         schema=CREATE_GUEST_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_CREATE_RECURRING_GUEST,
-        _async_handle_create_recurring_guest,
+        _validated(_async_handle_create_recurring_guest),
         schema=CREATE_RECURRING_GUEST_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_UPDATE_GUEST,
-        _async_handle_update_guest,
+        _validated(_async_handle_update_guest),
         schema=UPDATE_GUEST_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_REVOKE_GUEST,
-        _async_handle_revoke_guest,
+        _validated(_async_handle_revoke_guest),
         schema=REVOKE_GUEST_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_LIST_GUESTS,
-        _async_handle_list_guests,
+        _validated(_async_handle_list_guests),
         schema=LIST_GUESTS_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
