@@ -22,7 +22,6 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import NimlyCloudApi, NimlyCloudAuthError, NimlyCloudError
@@ -149,7 +148,6 @@ class NimlyCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._users_by_id: dict[str, dict[str, Any]] = {}
         self._seen_entries: set[str] = set()
         self._baseline_done = False
-        self._identifiers: dict[str, set[tuple[str, str]]] = {}
 
     # -- polling ------------------------------------------------------------
 
@@ -222,12 +220,6 @@ class NimlyCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.device_meta[device_id] = (
             {**device, **state} if isinstance(state, dict) else dict(device)
         )
-        # The serial number — the module's IEEE address — is only on the full device
-        # record, not on the summary in the home listing.
-        self._resolve_identifiers(
-            device_id, self.device_meta[device_id].get("serialNumber")
-        )
-
         try:
             self.access[device_id] = await self.api.async_device_access(device_id)
         except NimlyCloudError as err:
@@ -456,37 +448,7 @@ class NimlyCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "feature_state": entry.get("featureState"),
         }
 
-    # -- device registry ----------------------------------------------------
-
-    def _resolve_identifiers(self, device_id: str, serial: str | None) -> None:
-        """Find the Home Assistant device that already owns this lock, if any.
-
-        The lock's module is also a Zigbee device, registered by ZHA under its IEEE address.
-        Matching on the normalised identifier — regardless of which integration created it —
-        lets the cloud entities join that device instead of creating a second one.
-        """
-        if device_id in self._identifiers or not serial:
-            return
-        target = str(serial).replace(":", "").lower()
-        if len(target) != 16:
-            return
-
-        # Iterating the registry yields the device entries directly; looking devices up
-        # through the mapping interface is deprecated.
-        registry = dr.async_get(self.hass)
-        for device in registry.devices:
-            for identifier in device.identifiers:
-                if str(identifier[1]).replace(":", "").lower() == target:
-                    self._identifiers[device_id] = device.identifiers
-                    _LOGGER.debug(
-                        "Cloud device %s joined the Home Assistant device %r",
-                        device_id,
-                        device.name,
-                    )
-                    return
-
-    def device_identifiers(self, device_id: str) -> set[tuple[str, str]] | None:
-        return self._identifiers.get(device_id)
+    # -- device registry ----------------------------------------
 
     def device_serial(self, device_id: str | None) -> str | None:
         """The module's IEEE address (the vendor's serialNumber), normalised.

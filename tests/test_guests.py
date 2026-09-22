@@ -85,5 +85,26 @@ class UntilTest(unittest.TestCase):
         self.assertEqual(guests.expired_slots(store, NOW), [4, 7])
 
 
+class CodeOwnerTest(unittest.TestCase):
+    def test_finds_the_recurring_guest(self) -> None:
+        store = {
+            "3": {"kind": "recurring", "code": "111222", "name": "Cleaner"},
+            "4": {"kind": "simple", "name": "One-shot"},
+            "5": {"kind": "recurring", "code": "333444", "name": "Guest"},
+        }
+        self.assertEqual(guests.code_owner(store, "333444"), 5)
+        self.assertEqual(guests.code_owner(store, "111222"), 3)
+
+    def test_simple_guests_have_no_stored_code(self) -> None:
+        store = {"4": {"kind": "simple", "name": "One-shot"}}
+        self.assertIsNone(guests.code_owner(store, "123456"))
+
+    def test_unknown_and_empty(self) -> None:
+        store = {"3": {"kind": "recurring", "code": "111222"}}
+        self.assertIsNone(guests.code_owner(store, "999999"))
+        self.assertIsNone(guests.code_owner(store, ""))
+        self.assertIsNone(guests.code_owner(store, None))
+
+
 if __name__ == "__main__":
     unittest.main()

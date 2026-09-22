@@ -21,3 +21,7 @@ update_guest:
 reset_app_registration:
 revoke_guest_code:
 list_guests:
+cleanup_cloud:
+cloud_guests:
+sync_cloud:
+audit:

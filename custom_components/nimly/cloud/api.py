@@ -34,6 +34,8 @@ from ..const import (
     PATH_DEVICE_LOCK,
     PATH_DEVICE_SETTINGS,
     PATH_GATEWAY_ACTION,
+    PATH_DEVICE_SCAN,
+    PATH_GUEST_USERS,
     PATH_HOME,
     PATH_LOCATION_USERS,
     PATH_LOCATIONS,
@@ -253,6 +255,70 @@ class NimlyCloudApi:
             extra_headers=headers,
         )
         return result or []
+
+
+    async def async_guest_users(self, location_id: str) -> list[dict[str, Any]]:
+        """The location's guest users (the app's "Guest user list").
+
+        Guests are identities without an account: name, validity window, and
+        whether they hold credentials. The cloud never returns a credential's
+        value, only the fact that one exists.
+        """
+        return await self.async_get(
+            PATH_GUEST_USERS, params={"locationId": location_id}
+        ) or []
+
+    async def async_create_guest(
+        self,
+        name: str,
+        location_id: str,
+        valid_from: str,
+        valid_to: str,
+        *,
+        email: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a guest identity; the response carries the uuid we store."""
+        payload: dict[str, Any] = {
+            "name": name,
+            "locationId": location_id,
+            "validFrom": valid_from,
+            "validTo": valid_to,
+        }
+        if email:
+            payload["email"] = email
+        return await self.async_post(PATH_GUEST_USERS, payload) or {}
+
+    async def async_create_access(
+        self, device_id: str, user_id: str, access_type: str, value: str
+    ) -> Any:
+        """Create a PIN or tag access. The value is pushed to the lock, not kept here."""
+        return await self.async_post(
+            PATH_DEVICE_ACCESS.format(device_id=device_id),
+            {"userId": user_id, "type": access_type, "value": value},
+        )
+
+    async def async_delete_access(
+        self, device_id: str, user_id: str, access_type: str
+    ) -> Any:
+        """Remove an access (pin, tag or finger)."""
+        return await self._request(
+            "DELETE",
+            PATH_DEVICE_ACCESS.format(device_id=device_id),
+            json={"userId": user_id, "type": access_type},
+        )
+
+    async def async_enroll_finger(self, device_id: str, user_id: str) -> Any:
+        """Run the vendor's fingerprint enrollment for a user.
+
+        The app calls this same endpoint ("scan-tag" is historic; the type
+        selects finger or tag). The cloud pushes the ZigBee enroll to the module
+        — our emulator — and records the access on its answer, so an enrollment
+        for a finger the lock already holds needs no physical touch.
+        """
+        return await self.async_post(
+            PATH_DEVICE_SCAN.format(device_id=device_id),
+            {"userId": user_id, "sendEmailNotification": False, "type": "finger"},
+        )
 
     # -- control (optional: the local mirror layer is the primary one) ----------
 

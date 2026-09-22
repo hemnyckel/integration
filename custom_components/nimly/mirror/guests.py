@@ -78,6 +78,29 @@ def is_expired(until: str | None, now: datetime) -> bool:
     return parsed <= now
 
 
+def code_owner(guests: dict[str, dict[str, Any]], code: str) -> int | None:
+    """The slot of the recurring guest whose stored code this is, if any.
+
+    Used when the cloud pushes a code back that we already hold: the push must
+    bind to the guest's existing slot instead of writing a second copy.
+    """
+    wanted = str(code or "")
+    if not wanted:
+        return None
+    for key, guest in guests.items():
+        if not isinstance(guest, dict):
+            continue
+        if guest.get("kind") != "recurring":
+            continue
+        if str(guest.get("code") or "") != wanted:
+            continue
+        try:
+            return int(key)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def expired_slots(guests: dict[str, dict[str, Any]], now: datetime) -> list[int]:
     """The slots whose guest window is over, oldest deadline first."""
     due: list[tuple[str, int]] = []

@@ -661,6 +661,50 @@
           "description": "Vilken spegel som ska användas. Utelämna för alla."
         }
       }
+    },
+    "cleanup_cloud": {
+      "name": "Städa molnregistret",
+      "description": "Tar bort entiteter och enheter som blivit kvar när molnkontot inte längre listar deras lås, och flyttar överlevande poster till låsets serienummer. Körs automatiskt vid start; anropa för att köra manuellt.",
+      "fields": {
+        "dry_run": {
+          "name": "Torrkörning",
+          "description": "True för att visa vad som skulle ändras utan att röra registret."
+        }
+      }
+    },
+    "cloud_guests": {
+      "name": "Lista molnets gäster",
+      "description": "Läser leverantörens gästanvändare (appens Guest user list): identitet, giltighetsfönster och vilka credential-typer de har. Molnet lämnar aldrig ut värden.",
+      "fields": {
+        "entry_id": {
+          "name": "Konto-entry",
+          "description": "Valfritt config entry-id när fler än ett konto är konfigurerat."
+        }
+      }
+    },
+    "sync_cloud": {
+      "name": "Synka lokala gäster till molnet",
+      "description": "För varje lokal återkommande gäst med sparad kod: säkerställ molnidentitet och PIN-access. Kör torrt som standard och rapporterar exakt vad som skulle skapas; molnposten lägger bara till attribution och appnotiser — koden fungerar redan i låset.",
+      "fields": {
+        "entry_id": {
+          "name": "Konto-entry",
+          "description": "Valfritt config entry-id när fler än ett konto är konfigurerat."
+        },
+        "dry_run": {
+          "name": "Torrkörning",
+          "description": "Standard true: visa planen utan att skriva till molnet."
+        }
+      }
+    },
+    "audit": {
+      "name": "Granska lås, katalog och moln",
+      "description": "Läs-only avvikelserapport: vilka lokala gäster som saknar molnidentitet eller access, och vilka molngäster katalogen inte känner. Inget ändras.",
+      "fields": {
+        "entry_id": {
+          "name": "Konto-entry",
+          "description": "Valfritt config entry-id när fler än ett konto är konfigurerat."
+        }
+      }
     }
   }
 }

@@ -12,20 +12,23 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 
-from .api import NimlyCloudError
 from ..const import (
     DOMAIN,
+    SERVICE_CLEANUP_CLOUD,
+    SERVICE_AUDIT,
+    SERVICE_CLOUD_GUESTS,
+    SERVICE_SYNC_CLOUD,
     SERVICE_FETCH_HISTORY,
     SERVICE_GATEWAY_SCAN,
     SERVICE_PROBE,
     SERVICE_REFRESH,
     SERVICE_SET_LOCK,
 )
+from .api import NimlyCloudError
 from .coordinator import NimlyCloudCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -54,6 +57,25 @@ SCHEMA_SET_LOCK = vol.Schema(
 SCHEMA_GATEWAY_SCAN = vol.Schema({vol.Required("start"): cv.boolean})
 
 SCHEMA_PROBE = vol.Schema({vol.Required("paths"): vol.All(cv.ensure_list, [vol.Any(str, dict)])})
+
+SCHEMA_CLEANUP_CLOUD = vol.Schema({vol.Optional("dry_run", default=False): cv.boolean})
+
+SCHEMA_CLOUD_GUESTS = vol.Schema({vol.Optional("entry_id"): cv.string})
+
+SCHEMA_PROBE = vol.Schema({vol.Required("paths"): vol.All(cv.ensure_list, [vol.Any(str, dict)])})
+
+SCHEMA_CLEANUP_CLOUD = vol.Schema({vol.Optional("dry_run", default=False): cv.boolean})
+
+SCHEMA_CLOUD_GUESTS = vol.Schema({vol.Optional("entry_id"): cv.string})
+
+SCHEMA_AUDIT = vol.Schema({vol.Optional("entry_id"): cv.string})
+
+SCHEMA_SYNC_CLOUD = vol.Schema(
+    {
+        vol.Optional("entry_id"): cv.string,
+        vol.Optional("dry_run", default=True): cv.boolean,
+    }
+)
 
 
 def _coordinator(hass: HomeAssistant, entry_id: str | None = None) -> NimlyCloudCoordinator:
@@ -145,6 +167,109 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 )
         return {"results": results}
 
+    async def _cloud_guests(call: ServiceCall) -> dict[str, Any]:
+        coordinator = _coordinator(hass, call.data.get("entry_id"))
+        guests = await coordinator.api.async_guest_users(coordinator.location_id)
+        return {"guests": guests}
+
+    async def _audit(call: ServiceCall) -> dict[str, Any]:
+        from ..mirror.coordinator import MirrorCoordinator
+        from .sync import cloud_device_for
+
+        cloud = _coordinator(hass, call.data.get("entry_id"))
+        mirrors = [
+            item
+            for item in hass.data.get(DOMAIN, {}).values()
+            if isinstance(item, MirrorCoordinator)
+        ]
+        guests = await cloud.api.async_guest_users(cloud.location_id)
+        ids = {str(guest.get("id")) for guest in guests if guest.get("id")}
+        by_name = {
+            str(guest.get("name") or "").strip().casefold(): guest for guest in guests
+        }
+
+        locks: list[dict[str, Any]] = []
+        for mirror in mirrors:
+            device_id = cloud_device_for(cloud, mirror)
+            accesses = {
+                (str(access.get("userId")), str(access.get("type")))
+                for access in (cloud.access.get(device_id) or [])
+            }
+            local = mirror.cloud_sync_candidates()
+            local_names = set()
+            entries: list[dict[str, Any]] = []
+            for candidate in local:
+                name_key = candidate["name"].strip().casefold()
+                local_names.add(name_key)
+                user_id = candidate["user_id"]
+                if not user_id or user_id not in ids:
+                    state = "no_cloud_identity"
+                elif device_id is None:
+                    state = "no_cloud_device"
+                elif (user_id, "pin") not in accesses:
+                    state = "no_cloud_access"
+                else:
+                    state = "ok"
+                entries.append(
+                    {"slot": candidate["slot"], "name": candidate["name"], "state": state}
+                )
+            locks.append(
+                {
+                    "lock": mirror.entry.entry_id,
+                    "device_id": device_id,
+                    "guests": entries,
+                    "cloud_only": sorted(
+                        str(guest.get("name"))
+                        for guest in guests
+                        if str(guest.get("name") or "").strip().casefold()
+                        not in local_names
+                    ),
+                }
+            )
+        return {"locks": locks, "cloud_guests": len(guests)}
+
+    async def _sync_cloud(call: ServiceCall) -> dict[str, Any]:
+        from ..mirror.coordinator import MirrorCoordinator
+        from .sync import async_sync_lock
+
+        cloud = _coordinator(hass, call.data.get("entry_id"))
+        dry_run = bool(call.data["dry_run"])
+        mirrors = [
+            item
+            for item in hass.data.get(DOMAIN, {}).values()
+            if isinstance(item, MirrorCoordinator)
+        ]
+        actions: list[dict[str, Any]] = []
+        for mirror in mirrors:
+            lock_actions = await async_sync_lock(cloud, mirror, dry_run=dry_run)
+            actions += lock_actions
+            if dry_run:
+                continue
+            identities = sum(
+                1
+                for item in lock_actions
+                if item["action"] in ("create_guest", "adopt_guest")
+            )
+            accesses = sum(
+                1 for item in lock_actions if item["action"] == "create_access"
+            )
+            if identities or accesses:
+                await mirror.async_journal_note(
+                    "cloud_synced",
+                    detail=f"{identities} identit(ies), {accesses} access(es)",
+                )
+        if not dry_run:
+            await cloud.async_request_refresh()
+        return {"dry_run": dry_run, "actions": actions}
+
+    async def _cleanup_cloud(call: ServiceCall) -> dict[str, Any]:
+        from .maintenance import async_reconcile
+
+        coordinator = _coordinator(hass, call.data.get("entry_id"))
+        return await async_reconcile(
+            hass, coordinator.entry, coordinator, dry_run=bool(call.data["dry_run"])
+        )
+
     hass.services.async_register(
         DOMAIN, SERVICE_REFRESH, _refresh, schema=SCHEMA_REFRESH,
         supports_response=SupportsResponse.ONLY,
@@ -163,5 +288,21 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, SERVICE_PROBE, _probe, schema=SCHEMA_PROBE,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_CLEANUP_CLOUD, _cleanup_cloud, schema=SCHEMA_CLEANUP_CLOUD,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_CLOUD_GUESTS, _cloud_guests, schema=SCHEMA_CLOUD_GUESTS,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SYNC_CLOUD, _sync_cloud, schema=SCHEMA_SYNC_CLOUD,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_AUDIT, _audit, schema=SCHEMA_AUDIT,
         supports_response=SupportsResponse.ONLY,
     )

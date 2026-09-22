@@ -119,6 +119,7 @@ enforced locally. Details: [docs/guests.md](docs/guests.md).
 | `nimly.set_auto_lock`, `nimly.set_sound_volume` | The lock's own settings, read back and mirrored to the app. |
 | `nimly.ota_install`, `nimly.provision_wifi`, `nimly.set_ieee` | Firmware and provisioning. |
 | `nimly.gateway_scan`, `nimly.probe` | Vendor-side discovery helpers. |
+| `nimly.cleanup_cloud` | Align the registry with the account: migrate, prune and rename (`dry_run` supported). Runs automatically at cloud setup. |
 
 ## The vendor cloud, honestly
 
@@ -147,6 +148,7 @@ tools/                     sync-to-HA helper and the PII check
 - [docs/flashing.md](docs/flashing.md) — build, flash, pair, update.
 - [docs/protocol.md](docs/protocol.md) — the MQTT topics and UART line format.
 - [docs/guests.md](docs/guests.md) — guest codes, expiry and schedules.
+- [docs/cloud-sync.md](docs/cloud-sync.md) — the lock/HA/cloud truth model, sync directions and the restore matrix.
 - [docs/privacy.md](docs/privacy.md) — what leaves the house.
 - [docs/dashboard.md](docs/dashboard.md) — the bundled guest-code card.
 

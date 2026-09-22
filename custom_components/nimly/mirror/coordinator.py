@@ -43,6 +43,7 @@ from ..const import (
     CH_ACTIVITY,
     CH_AUTOLOCK,
     CH_BATTERY,
+    CH_CLOUD,
     CH_FINGERPRINT,
     CH_LOCK,
     CH_PIN,
@@ -107,6 +108,7 @@ from .guests import (
     GUEST_USED,
     GUEST_WINDOW_CLOSE,
     GUEST_WINDOW_OPEN,
+    code_owner,
     expired_slots,
     generate_code,
     is_expired,
@@ -895,6 +897,100 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             },
         )
 
+    def cloud_user(self, slot: int) -> str | None:
+        """The vendor uuid a local guest was synced to, if it has one."""
+        stored = self.entry.options.get("cloud_users")
+        if isinstance(stored, dict):
+            value = stored.get(str(slot))
+            if isinstance(value, str) and value:
+                return value
+        return None
+
+    async def async_set_cloud_user(self, slot: int, user_id: str) -> None:
+        """Remember which vendor identity a local guest maps to."""
+        stored = dict(self.entry.options.get("cloud_users") or {})
+        stored[str(slot)] = str(user_id)
+        self.hass.config_entries.async_update_entry(
+            self.entry, options={**self.entry.options, "cloud_users": stored}
+        )
+
+    def cloud_sync_candidates(self) -> list[dict[str, Any]]:
+        """Local guests the cloud can be told about: recurring, with a stored code."""
+        rows: list[dict[str, Any]] = []
+        for key, guest in self.guests.items():
+            if not isinstance(guest, dict) or guest.get("kind") != "recurring":
+                continue
+            name = str(guest.get("name") or "").strip()
+            code = str(guest.get("code") or "")
+            if not name or not code:
+                continue
+            try:
+                slot = int(key)
+            except (TypeError, ValueError):
+                continue
+            rows.append(
+                {
+                    "slot": slot,
+                    "name": name,
+                    "code": code,
+                    "user_id": self.cloud_user(slot),
+                }
+            )
+        return rows
+
+    async def async_journal_note(self, action: str, *, detail: str = "") -> None:
+        """A public journal write for the other layers (the cloud sync)."""
+        await self._async_journal_add(
+            make_entry(
+                action=action,
+                time=dt_util.utcnow().isoformat(),
+                origin=ORIGIN_HA,
+                detail=detail,
+            )
+        )
+
+    async def _async_cloud_sync_guest(self, slot: int, code: str | None) -> None:
+        """Tell the vendor cloud about a guest we just created, when enabled.
+
+        A code that exists only in the service response (a simple guest) is passed
+        in; a recurring guest keeps it in the entry options. Failure here must
+        never fail the local creation, so everything is caught and logged.
+        """
+        if not self.active(CH_CLOUD):
+            return
+        from ..cloud.coordinator import NimlyCloudCoordinator
+        from ..cloud.sync import async_sync_guest
+
+        clouds = [
+            item
+            for item in self.hass.data.get(DOMAIN, {}).values()
+            if isinstance(item, NimlyCloudCoordinator)
+        ]
+        if not clouds:
+            return
+        guest = dict(self.guests.get(str(slot)) or {})
+        candidate = {
+            "slot": slot,
+            "name": str(guest.get("name") or "").strip(),
+            "code": str(code or guest.get("code") or ""),
+            "user_id": self.cloud_user(slot),
+        }
+        if not candidate["name"] or not candidate["code"]:
+            return
+        try:
+            actions = await async_sync_guest(clouds[0], self, candidate, dry_run=False)
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Cloud sync of slot %s failed", slot)
+            return
+        if any(
+            action["action"] in ("create_guest", "adopt_guest", "create_access")
+            for action in actions
+        ):
+            await self.async_journal_note(
+                "cloud_synced",
+                detail=f"slot {slot}",
+            )
+
     async def async_create_guest(
         self,
         name: str,
@@ -950,6 +1046,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_save_guests()
         if normalized_until:
             self._schedule_guest_expiry(slot, normalized_until)
+        await self._async_cloud_sync_guest(slot, code_text)
         self._publish_snapshot()
         _LOGGER.info(
             "Guest code created on slot %s (%s)", slot, normalized_until or "no expiry"
@@ -1009,6 +1106,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_save_guests()
         await self._apply_guest_state(slot)
         self._schedule_guest_boundary(slot)
+        await self._async_cloud_sync_guest(slot, code_text)
         self._publish_snapshot()
         row = self.guest_rows().get(str(slot), {})
         _LOGGER.info(
@@ -1518,6 +1616,24 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         collision with a local credential becomes a virtual -> real mapping,
         and the lock's own events are translated back for attribution.
         """
+        bound = code_owner(self.guests, code)
+        if bound is not None:
+            # The cloud pushed a code we already hold (a synced local guest): bind
+            # the vendor slot to the slot the guest already lives in instead of
+            # writing a second copy of the same code.
+            self.slot_map[virtual] = bound
+            self._save_slot_map()
+            await self._async_journal_add(
+                make_entry(
+                    action="slot_bound",
+                    time=dt_util.utcnow().isoformat(),
+                    origin=ORIGIN_HA,
+                    slot=virtual,
+                    detail=f"the code is the local guest in slot {bound}",
+                )
+            )
+            self._publish_snapshot()
+            return
         floor, capacity = self._slot_bounds()
         outcome, real, reason = resolve_write(
             virtual,

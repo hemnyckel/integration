@@ -23,6 +23,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from ..const import DOMAIN, VOLUME_NAMES
 from .coordinator import NimlyCloudCoordinator
+from .maintenance import device_name
 
 
 async def async_setup_entry(
@@ -75,17 +76,20 @@ class _CloudEntity(CoordinatorEntity[NimlyCloudCoordinator]):
         super().__init__(coordinator)
         self._device = device
         self._device_id = device.get("id")
+        # Entity identity is the module serial, not the vendor device id: a
+        # re-registration of the same lock must reuse these entities.
+        self._identity = coordinator.device_serial(self._device_id) or self._device_id
 
     @property
     def device_info(self) -> DeviceInfo:
-        # Joining the identifiers of the device that already exists — typically the one ZHA
-        # created from the lock module's IEEE address — merges both into a single device.
-        identifiers = self.coordinator.device_identifiers(self._device_id)
-        if not identifiers:
-            identifiers = {(DOMAIN, self._device_id)}
+        # One config entry per device (Home Assistant 2026): the cloud layer keeps
+        # its own device, identified by the vendor device id, and named after the
+        # lock — the user's name for the device that owns the serial (ZHA,
+        # typically) wins over the vendor's default.
         return DeviceInfo(
-            identifiers=set(identifiers),
-            name=self._device.get("name"),
+            identifiers={(DOMAIN, self._device_id)},
+            name=device_name(self.coordinator, self._device_id)
+            or self._device.get("name"),
             manufacturer=self._device.get("modelVendor"),
             model=self._device.get("modelName"),
         )
@@ -99,7 +103,7 @@ class _DeviceSensor(_CloudEntity, SensorEntity):
 
     def __init__(self, coordinator: NimlyCloudCoordinator, device: dict[str, Any]) -> None:
         super().__init__(coordinator, device)
-        self._attr_unique_id = f"{self._device_id}_{self.translation_key}"
+        self._attr_unique_id = f"{self._identity}_{self.translation_key}"
 
 
 class CloudLockState(_DeviceSensor):

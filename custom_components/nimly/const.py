@@ -39,6 +39,7 @@ CH_BATTERY = "battery"
 CH_SYNC = "sync"
 CH_RECONCILE = "slot_reconcile"
 CH_NAMES = "names"
+CH_CLOUD = "cloud"
 
 CHANNELS: list[str] = [
     CH_LOCK,
@@ -51,6 +52,7 @@ CHANNELS: list[str] = [
     CH_SYNC,
     CH_RECONCILE,
     CH_NAMES,
+    CH_CLOUD,
 ]
 
 DEFAULT_CHANNELS: dict[str, bool] = {
@@ -64,6 +66,7 @@ DEFAULT_CHANNELS: dict[str, bool] = {
     CH_SYNC: True,
     CH_RECONCILE: False,
     CH_NAMES: False,
+    CH_CLOUD: True,
 }
 
 # Display names for the channel switches (the user's "sliders")
@@ -78,6 +81,7 @@ CHANNEL_LABELS: dict[str, str] = {
     CH_SYNC: "Sync on start",
     CH_RECONCILE: "Slot sync (lock → app)",
     CH_NAMES: "Mirror user names",
+    CH_CLOUD: "Cloud sync",
 }
 
 CHANNEL_ICONS: dict[str, str] = {
@@ -91,6 +95,7 @@ CHANNEL_ICONS: dict[str, str] = {
     CH_SYNC: "mdi:sync",
     CH_RECONCILE: "mdi:format-list-sync",
     CH_NAMES: "mdi:account-edit",
+    CH_CLOUD: "mdi:cloud-sync",
 }
 
 PRESET_FULL = "full"
@@ -299,6 +304,8 @@ PATH_DEVICE_LOCK = "/devices/{device_id}/lock"
 PATH_DEVICE_SETTINGS = "/devices/{device_id}/settings"
 PATH_DEVICE_ACTION = "/devices/{device_id}/action"
 PATH_GATEWAY_ACTION = "/gateways/{gateway_id}/action"
+PATH_GUEST_USERS = "/guest-users"
+PATH_DEVICE_SCAN = "/devices/{device_id}/access/scan-tag"
 
 HEADER_COMPANY_ID = "companyId"
 
@@ -420,3 +427,7 @@ SERVICE_REFRESH = "refresh"
 SERVICE_FETCH_HISTORY = "fetch_history"
 SERVICE_SET_LOCK = "set_lock"
 SERVICE_GATEWAY_SCAN = "gateway_scan"
+SERVICE_CLEANUP_CLOUD = "cleanup_cloud"
+SERVICE_CLOUD_GUESTS = "cloud_guests"
+SERVICE_SYNC_CLOUD = "sync_cloud"
+SERVICE_AUDIT = "audit"

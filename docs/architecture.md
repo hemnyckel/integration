@@ -106,6 +106,19 @@ The account layer is a thin client for the same API the official app uses.
   applied to every stamp, with the raw value kept for diagnostics.
 - Settings the app writes (auto-lock, volume) are mirrored onto the lock, and
   the lock's own values are pushed back to the app's record.
+- **Entity identity is the module serial** — the account's `serialNumber`, the
+  same IEEE address ZHA knows — never the vendor's device id, which changes
+  every time the app registers the lock again. A re-registration therefore
+  updates the existing entities instead of creating `_2` twins, and older,
+  vendor-id keyed entries are migrated onto the serial at cloud setup.
+- Upkeep at setup (also on demand through **`nimly.cleanup_cloud`**, with
+  `dry_run`): entities left behind by a device the account no longer lists are
+  removed, together with the device entry of a vendor id that is gone. Each
+  config entry owns its own device (Home Assistant 2026 keeps one config entry
+  per device), so the cloud entities stay on the cloud entry's device; its name
+  is resolved *before* entities are created — the user's name for the device
+  that owns the serial (the ZHA device, typically) wins over the vendor's
+  default and is cached in the entry options.
 - Auth is OAuth2 password grant with a rotating refresh token; refresh is
   single-flight because the provider invalidates the old token. A rejected
   credential raises `ConfigEntryAuthFailed`, which opens the reauthentication

@@ -13,8 +13,13 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from ..const import DOMAIN, SETTING_AUTOLOCK, SETTING_MASTER_PIN_MODE
-from ..const import SETTING_PART_OF_ALARM, SETTING_PIN_REQUIRED_REMOTE
+from ..const import (
+    DOMAIN,
+    SETTING_AUTOLOCK,
+    SETTING_MASTER_PIN_MODE,
+    SETTING_PART_OF_ALARM,
+    SETTING_PIN_REQUIRED_REMOTE,
+)
 from .coordinator import NimlyCloudCoordinator
 from .sensor import _CloudEntity, _LocationEntity
 
@@ -52,7 +57,7 @@ class CloudOnline(_CloudEntity, BinarySensorEntity):
 
     def __init__(self, coordinator: NimlyCloudCoordinator, device: dict[str, Any]) -> None:
         super().__init__(coordinator, device)
-        self._attr_unique_id = f"{self._device_id}_online"
+        self._attr_unique_id = f"{self._identity}_online"
 
     @property
     def is_on(self) -> bool | None:
@@ -69,7 +74,7 @@ class _DeviceSetting(_CloudEntity, BinarySensorEntity):
 
     def __init__(self, coordinator: NimlyCloudCoordinator, device: dict[str, Any]) -> None:
         super().__init__(coordinator, device)
-        self._attr_unique_id = f"{self._device_id}_{self.translation_key}"
+        self._attr_unique_id = f"{self._identity}_{self.translation_key}"
 
     @property
     def is_on(self) -> bool | None:

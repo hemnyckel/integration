@@ -661,6 +661,50 @@
           "description": "Which mirror to use. Leave out for all."
         }
       }
+    },
+    "cleanup_cloud": {
+      "name": "Clean up cloud registry entries",
+      "description": "Removes entities and devices left behind when the vendor account no longer lists their lock, and migrates surviving entries onto the lock's serial. Runs automatically at setup; call this to run it on demand.",
+      "fields": {
+        "dry_run": {
+          "name": "Dry run",
+          "description": "True to report what would change without touching the registry."
+        }
+      }
+    },
+    "cloud_guests": {
+      "name": "List the cloud's guests",
+      "description": "Reads the vendor account's guest users (the app's Guest user list): identity, validity window and which credential types they hold. The cloud never returns credential values.",
+      "fields": {
+        "entry_id": {
+          "name": "Account entry",
+          "description": "Optional config entry id when more than one account is configured."
+        }
+      }
+    },
+    "sync_cloud": {
+      "name": "Sync local guests to the cloud",
+      "description": "For every local recurring guest with a stored code: ensure a cloud identity and a PIN access. Runs dry by default and reports exactly what it would create; the cloud record only adds attribution and app notifications, the code already works in the lock.",
+      "fields": {
+        "entry_id": {
+          "name": "Account entry",
+          "description": "Optional config entry id when more than one account is configured."
+        },
+        "dry_run": {
+          "name": "Dry run",
+          "description": "Defaults to true: report the plan without writing to the cloud."
+        }
+      }
+    },
+    "audit": {
+      "name": "Audit the lock, catalog and cloud",
+      "description": "Read-only drift report: which local guests miss a cloud identity or access, and which cloud guests the local catalog does not know. Nothing is changed.",
+      "fields": {
+        "entry_id": {
+          "name": "Account entry",
+          "description": "Optional config entry id when more than one account is configured."
+        }
+      }
     }
   }
 }

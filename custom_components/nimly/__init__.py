@@ -19,8 +19,8 @@ from .const import (
     CONF_ACCESS_TOKEN,
     CONF_CHANNELS,
     CONF_ENABLED,
-    CONF_LOCK_ENTITY,
     CONF_LOCATION_ID,
+    CONF_LOCK_ENTITY,
     CONF_PREFIX,
     CONF_REFRESH_TOKEN,
     CONF_TYPE,
@@ -76,10 +76,31 @@ async def _async_setup_cloud(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = NimlyCloudCoordinator(hass, entry, api, entry.data[CONF_LOCATION_ID])
     await coordinator.async_config_entry_first_refresh()
 
+    # Keep the registry aligned with the account before entities are created:
+    # migrate vendor-id keyed entries onto the module serial and remember the
+    # lock's real name. Upkeep must never block setup, so a failure is logged and
+    # setup continues.
+    await _async_cloud_upkeep(hass, entry, coordinator)
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS_CLOUD)
+    # A second pass now that the platforms own their entities: the first one
+    # migrated identities before they were assembled, this one prunes whatever
+    # the (re)assignments left behind.
+    await _async_cloud_upkeep(hass, entry, coordinator)
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     return True
+
+
+async def _async_cloud_upkeep(
+    hass: HomeAssistant, entry: ConfigEntry, coordinator: Any
+) -> None:
+    from .cloud.maintenance import async_reconcile
+
+    try:
+        await async_reconcile(hass, entry, coordinator)
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception("nimly: cloud registry upkeep failed")
 
 
 async def _async_setup_mirror(hass: HomeAssistant, entry: ConfigEntry) -> bool:
