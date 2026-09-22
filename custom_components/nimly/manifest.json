@@ -1,9 +1,14 @@
 {
   "domain": "nimly",
   "name": "Nimly",
-  "codeowners": ["@c14ym0re"],
+  "codeowners": [
+    "@c14ym0re"
+  ],
   "config_flow": true,
-  "after_dependencies": ["mqtt", "zha"],
+  "after_dependencies": [
+    "mqtt",
+    "zha"
+  ],
   "bluetooth": [
     {
       "connectable": true,
@@ -15,5 +20,5 @@
   "integration_type": "hub",
   "iot_class": "local_push",
   "homeassistant": "2025.1.0",
-  "version": "1.0.4"
+  "version": "1.0.5"
 }
