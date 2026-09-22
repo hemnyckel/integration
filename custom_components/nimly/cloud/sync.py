@@ -141,3 +141,70 @@ async def _async_sync_candidate(
         )
         accesses.add((user_id, "pin"))
     return actions
+
+
+async def async_restore_lock(
+    cloud: NimlyCloudCoordinator, mirror: Any, *, dry_run: bool
+) -> dict[str, Any]:
+    """Replay the catalog onto a fresh cloud device (docs/cloud-sync.md).
+
+    PINs we hold the value for are synced; a linked fingerprint is re-recorded
+    through a simulated enrollment (the lock holds the template) unless its slot
+    no longer shows one. A PIN or tag we do not hold a value for cannot be
+    re-created and is reported for the guided round instead of being guessed.
+    """
+    device_id = cloud_device_for(cloud, mirror)
+    result: dict[str, Any] = {
+        "lock": mirror.entry.entry_id,
+        "actions": [],
+        "cannot_restore": [],
+    }
+    if device_id is None:
+        result["cannot_restore"].append({"reason": "no_cloud_device"})
+        return result
+
+    result["actions"] += await async_sync_lock(cloud, mirror, dry_run=dry_run)
+
+    guests = await cloud.api.async_guest_users(cloud.location_id)
+    identities = {str(guest.get("id")) for guest in guests if guest.get("id")}
+    try:
+        live = await cloud.api.async_device_access(device_id)
+    except Exception:  # noqa: BLE001
+        live = cloud.access.get(device_id) or []
+    accesses = {(str(a.get("userId")), str(a.get("type"))) for a in live}
+
+    for key, user_id in sorted(mirror.cloud_links().items()):
+        slot_text, _, access_type = key.partition(":")
+        if not slot_text.isdigit() or not access_type:
+            continue
+        slot = int(slot_text)
+        if user_id not in identities:
+            result["cannot_restore"].append(
+                {"slot": slot, "type": access_type, "reason": "identity_gone"}
+            )
+            continue
+        if (user_id, access_type) in accesses:
+            continue
+        if access_type == "finger":
+            if not mirror.slots.finger_confirmed(slot):
+                # Nobody has ever opened the door with this finger, so the lock
+                # cannot be shown to hold its template; never simulate a lie.
+                result["cannot_restore"].append(
+                    {"slot": slot, "type": access_type, "reason": "finger_unconfirmed"}
+                )
+                continue
+            result["actions"].append(
+                {"lock": result["lock"], "slot": slot, "action": "restore_finger"}
+            )
+            if not dry_run:
+                mirror.note_simulated_enroll()
+                await cloud.api.async_enroll_finger(device_id, user_id)
+                await mirror.async_journal_note(
+                    "cloud_restored", detail=f"slot {slot} finger"
+                )
+        else:
+            # The cloud needs the value and only the guest has it.
+            result["cannot_restore"].append(
+                {"slot": slot, "type": access_type, "reason": "value_unknown"}
+            )
+    return result

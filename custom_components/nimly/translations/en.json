@@ -731,6 +731,20 @@
           "description": "Optional config entry id when more than one lock is configured."
         }
       }
+    },
+    "restore_cloud": {
+      "name": "Restore the cloud from the catalog",
+      "description": "Replays lock identities and accesses onto the vendor cloud after a loss: PINs with a stored value are re-created, linked fingerprints are re-recorded through a simulated enrollment, and anything whose value only the guest knows is reported instead of guessed. Dry run first.",
+      "fields": {
+        "entry_id": {
+          "name": "Account entry",
+          "description": "Optional config entry id when more than one account is configured."
+        },
+        "dry_run": {
+          "name": "Dry run",
+          "description": "Defaults to true: report the plan without writing to the cloud."
+        }
+      }
     }
   }
 }

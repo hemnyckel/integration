@@ -229,6 +229,9 @@ DEFAULT_SLOT: dict[str, Any] = {
     "has_pin": False,
     "has_fingerprint": False,
     "has_rfid": False,
+    # A fingerprint is only trusted once a finger actually opened the door with
+    # it; an enrollment proves nothing (the lock reports nothing while it runs).
+    "finger_used": False,
 }
 
 
@@ -431,3 +434,4 @@ SERVICE_CLEANUP_CLOUD = "cleanup_cloud"
 SERVICE_CLOUD_GUESTS = "cloud_guests"
 SERVICE_SYNC_CLOUD = "sync_cloud"
 SERVICE_AUDIT = "audit"
+SERVICE_RESTORE_CLOUD = "restore_cloud"

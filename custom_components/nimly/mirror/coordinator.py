@@ -211,6 +211,10 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._journal_lock = asyncio.Lock()
         self.guests: dict[str, dict[str, Any]] = {}
+        # The next finger enroll is a cloud-side replay (the vendor picks the
+        # slot, so it is not known in advance); recorded for the catalog, never
+        # mirrored to the lock, whose fingerprint template already exists.
+        self._replay_enroll_until: float = 0.0
         self._guest_unsubs: dict[str, Callable[[], None]] = {}
         self.zha: ZhaLink | None = None
         self.last_error: str | None = None
@@ -272,6 +276,12 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             imported = self.slots.import_from_onesti(self.hass, self.ieee)
             if imported:
                 _LOGGER.info("Imported %s slots from onesti_lock", imported)
+            corrected = self.slots.correct_fingerprints()
+            if corrected:
+                _LOGGER.info(
+                    "Corrected %s fingerprint mark(s) against the lock's table",
+                    corrected,
+                )
 
         self._unsubs.append(
             await mqtt.async_subscribe(
@@ -1049,6 +1059,10 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     linked.add(user_id)
         return linked
 
+    def note_simulated_enroll(self) -> None:
+        """Mark the next fingerprint enroll as a cloud-side replay."""
+        self._replay_enroll_until = time.monotonic() + 120
+
     async def async_link_cloud_credential(self, slot: int, access_type: str) -> None:
         """Pair a fresh local credential with the cloud access it came from.
 
@@ -1802,6 +1816,18 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not isinstance(slot, int):
             return
         if enroll:
+            replay = self._replay_enroll_until > time.monotonic()
+            self._replay_enroll_until = 0.0
+            if replay:
+                # A cloud replay of an enroll the lock already holds: record the
+                # catalog link, but do not light the reader for it.
+                _LOGGER.info(
+                    "Fingerprint enroll (slot %s) is a cloud replay; not mirrored",
+                    slot,
+                )
+                await self.async_link_cloud_credential(slot, "finger")
+                self._publish_snapshot()
+                return
             self._flag_new_slot(slot, "fingerprint")
             # The catalog link does not depend on the physical mirroring below,
             # which can fail on its own; link first so nothing is lost.
@@ -1809,7 +1835,11 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         command = ZCL_CMD_FP_ENROLL if enroll else ZCL_CMD_FP_CLEAR
         try:
             await self._async_zcl(command, slot)
-            self.slots.mark_fingerprint(slot, enroll)
+            # A clear really removes the template; an enrollment proves nothing —
+            # the lock reports nothing while it runs, so the app's "Done" (and the
+            # slot's own table, or a later usage event) is the only evidence.
+            if not enroll:
+                self.slots.mark_fingerprint(slot, False)
             await self._async_publish_slot(slot, self.slots.occupied(slot))
         except Exception as err:  # noqa: BLE001
             self.counters["errors"] += 1

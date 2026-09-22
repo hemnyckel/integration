@@ -117,6 +117,9 @@ class SlotTable:
         if key is None:
             return False
         data = self._slots.setdefault(str(slot), {**DEFAULT_SLOT})
+        if kind == "fingerprint":
+            # A used finger is the only proof that its template exists.
+            data["finger_used"] = True
         if data.get(key):
             return False
         data[key] = True
@@ -124,11 +127,31 @@ class SlotTable:
         self._notify()
         return True
 
+    def finger_confirmed(self, slot: int) -> bool:
+        """True only when a finger in this slot has actually opened the door."""
+        return bool(self.get(slot).get("finger_used"))
+
     def clear(self, slot: int) -> None:
         """Forget everything local about a slot (after its credential is cleared)."""
         if self._slots.pop(str(slot), None) is not None:
             self._save()
             self._notify()
+
+    def correct_fingerprints(self) -> int:
+        """Drop fingerprint marks that no usage ever confirmed.
+
+        An enrollment marks nothing by itself, so a mark is only trusted when a
+        finger in that slot has actually been used. Returns slots corrected.
+        """
+        corrected = 0
+        for data in self._slots.values():
+            if data.get("has_fingerprint") and not data.get("finger_used"):
+                data["has_fingerprint"] = False
+                corrected += 1
+        if corrected:
+            self._save()
+            self._notify()
+        return corrected
 
     def import_from_onesti(self, hass: HomeAssistant, ieee: str) -> int:
         """Import slot names and occupancy from an onesti_lock entry, once.

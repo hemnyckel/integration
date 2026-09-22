@@ -20,6 +20,7 @@ from ..const import (
     DOMAIN,
     SERVICE_CLEANUP_CLOUD,
     SERVICE_AUDIT,
+    SERVICE_RESTORE_CLOUD,
     SERVICE_CLOUD_GUESTS,
     SERVICE_SYNC_CLOUD,
     SERVICE_FETCH_HISTORY,
@@ -69,6 +70,13 @@ SCHEMA_CLEANUP_CLOUD = vol.Schema({vol.Optional("dry_run", default=False): cv.bo
 SCHEMA_CLOUD_GUESTS = vol.Schema({vol.Optional("entry_id"): cv.string})
 
 SCHEMA_AUDIT = vol.Schema({vol.Optional("entry_id"): cv.string})
+
+SCHEMA_RESTORE_CLOUD = vol.Schema(
+    {
+        vol.Optional("entry_id"): cv.string,
+        vol.Optional("dry_run", default=True): cv.boolean,
+    }
+)
 
 SCHEMA_SYNC_CLOUD = vol.Schema(
     {
@@ -262,6 +270,25 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             await cloud.async_request_refresh()
         return {"dry_run": dry_run, "actions": actions}
 
+    async def _restore_cloud(call: ServiceCall) -> dict[str, Any]:
+        from ..mirror.coordinator import MirrorCoordinator
+        from .sync import async_restore_lock
+
+        cloud = _coordinator(hass, call.data.get("entry_id"))
+        dry_run = bool(call.data["dry_run"])
+        mirrors = [
+            item
+            for item in hass.data.get(DOMAIN, {}).values()
+            if isinstance(item, MirrorCoordinator)
+        ]
+        reports = [
+            await async_restore_lock(cloud, mirror, dry_run=dry_run)
+            for mirror in mirrors
+        ]
+        if not dry_run:
+            await cloud.async_request_refresh()
+        return {"dry_run": dry_run, "locks": reports}
+
     async def _cleanup_cloud(call: ServiceCall) -> dict[str, Any]:
         from .maintenance import async_reconcile
 
@@ -304,5 +331,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, SERVICE_AUDIT, _audit, schema=SCHEMA_AUDIT,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_RESTORE_CLOUD, _restore_cloud, schema=SCHEMA_RESTORE_CLOUD,
         supports_response=SupportsResponse.ONLY,
     )

@@ -44,6 +44,8 @@ Real lock  ───────────────►  Home Assistant  ◄
 | **The app keeps working** | Notifications, who-unlocked history, guest codes and settings stay in sync through the emulator. |
 | **Guest codes with schedules** | Temporary codes with an expiry, one-time codes, and recurring guests (a cleaner, a nanny) whose code **never changes** but only works inside weekly windows. |
 | **Cloud insight (optional)** | Sign in with the vendor account for the app's attributed history: *who* opened the door when Zigbee alone cannot say. |
+| **Two-way cloud sync** | Guests created here get a vendor identity and a PIN access automatically — and app-created PINs, tags and fingerprints are paired back to the slot they live in. A **Cloud sync** switch pauses the automatic side. |
+| **Restore after a loss** | `nimly.restore_cloud` replays the catalog onto the cloud: PINs with a stored value are re-created, fingerprints are re-recorded through the emulator (the lock holds the template), and anything only the guest knows is reported instead of guessed. `nimly.audit` shows the drift first. |
 | **Slot virtualization** | App-created credentials never collide with local ones, and vice versa — the app keeps its own slot numbers while the lock keeps its own secrets. |
 | **A journal** | One timeline of access and admin events, local and cloud merged, with a `nimly_journal_entry` event for your automations. |
 | **OTA both ways** | The bridge and the emulator update over the air from Home Assistant. |
@@ -119,6 +121,11 @@ enforced locally. Details: [docs/guests.md](docs/guests.md).
 | `nimly.set_auto_lock`, `nimly.set_sound_volume` | The lock's own settings, read back and mirrored to the app. |
 | `nimly.ota_install`, `nimly.provision_wifi`, `nimly.set_ieee` | Firmware and provisioning. |
 | `nimly.gateway_scan`, `nimly.probe` | Vendor-side discovery helpers. |
+| `nimly.cloud_guests` | Read the account's guest users (the app's "Guest user list"). |
+| `nimly.sync_cloud` | Reconcile local guests to the cloud: identity + PIN access (`dry_run` first, identity adoption by name, slot binding so a code is never written twice). |
+| `nimly.restore_cloud` | Replay the catalog after a loss (identities, PINs, fingerprints; reports what only the guest can restore). |
+| `nimly.audit` | Read-only drift report across lock, catalog and cloud. |
+| `nimly.link_credential` | Tie a slot's credential to a vendor user (pin, tag or finger) when a link needs a human. |
 | `nimly.cleanup_cloud` | Align the registry with the account: migrate, prune and rename (`dry_run` supported). Runs automatically at cloud setup. |
 
 ## The vendor cloud, honestly
@@ -128,6 +135,10 @@ owner's own credentials. Nothing is sent anywhere else, no telemetry exists,
 and **the local path never depends on the cloud**: if the vendor changes or
 closes their API, your lock keeps working. What is sent and why:
 [docs/privacy.md](docs/privacy.md).
+
+The lock and this integration are the truth; the cloud is a view of it. Which
+parts can be re-created after a crash, a module swap or a lost lock — and the
+honest limits of each — is in [docs/cloud-sync.md](docs/cloud-sync.md).
 
 ## Repository layout
 
