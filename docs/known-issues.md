@@ -143,3 +143,30 @@ change, so the record keeps whatever the interview read.
 - **We do** treat the lock's attributes as the source and the app's settings as
   a view; reporting `0x0023`/`0x0024` after a pushed value is a firmware item
   (0.5.5), after which the record corrects itself on the next read.
+
+## Changing the emulator's IEEE needs the full reset dance
+
+Measured 2026-09-23: `nimly.set_ieee` alone stores the new address in the
+firmware's NVS (the boot log confirms "IEEE satt till …a4") while the Zigbee
+stack keeps its stored extended address ("own IEEE = …a3") — a plain set plus
+reboot does not move it. What works: a local factory reset
+(`{"cmd": "factory_reset"}` or the repair path), then `set_ieee`, then a
+reboot — verified: the device announced Ext Addr `f4:...:a4`, joined, and the
+cloud created a record for the fake serial. That record was accepted: the
+vendor cloud does **not** whitelist exact module serials — a plausible sibling
+in the same OUI family passed.
+
+- **We do** use the dance for test builds (factory reset → set → reboot). A
+  firmware item (0.5.5) folds the reset into `set_ieee` itself so one call
+  suffices.
+
+## A device that is gone stays "online" in the app
+
+Measured 2026-09-23: after the emulator was reset and left steering (not on the
+network), its record kept `online: true` in the cloud and the app's add-device
+flow presented it immediately instead of searching — a "dead entry" that does
+nothing when tapped and cannot be locked or unlocked.
+
+- **We do** keep the record deliberately (a rejoin reuses it: same id, same
+  name), and read `online` as "last known" rather than live — the cloud only
+  flips it on the device's own reports.

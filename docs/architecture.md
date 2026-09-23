@@ -47,6 +47,13 @@ the mirror attaches its own raw listener straight to the zigpy cluster and
 re-attaches it on every health tick — a ZHA device rebuild cannot silently kill
 attribution.
 
+The relay itself (app events to the real lock and back) is **serial-independent**:
+it rides the bridge's UART/MQTT link and ZHA, so app control keeps working even
+when the emulator wears a different extended address than the lock's module.
+Only the *cloud* mapping (`cloud_device_for`, the audit, the guest sync) keys on
+the serial — an emulator whose IEEE does not match the module's is unmapped
+there until the address is put back.
+
 Commands go back over the same cluster: `SetPINCode` (0x05), `ClearPINCode`
 (0x07), the vendor's fingerprint commands (0x71/0x72), and standard attribute
 reads/writes for capabilities and settings. Sleepy locks get one wake-and-retry,
