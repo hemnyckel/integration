@@ -14,6 +14,7 @@ reliable one; the skew is exposed for diagnostics.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -119,6 +120,10 @@ class NimlyCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ),
         )
         self.entry = entry
+        # The options the coordinator was built with; the entry's update
+        # listener compares against this so a token save (data, not options)
+        # never restarts the entities.
+        self.applied_options = dict(entry.options or {})
         self.api = api
         self.location_id = location_id
 
@@ -153,6 +158,36 @@ class NimlyCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- polling ------------------------------------------------------------
 
     async def _async_update_data(self) -> dict[str, Any]:
+        """Fetch, with one retry through the vendor's transient failures.
+
+        The token refresh lands about every 28 minutes; if the vendor hiccups
+        exactly then, the whole account would flash unavailable for a moment —
+        and anything watching a state edge (a missed-code alert, say) fires on
+        the recovery. A single retry keeps that invisible, and a rejected token
+        gets a forced refresh before the user is asked to sign in again.
+        """
+        try:
+            return await self._async_fetch()
+        except NimlyCloudAuthError:
+            _LOGGER.warning("Cloud rejected the token; refreshing and retrying")
+            try:
+                await self.api.async_ensure_token(force=True)
+                return await self._async_fetch()
+            except (NimlyCloudError, NimlyCloudAuthError) as err:
+                raise ConfigEntryAuthFailed(f"authentication failed: {err}") from err
+        except NimlyCloudError as err:
+            _LOGGER.warning("Cloud poll failed (%s); retrying once", err)
+            await asyncio.sleep(2)
+            try:
+                return await self._async_fetch()
+            except NimlyCloudAuthError as err2:
+                raise ConfigEntryAuthFailed(
+                    f"authentication failed: {err2}"
+                ) from err2
+            except NimlyCloudError as err2:
+                raise UpdateFailed(str(err2)) from err2
+
+    async def _async_fetch(self) -> dict[str, Any]:
         try:
             if not self.me:
                 self.me = await self.api.async_me()
@@ -191,12 +226,9 @@ class NimlyCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     continue
                 await self._poll_device(device, device_id)
 
-        except NimlyCloudAuthError as err:
-            # The user has to sign in again; Home Assistant shows the reauth flow
-            # instead of retrying with credentials that will keep failing.
-            raise ConfigEntryAuthFailed(f"authentication failed: {err}") from err
-        except NimlyCloudError as err:
-            raise UpdateFailed(str(err)) from err
+        except (NimlyCloudAuthError, NimlyCloudError):
+            # Raw, so the retrying wrapper above can do its work first.
+            raise
 
         self.devices = devices
         return {

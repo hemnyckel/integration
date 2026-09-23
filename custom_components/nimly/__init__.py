@@ -199,7 +199,19 @@ async def async_remove_config_entry_device(
 
 
 async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Apply a cloud options change (for example a new scan interval)."""
+    """Apply a cloud options change (for example a new scan interval).
+
+    The session tokens are saved into the entry's data whenever they refresh;
+    that update must not restart the entities. A full reload every half hour
+    would flash every cloud sensor unavailable for a moment — and anything
+    watching a state edge (a missed-code alert, say) fires on the recovery.
+    Reload only when the options the coordinator runs with have really changed.
+    """
+    coordinator: Any = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if coordinator is not None and getattr(coordinator, "applied_options", None) == dict(
+        entry.options
+    ):
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 

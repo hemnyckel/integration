@@ -148,11 +148,11 @@ class NimlyCloudApi:
         )
         self._store(token)
 
-    async def async_ensure_token(self) -> None:
-        if self._access and time.monotonic() < self._expires_at:
+    async def async_ensure_token(self, *, force: bool = False) -> None:
+        if not force and self._access and time.monotonic() < self._expires_at:
             return
         async with self._lock:
-            if self._access and time.monotonic() < self._expires_at:
+            if not force and self._access and time.monotonic() < self._expires_at:
                 return
             if not self._refresh:
                 raise NimlyCloudAuthError("no refresh token")
@@ -175,6 +175,7 @@ class NimlyCloudApi:
         path: str,
         *,
         extra_headers: dict[str, str] | None = None,
+        _retry: bool = True,
         **kwargs: Any,
     ) -> Any:
         await self.async_ensure_token()
@@ -190,6 +191,18 @@ class NimlyCloudApi:
                 **kwargs,
             ) as resp:
                 if resp.status == 401:
+                    if _retry:
+                        # A token can be invalidated before its nominal expiry;
+                        # get a fresh one and try once more instead of failing
+                        # the whole poll (which flashes every entity).
+                        await self.async_ensure_token(force=True)
+                        return await self._request(
+                            method,
+                            path,
+                            extra_headers=extra_headers,
+                            _retry=False,
+                            **kwargs,
+                        )
                     raise NimlyCloudAuthError("token rejected")
                 if resp.status == 404:
                     return None
