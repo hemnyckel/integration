@@ -28,6 +28,7 @@ SERVICE_SET_SOUND_VOLUME = "set_sound_volume"
 SERVICE_FETCH_JOURNAL = "fetch_journal"
 SERVICE_CREATE_GUEST = "create_guest_code"
 SERVICE_CREATE_RECURRING_GUEST = "create_recurring_guest"
+SERVICE_ENROLL_FINGERPRINT = "enroll_fingerprint"
 SERVICE_UPDATE_GUEST = "update_guest"
 SERVICE_REVOKE_GUEST = "revoke_guest_code"
 SERVICE_LIST_GUESTS = "list_guests"
@@ -118,6 +119,14 @@ FETCH_JOURNAL_SCHEMA = vol.Schema(
         vol.Optional("slot"): vol.Coerce(int),
         vol.Optional("action"): cv.string,
         vol.Optional("since"): cv.string,
+        vol.Optional("entry_id"): cv.string,
+    }
+)
+
+ENROLL_FINGER_SCHEMA = vol.Schema(
+    {
+        vol.Required("slot"): vol.Coerce(int),
+        vol.Optional("mode", default="auto"): vol.In(["auto", "cloud", "local"]),
         vol.Optional("entry_id"): cv.string,
     }
 )
@@ -326,6 +335,21 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             )
         return results
 
+    async def _async_handle_enroll_fingerprint(call: ServiceCall) -> dict[str, Any]:
+        entry_id = call.data.get("entry_id")
+        coordinators = _coordinators(hass, entry_id, "async_start_finger_enroll")
+        if not coordinators:
+            return {"error": "no matching mirror"}
+        if len(coordinators) > 1:
+            raise RuntimeError(
+                "several locks are configured; pass entry_id to choose one"
+            )
+        coord = coordinators[0]
+        result = await coord.async_start_finger_enroll(
+            int(call.data["slot"]), str(call.data.get("mode") or "auto")
+        )
+        return {coord.entry.entry_id: result}
+
     async def _async_handle_create_guest(call: ServiceCall) -> dict[str, Any]:
         entry_id = call.data.get("entry_id")
         coordinators = _coordinators(hass, entry_id, "async_create_guest")
@@ -476,6 +500,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_CREATE_GUEST,
         _validated(_async_handle_create_guest),
         schema=CREATE_GUEST_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_ENROLL_FINGERPRINT,
+        _validated(_async_handle_enroll_fingerprint),
+        schema=ENROLL_FINGER_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
     hass.services.async_register(

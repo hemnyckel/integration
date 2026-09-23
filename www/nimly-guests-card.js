@@ -203,6 +203,7 @@ class NimlyGuestsCard extends HTMLElement {
     this._cloudNotice = "";
     this._cloudFailedAt = 0;
     this._actionError = "";
+    this._actionNotice = "";
     this._actionTimer = null;
   }
 
@@ -298,6 +299,31 @@ class NimlyGuestsCard extends HTMLElement {
       error: "",
       result: null,
     };
+  }
+
+  async _startFingerEnroll(guest) {
+    /* The reader lights up for the person at the door; a template only exists
+       once that finger has really opened the door (the lock reports nothing
+       while enrolling). */
+    this._actionError = "";
+    this._actionNotice = "";
+    try {
+      await this._callServiceWS(
+        "nimly",
+        "enroll_fingerprint",
+        this._lockData({ slot: guest.slot })
+      );
+      this._actionNotice = `Läsaren är öppen — lägg ${guest.name || "gästens"} finger på låset nu.`;
+      clearTimeout(this._actionTimer);
+      this._actionTimer = setTimeout(() => {
+        this._actionNotice = "";
+        this._renderList();
+      }, 20000);
+      this._renderList();
+    } catch (err) {
+      this._actionError = this._errorText(err);
+      this._renderList();
+    }
   }
 
   _startEdit(guest) {
@@ -760,6 +786,8 @@ class NimlyGuestsCard extends HTMLElement {
     }
     list.innerHTML = this._actionError
       ? `<div class="empty error">${this._esc(this._actionError)}</div>`
+      : this._actionNotice
+      ? `<div class="empty">${this._esc(this._actionNotice)}</div>`
       : "";
     for (const guest of guests) {
       list.appendChild(this._guestRow(guest));
@@ -792,6 +820,8 @@ class NimlyGuestsCard extends HTMLElement {
       <div class="actions">
         <button class="icon" data-act="edit" title="Redigera">
           <ha-icon icon="mdi:pencil"></ha-icon></button>
+        <button class="icon" data-act="finger" title="Starta finger-enroll">
+          <ha-icon icon="mdi:fingerprint"></ha-icon></button>
         ${
           recurring
             ? `<button class="icon" data-act="pause" title="${
@@ -810,6 +840,9 @@ class NimlyGuestsCard extends HTMLElement {
         </button>
       </div>
     `;
+    row.querySelector('[data-act="finger"]').addEventListener("click", () =>
+      this._startFingerEnroll(guest)
+    );
     row.querySelector('[data-act="edit"]').addEventListener("click", () =>
       this._startEdit(guest)
     );

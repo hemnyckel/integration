@@ -852,6 +852,24 @@
           "description": "Match the identity by (unique) name instead of id."
         }
       }
+    },
+    "enroll_fingerprint": {
+      "name": "Start fingerprint enrollment",
+      "description": "Lights the lock's fingerprint reader for one slot so the person at the door can enroll a finger. Through the cloud when the slot's guest is synced (the app records the access too), locally otherwise. The lock reports nothing while enrolling: a template only exists once that finger has really opened the door.",
+      "fields": {
+        "slot": {
+          "name": "Slot",
+          "description": "The slot the finger belongs to."
+        },
+        "mode": {
+          "name": "Path",
+          "description": "auto (default), cloud or local."
+        },
+        "entry_id": {
+          "name": "Lock",
+          "description": "Which lock; needed when several are configured."
+        }
+      }
     }
   }
 }

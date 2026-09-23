@@ -57,7 +57,12 @@ class Element {
     this.children.push(child);
     return child;
   }
-  querySelector() {
+  querySelector(selector) {
+    const match =
+      typeof selector === "string" && selector.match(/\[data-act="([^"]+)"\]/);
+    if (match && !this._innerHTML.includes(`data-act="${match[1]}"`)) {
+      return null; // a missing button must not be silently stubbed away
+    }
     return new Element("stub");
   }
   querySelectorAll() {
@@ -141,6 +146,7 @@ check("unrelated identity finds nothing", card._siblings(unrelated).length === 0
 // -- row rendering ------------------------------------------------------
 const row = card._guestRow(isabelle);
 check("row shows the lock count", row.innerHTML.includes("2 lås"), row.innerHTML.slice(0, 200));
+check("row offers fingerprint enrollment", row.innerHTML.includes('data-act="finger"'));
 check("row tooltip lists the other lock", row.innerHTML.includes("Källarlås"));
 
 // -- create across locks ------------------------------------------------

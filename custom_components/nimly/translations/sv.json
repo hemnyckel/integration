@@ -852,6 +852,24 @@
           "description": "Matcha identiteten på (unikt) namn i stället för id."
         }
       }
+    },
+    "enroll_fingerprint": {
+      "name": "Starta finger-enroll",
+      "description": "Tänder låsets fingerläsare för en slot så att personen vid dörren kan registrera ett finger. Via molnet när slotens gäst är synkad (appen registrerar då också accessen), annars lokalt. Låset rapporterar inget under enrolleringen: en mall finns först när fingret faktiskt öppnat dörren.",
+      "fields": {
+        "slot": {
+          "name": "Slot",
+          "description": "Sloten fingret hör till."
+        },
+        "mode": {
+          "name": "Väg",
+          "description": "auto (standard), cloud eller local."
+        },
+        "entry_id": {
+          "name": "Lås",
+          "description": "Vilket lås; krävs när flera är konfigurerade."
+        }
+      }
     }
   }
 }

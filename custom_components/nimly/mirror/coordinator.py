@@ -661,8 +661,18 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_set_pin(slot, code)
 
     async def async_clear_slot(self, slot: int) -> None:
-        """Clear a slot's credential on the real lock and forget it locally."""
-        await self._async_clear_pin(slot)
+        """Clear a slot's credential on the real lock and forget it locally.
+
+        A slot the app owns is cleared the way the app's own clear would be —
+        the local side takes the slot back — because this is the tool for the
+        stale leftovers (a guest deleted in the app whose code never left the
+        lock); refusing to touch them would leave codes nobody can account for.
+        """
+        owner = self._virtual_slot(slot)
+        await self._async_clear_pin(slot, virtual_slot=slot)
+        if owner is not None:
+            self.slot_map.pop(owner, None)
+            self._save_slot_map()
         self.slots.clear(slot)
         await self._async_publish_slot(slot, False)
         self._publish_snapshot()
@@ -2532,6 +2542,90 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if shown != slot and not entry.get("detail"):
             entry["detail"] = f"cleared local slot {slot}"
         await self._async_journal_add(entry)
+
+    async def async_start_finger_enroll(self, slot: int, mode: str = "auto") -> dict[str, Any]:
+        """Start a fingerprint enrollment for one slot.
+
+        The lock reports nothing while an enrollment runs — a template exists
+        only once someone has really opened the door with that finger — so this
+        lights the reader and leaves the touch to the person at the door.
+        ``mode`` is ``auto`` (through the cloud when the slot's guest is synced,
+        so the app records the access too), ``cloud`` or ``local``.
+        """
+        if not self.active(CH_FINGERPRINT):
+            raise RuntimeError("fingerprint mirroring is off")
+        if self.zha is None:
+            raise RuntimeError("the ZHA link is not ready")
+        guest = self.guests.get(str(slot))
+        name = (guest or {}).get("name") or self.slots.name(slot, fallback=False)
+
+        user_id = self.cloud_user(slot)
+        use_cloud = False
+        if mode in ("auto", "cloud") and user_id and self.active(CH_CLOUD):
+            use_cloud = True
+        if mode == "cloud" and not user_id:
+            raise RuntimeError(f"slot {slot} has no cloud identity to enroll through")
+
+        if use_cloud:
+            enrolled = await self._async_cloud_enroll_finger(user_id)
+            if enrolled:
+                await self._async_journal_add(
+                    make_entry(
+                        action="finger_enroll_started",
+                        time=dt_util.utcnow().isoformat(),
+                        origin=ORIGIN_HA,
+                        slot=slot,
+                        name=name,
+                        detail="via the cloud",
+                    )
+                )
+                self._publish_snapshot()
+                return {"slot": slot, "name": name, "via": "cloud"}
+            if mode == "cloud":
+                raise RuntimeError("the cloud did not accept the enrollment")
+
+        await self._async_zcl(ZCL_CMD_FP_ENROLL, slot)
+        await self._async_journal_add(
+            make_entry(
+                action="finger_enroll_started",
+                time=dt_util.utcnow().isoformat(),
+                origin=ORIGIN_HA,
+                slot=slot,
+                name=name,
+                detail="local",
+            )
+        )
+        await self._async_publish_slot(slot, self.slots.occupied(slot))
+        self._publish_snapshot()
+        return {"slot": slot, "name": name, "via": "local"}
+
+    async def _async_cloud_enroll_finger(self, user_id: str) -> bool:
+        """Ask the cloud to enroll one of its users' fingers.
+
+        The vendor pushes the enrollment to the module (us); the push lights the
+        lock's reader through the ordinary fingerprint path, so a person still
+        has to touch it for a template to exist.
+        """
+        from ..cloud.coordinator import NimlyCloudCoordinator
+        from ..cloud.sync import cloud_device_for
+
+        clouds = [
+            item
+            for item in self.hass.data.get(DOMAIN, {}).values()
+            if isinstance(item, NimlyCloudCoordinator)
+        ]
+        if not clouds:
+            return False
+        cloud = clouds[0]
+        device_id = cloud_device_for(cloud, self)
+        if device_id is None:
+            return False
+        try:
+            await cloud.api.async_enroll_finger(device_id, user_id)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Cloud finger enrollment failed: %s", err)
+            return False
+        return True
 
     async def _async_zcl(self, command: int, arg: int) -> None:
         if self.zha is None:

@@ -126,6 +126,7 @@ enforced locally. Details: [docs/guests.md](docs/guests.md).
 | `nimly.update_cloud_guest` | Edit an app guest: name, validity window, contact details. |
 | `nimly.delete_cloud_guest` | Remove an app guest the way the app does: every access on every live lock first, then the identity. |
 | `nimly.set_cloud_code` | Set or replace a PIN or tag of an app guest on one lock; a change writes the value into the lock first, so it lands in the right slot. |
+| `nimly.enroll_fingerprint` | Light the lock's fingerprint reader for a slot (cloud path when the guest is synced, so the app records the access too); the touch — and only a real unlock — proves the template. |
 | `nimly.link_cloud_guest` | Record which vendor identity one of our slots belongs to — the human answer to an adoption conflict. |
 | `nimly.sync_cloud` | Reconcile local guests to the cloud: identity + PIN access (`dry_run` first, identity adoption by name, slot binding so a code is never written twice). |
 | `nimly.restore_cloud` | Replay the catalog after a loss (identities, PINs, fingerprints; reports what only the guest can restore). |
