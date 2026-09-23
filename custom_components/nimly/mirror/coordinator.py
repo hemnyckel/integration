@@ -60,6 +60,7 @@ from ..const import (
     CMD_UNLOCK,
     CMD_VOLUME,
     CONF_CHANNELS,
+    CONF_DEVICE_IDENTITY,
     CONF_ENABLED,
     CONF_OTA_MANIFEST_URL,
     CONF_TYPE,
@@ -336,6 +337,11 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsubs.append(
             self.hass.bus.async_listen(EVENT_NIMLY_CLOUD_ACTIVITY, self._on_cloud_activity)
         )
+        self._unsubs.append(
+            self.hass.bus.async_listen(
+                dr.EVENT_DEVICE_REGISTRY_UPDATED, self._on_device_registry_updated
+            )
+        )
 
         # HA -> app: the slot table's occupancy goes to the app, so a slot freed
         # in HA frees in the app too.
@@ -354,6 +360,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         await self._async_load_journal()
         self._load_guests()
+        self._sync_device_identity()
         self._migrate_slot_binds()
         await self._async_resume_guests()
         await self._async_sync_to_app()
@@ -367,6 +374,104 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.zha is not None:
             self.zha.detach()
         self._started = False
+
+    # -- device naming ------------------------------------------------------
+
+    @staticmethod
+    def _normalise_serial(value: Any) -> str:
+        return str(value or "").replace(":", "").replace("-", "").replace(".", "").lower()
+
+    def _device_serial_match(self, device: Any) -> bool:
+        """Whether a registry device carries this lock's module serial."""
+        mine = self._normalise_serial(self.ieee)
+        if not mine:
+            return False
+        values = [value for _kind, value in device.connections]
+        values += [value for _kind, value in device.identifiers]
+        return any(self._normalise_serial(value) == mine for value in values)
+
+    def _serial_devices(self) -> list[Any]:
+        """Registry devices that carry this lock's module serial."""
+        return [
+            device
+            for device in dr.async_get(self.hass).devices
+            if self._device_serial_match(device)
+        ]
+
+    @callback
+    def _apply_device_identity(self) -> None:
+        """Name a freshly joined module from what the user called it before.
+
+        Nothing is invented: only a name (and area) the user themselves gave
+        this serial in an earlier life of the device is re-applied, so a
+        factory reset or a re-pair comes back named correctly.
+        """
+        stored = dict(self.entry.options.get(CONF_DEVICE_IDENTITY) or {})
+        registry = dr.async_get(self.hass)
+        for device in self._serial_devices():
+            fix: dict[str, Any] = {}
+            if not device.name_by_user and stored.get("name"):
+                fix["name_by_user"] = stored["name"]
+            if not device.area_id and stored.get("area_id"):
+                fix["area_id"] = stored["area_id"]
+            if fix:
+                _LOGGER.info(
+                    "Named %s from the remembered identity: %s",
+                    self._normalise_serial(self.ieee),
+                    fix,
+                )
+                registry.async_update_device(device.id, **fix)
+
+    @callback
+    def _sync_device_identity(self) -> None:
+        """Startup pass: remember the module's current name, then re-apply it."""
+        for device in self._serial_devices():
+            self._remember_device_identity(device)
+        self._apply_device_identity()
+
+    @callback
+    def _remember_device_identity(self, device: Any) -> None:
+        """Store the user's name for this serial so a rejoin can re-apply it."""
+        stored = dict(self.entry.options.get(CONF_DEVICE_IDENTITY) or {})
+        changed = False
+        remembered = device.name_by_user
+        if not remembered and device.name:
+            derived = " ".join(
+                part for part in (device.manufacturer, device.model) if part
+            )
+            if device.name != derived:
+                remembered = device.name
+        if remembered and remembered != stored.get("name"):
+            stored["name"] = remembered
+            changed = True
+        if device.area_id and device.area_id != stored.get("area_id"):
+            stored["area_id"] = device.area_id
+            changed = True
+        if changed:
+            _LOGGER.info(
+                "Remembered device identity for %s: name=%s area=%s",
+                self._normalise_serial(self.ieee),
+                stored.get("name"),
+                stored.get("area_id"),
+            )
+            self.hass.config_entries.async_update_entry(
+                self.entry,
+                options={**self.entry.options, CONF_DEVICE_IDENTITY: stored},
+            )
+
+    @callback
+    def _on_device_registry_updated(self, event: Any) -> None:
+        """Name a device that just joined; remember a rename for the next join."""
+        data = event.data if isinstance(event.data, dict) else {}
+        if data.get("action") not in ("create", "update"):
+            return
+        device = dr.async_get(self.hass).async_get(data.get("device_id"))
+        if device is None:
+            return
+        if not self._device_serial_match(device):
+            return
+        self._remember_device_identity(device)
+        self._apply_device_identity()
 
     # -- metadata -----------------------------------------------------------
 

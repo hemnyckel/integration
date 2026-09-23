@@ -47,6 +47,13 @@ the mirror attaches its own raw listener straight to the zigpy cluster and
 re-attaches it on every health tick — a ZHA device rebuild cannot silently kill
 attribution.
 
+**Name on join.** The mirror watches the device registry for a device that
+carries the module's serial and re-applies the name (and area) the user gave it
+in an earlier life — nothing invented, only a remembered identity — so a
+factory-reset or re-paired module comes back as "Ytterdörren" instead of the
+manufacturer/model default. The cloud side gets the same treatment right after
+a registration (`PATCH /devices/{id}`), and the pairing flows do it too.
+
 The relay itself (app events to the real lock and back) is **serial-independent**:
 it rides the bridge's UART/MQTT link and ZHA, so app control keeps working even
 when the emulator wears a different extended address than the lock's module.

@@ -23,6 +23,10 @@ CONF_CHANNELS = "channels"
 CONF_ENABLED = "enabled"
 CONF_ADDRESS = "address"
 CONF_IEEE = "ieee"
+
+# A name (and area) the user gave the lock's module in Home Assistant; re-applied
+# when the same serial joins again, so a re-pair comes back named correctly.
+CONF_DEVICE_IDENTITY = "device_identity"
 CONF_ENDPOINT = "endpoint_id"
 
 DEFAULT_PREFIX = "nimly/proxy"
