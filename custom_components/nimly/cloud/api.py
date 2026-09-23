@@ -408,16 +408,30 @@ class NimlyCloudApi:
             {"feature": feature, "action": action},
         )
 
-    async def async_gateway_scan(self, gateway_id: str, start: bool = True) -> Any:
+    async def async_gateway_scan(
+        self, gateway_id: str, start: bool = True, location_id: str | None = None
+    ) -> Any:
         """Open or close the bridge's join window, so a device can be paired from HA.
 
-        The vendor's own actions are ``scan.turnOn`` and ``scan.turnOff`` (probed on a
-        real bridge: ``start``/``stop`` answer 2014 "Wrong action parameters"). This
-        endpoint rejects a ``deviceModelId`` (measured 2026-09-23, 400 "not allowed");
-        the plain action does open the window, which is all a join needs. The vendor
-        app's richer scan lives on ``POST /gateways/{id}/scan`` (locationId,
-        enableScan, autoAdd, deviceType) if the extra options are ever needed.
+        Primary path is the vendor app's own endpoint, ``POST /gateways/{id}/scan``
+        (measured 2026-09-23: it takes ``locationId``, ``enableScan``, ``autoAdd``
+        and ``deviceType`` — one of ZIGBEE/CAMERA — and answers 200). The legacy
+        ``action`` path stays as the fallback: it is what the first working
+        re-add used, and it rejects a ``deviceModelId`` (400).
         """
+        if start and location_id:
+            try:
+                return await self.async_post(
+                    PATH_GATEWAY_SCAN.format(gateway_id=gateway_id),
+                    {
+                        "locationId": location_id,
+                        "enableScan": True,
+                        "autoAdd": False,
+                        "deviceType": "ZIGBEE",
+                    },
+                )
+            except NimlyCloudError:
+                pass  # fall through to the action path
         return await self.async_post(
             PATH_GATEWAY_ACTION.format(gateway_id=gateway_id),
             {"feature": "scan", "action": "turnOn" if start else "turnOff"},

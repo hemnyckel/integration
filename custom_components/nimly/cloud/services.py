@@ -292,7 +292,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError("the account has no gateway")
         try:
             response = await coordinator.api.async_gateway_scan(
-                str(gateway_id), bool(call.data["start"])
+                str(gateway_id),
+                bool(call.data["start"]),
+                coordinator.location_id,
             )
         except NimlyCloudError as err:
             raise HomeAssistantError(f"the cloud rejected the request: {err}") from err
