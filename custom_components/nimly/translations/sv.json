@@ -308,6 +308,22 @@
     "cloud_link_ambiguous": {
       "title": "Moln-credentials behöver länkas för slot {slot}",
       "description": "Låset har en {type} i slot {slot}, men {count} molnaccesser av den typen saknar slot. Länka dem innan en sync så appen attribuerar rätt person; nimly.link_credential gör det och nimly.audit visar läget."
+    },
+    "cloud_push_failed": {
+      "title": "En ändring för {name} (slot {slot}) nådde inte appen",
+      "description": "Ändringen landade på låset och i Home Assistant, men molnet avvisade uppdateringen - appen visar fortfarande det gamla värdet. Skicka in för att försöka igen.",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Försök igen med molnuppdateringen",
+            "description": "Skicka {name}s nuvarande namn, giltighet och kod till molnet igen."
+          }
+        },
+        "abort": {
+          "no_mirror": "Ingen låsspegel är laddad.",
+          "retry_failed": "Molnet avvisar fortfarande uppdateringen. Journalen har detaljerna."
+        }
+      }
     }
   },
   "services": {
@@ -865,6 +881,16 @@
           "name": "Väg",
           "description": "auto (standard), cloud eller local."
         },
+        "entry_id": {
+          "name": "Lås",
+          "description": "Vilket lås; krävs när flera är konfigurerade."
+        }
+      }
+    },
+    "repair_join": {
+      "name": "Reparera brygg-parningen",
+      "description": "Få ett lås tillbaka på vendor-bryggan i ett anrop: ta bort modulens kontopost, nollställ emulatorn till ett färskt parningsläge, öppna bryggans join-fönster och vänta in joinen. Bryggan måste vara online.",
+      "fields": {
         "entry_id": {
           "name": "Lås",
           "description": "Vilket lås; krävs när flera är konfigurerade."

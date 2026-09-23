@@ -25,6 +25,34 @@ def validity(now: datetime | None = None) -> tuple[str, str]:
     return start.isoformat(timespec="seconds"), end.isoformat(timespec="seconds")
 
 
+def update_fields(
+    guest: dict[str, Any], changes: dict[str, Any], *, now: datetime | None = None
+) -> dict[str, Any]:
+    """The cloud guest-user fields for a local edit — no Home Assistant.
+
+    The cloud understands the name and a coarse validity window; the schedule
+    itself stays local (docs/cloud-sync.md). A validity change always carries
+    both dates, because the vendor validates the pair, and an empty ``until``
+    (a guest that never ends) becomes the same century window the sync uses.
+    """
+    fields: dict[str, Any] = {}
+    if "name" in changes:
+        name = str(changes.get("name") or "").strip()
+        if name:
+            fields["name"] = name
+    if "until" in changes:
+        until = str(changes.get("until") or "").strip()
+        valid_from = str(guest.get("validFrom") or "").strip() or validity(now)[0]
+        if until:
+            # A date-only end means the end of that day, the vendor app's rule.
+            valid_to = until if len(until) > 10 else f"{until}T23:59:59.000Z"
+        else:
+            valid_to = validity(now)[1]
+        fields["validFrom"] = valid_from
+        fields["validTo"] = valid_to
+    return fields
+
+
 def guest_row(guest: dict[str, Any]) -> dict[str, Any]:
     """One guest as the sensor and the service both present it.
 

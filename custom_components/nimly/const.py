@@ -161,6 +161,7 @@ EV_ACTION = "action"
 EV_PIN_SET = "pin_set"
 EV_PIN_CLEAR = "pin_clear"
 EV_FP_ENROLL = "fp_enroll"
+EV_TAG_SCAN = "tag_scan"
 EV_FP_CLEAR = "fp_clear"
 # Settings the vendor app writes straight to the module (ZCL Write Attributes).
 EV_VOLUME = "volume"
@@ -190,6 +191,7 @@ ZCL_CMD_SET_PIN = 0x05
 ZCL_CMD_GET_PIN = 0x06
 ZCL_CMD_CLEAR_PIN = 0x07
 ZCL_CMD_FP_ENROLL = 0x71
+ZCL_CMD_TAG_SCAN = 0x70
 ZCL_CMD_FP_CLEAR = 0x72
 
 ZHA_SERVICE = "issue_zigbee_cluster_command"
@@ -441,3 +443,4 @@ SERVICE_UPDATE_CLOUD_GUEST = "update_cloud_guest"
 SERVICE_DELETE_CLOUD_GUEST = "delete_cloud_guest"
 SERVICE_SET_CLOUD_CODE = "set_cloud_code"
 SERVICE_LINK_CLOUD_GUEST = "link_cloud_guest"
+SERVICE_REPAIR_JOIN = "repair_join"

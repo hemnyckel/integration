@@ -106,6 +106,40 @@ class EmulatorNotJoinedRepairFlow(RepairsFlow):
         return self.async_show_form(step_id="next", data_schema=vol.Schema({}))
 
 
+class CloudPushRepairFlow(RepairsFlow):
+    """Re-send a guest edit the vendor cloud never confirmed.
+
+    The local edit already landed on the lock and in Home Assistant; only the
+    app's copy is stale. The retry sends the values we hold again.
+    """
+
+    def __init__(self, slot: int, entry_id: str | None = None) -> None:
+        self._slot = slot
+        self._entry_id = entry_id
+
+    def _mirror(self) -> Any:
+        """The coordinator this issue belongs to, with a single-mirror fallback."""
+        coordinators = self.hass.data.get(DOMAIN, {})
+        if self._entry_id and self._entry_id in coordinators:
+            return coordinators[self._entry_id]
+        for coordinator in coordinators.values():
+            if getattr(coordinator, "async_retry_cloud_push", None) is not None:
+                return coordinator
+        return None
+
+    async def async_step_init(
+        self, user_input: dict | None = None
+    ) -> RepairsFlowResult:
+        if user_input is not None:
+            coordinator = self._mirror()
+            if coordinator is None:
+                return self.async_abort(reason="no_mirror")
+            if not await coordinator.async_retry_cloud_push(self._slot):
+                return self.async_abort(reason="retry_failed")
+            return self.async_create_entry(data={})
+        return self.async_show_form(step_id="init", data_schema=vol.Schema({}))
+
+
 async def async_create_fix_flow(
     hass: HomeAssistant, issue_id: str, data: dict | None
 ) -> RepairsFlow:
@@ -113,6 +147,15 @@ async def async_create_fix_flow(
     if issue_id.startswith("emulator_not_joined"):
         entry_id = data.get("entry_id") if isinstance(data, dict) else None
         return EmulatorNotJoinedRepairFlow(entry_id if isinstance(entry_id, str) else None)
+    if issue_id.startswith("cloud_push_"):
+        slot = data.get("slot") if isinstance(data, dict) else None
+        if not isinstance(slot, int):
+            try:
+                slot = int(issue_id.split("_")[2])
+            except (IndexError, ValueError):
+                slot = 0
+        entry_id = data.get("entry_id") if isinstance(data, dict) else None
+        return CloudPushRepairFlow(slot, entry_id if isinstance(entry_id, str) else None)
     slot = data.get("slot") if isinstance(data, dict) else None
     if not isinstance(slot, int):
         try:

@@ -33,6 +33,7 @@ from ..const import (
     SERVICE_DELETE_CLOUD_GUEST,
     SERVICE_SET_CLOUD_CODE,
     SERVICE_LINK_CLOUD_GUEST,
+    SERVICE_REPAIR_JOIN,
 )
 from .api import NimlyCloudError
 from .coordinator import NimlyCloudCoordinator
@@ -112,6 +113,8 @@ SCHEMA_DELETE_CLOUD_GUEST = vol.Schema(
     }
 )
 
+SCHEMA_REPAIR_JOIN = vol.Schema({vol.Optional("entry_id"): cv.string})
+
 SCHEMA_LINK_CLOUD_GUEST = vol.Schema(
     {
         vol.Required("entry_id"): cv.string,
@@ -130,65 +133,6 @@ SCHEMA_SET_CLOUD_CODE = vol.Schema(
         vol.Required("value"): vol.All(cv.string, vol.Length(min=4, max=32)),
     }
 )
-
-
-async def _delete_access_resilient(
-    coordinator: NimlyCloudCoordinator, device_id: str, user_id: str, access_type: str
-) -> None:
-    """Delete an access, retrying once through the vendor's gateway flake.
-
-    The vendor sometimes answers "gateway is offline" from a stale check even
-    while the gateway is connected; a second attempt, moments later, goes
-    through. A missing access (404) is not an error — the wanted end state is
-    already true.
-    """
-    try:
-        await coordinator.api.async_delete_access(device_id, user_id, access_type)
-    except NimlyCloudError as err:
-        text = str(err)
-        if "404" in text:
-            return
-        if "offline" not in text.lower():
-            raise HomeAssistantError(f"could not remove the access: {err}") from err
-        await asyncio.sleep(5)
-        try:
-            await coordinator.api.async_delete_access(device_id, user_id, access_type)
-        except NimlyCloudError as second:
-            raise HomeAssistantError(
-                f"could not remove the access: {second}"
-            ) from second
-
-
-async def _create_access_after_delete(
-    coordinator: NimlyCloudCoordinator,
-    device_id: str,
-    user_id: str,
-    access_type: str,
-    value: str,
-) -> None:
-    """Create the access, retrying while the vendor's delete settles.
-
-    The vendor processes an access deletion asynchronously (the module has to
-    answer first), so an immediate create can still see the old record and
-    answer 409 "already exists". Re-read and retry instead of failing a change
-    that is really only waiting.
-    """
-    for attempt in range(6):
-        try:
-            await coordinator.api.async_create_access(
-                device_id, user_id, access_type, value
-            )
-            return
-        except NimlyCloudError as err:
-            if "already exists" not in str(err).lower() or attempt == 5:
-                raise
-            await asyncio.sleep(3)
-            await coordinator.async_request_refresh()
-            try:
-                live = await coordinator.api.async_device_access(device_id)
-                coordinator.access[device_id] = live
-            except NimlyCloudError:
-                pass
 
 
 def _mirrors(hass: HomeAssistant) -> list[Any]:
@@ -457,6 +401,86 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 row["ghost"] = sorted(claimed - live)
         return {"guests": rows}
 
+    async def _repair_join(call: ServiceCall) -> dict[str, Any]:
+        """Bring a lock back onto the vendor bridge, the clean way.
+
+        What used to be the ugly dance — remove the lock in the app, factory
+        reset the module, start a search — in one call: drop the module's
+        account record, reset the emulator's Zigbee state, open the bridge's
+        join window and wait for the emulator to walk in. The bridge must be
+        online; an offline bridge needs mains before anything can help.
+        """
+        from .sync import cloud_device_for
+
+        cloud = _coordinator(hass)
+        mirrors = _mirrors(hass)
+        entry_id = call.data.get("entry_id")
+        if entry_id:
+            chosen = [m for m in mirrors if m.entry.entry_id == entry_id]
+            if not chosen:
+                raise HomeAssistantError(f"no lock with entry_id {entry_id}")
+            mirror = chosen[0]
+        elif len(mirrors) == 1:
+            mirror = mirrors[0]
+        else:
+            raise HomeAssistantError(
+                "several locks are configured; pass entry_id to choose one"
+            )
+
+        gateway = cloud.gateway()
+        gateway_id = str(gateway.get("id") or "")
+        if not gateway_id:
+            raise HomeAssistantError("the account has no bridge")
+        if not gateway.get("online"):
+            raise HomeAssistantError(
+                "the bridge is offline in the cloud — power-cycle it and try again"
+            )
+
+        steps: list[str] = []
+
+        # 1. The account refuses to (re)pair a serial it still holds.
+        device_id = cloud_device_for(cloud, mirror)
+        if device_id:
+            try:
+                await cloud.api.async_delete_device(device_id)
+            except NimlyCloudError as err:
+                raise HomeAssistantError(
+                    f"could not remove the old device record: {err}"
+                ) from err
+            steps.append("device record removed")
+            await cloud.async_request_refresh()
+
+        # 2. A module holding the old network cannot do a fresh join.
+        await mirror.async_forget_zigbee_network()
+        steps.append("emulator reset to a fresh pairing state")
+        await asyncio.sleep(12)
+
+        # 3. The bridge only accepts joins inside its window.
+        try:
+            await cloud.api.async_gateway_scan(gateway_id, True)
+        except NimlyCloudError as err:
+            raise HomeAssistantError(f"the bridge refused the scan: {err}") from err
+        steps.append("join window open")
+
+        joined = False
+        for _ in range(15):
+            await asyncio.sleep(8)
+            await cloud.async_request_refresh()
+            if mirror.emulator_joined:
+                joined = True
+                break
+
+        try:
+            await cloud.api.async_gateway_scan(gateway_id, False)
+        except NimlyCloudError:
+            pass
+        steps.append("join window closed")
+        await mirror.async_journal_note(
+            "repair_join",
+            detail="joined" if joined else "no join this round",
+        )
+        return {"joined": joined, "steps": steps, "lock": mirror.entry.entry_id}
+
     async def _update_cloud_guest(call: ServiceCall) -> dict[str, Any]:
         from .guests import guest_row
 
@@ -506,6 +530,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         return {"guest": guest_row(fresh), "changed": sorted(fields)}
 
     async def _delete_cloud_guest(call: ServiceCall) -> dict[str, Any]:
+        from .sync import delete_access_resilient
+
         coordinator = _coordinator(hass, call.data.get("entry_id"))
         guests = await coordinator.api.async_guest_users(coordinator.location_id)
         guest = _find_guest(guests, call.data.get("user_id"), call.data.get("guest"))
@@ -523,7 +549,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             for access in coordinator.access.get(device_id, []):
                 if str(access.get("userId")) != user_id:
                     continue
-                await _delete_access_resilient(
+                await delete_access_resilient(
                     coordinator, device_id, user_id, str(access.get("type"))
                 )
                 removed.append(
@@ -558,6 +584,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         }
 
     async def _set_cloud_code(call: ServiceCall) -> dict[str, Any]:
+        from .sync import create_access_after_delete, delete_access_resilient
+
         coordinator = _coordinator(hass, call.data.get("entry_id"))
         guests = await coordinator.api.async_guest_users(coordinator.location_id)
         guest = _find_guest(guests, call.data.get("user_id"), call.data.get("guest"))
@@ -599,10 +627,10 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 # emulator does not speak, so a change is delete-then-create:
                 # both legs are flows the module answers, and the end state is
                 # deterministic.
-                await _delete_access_resilient(
+                await delete_access_resilient(
                     coordinator, device_id, user_id, access_type
                 )
-            await _create_access_after_delete(
+            await create_access_after_delete(
                 coordinator, device_id, user_id, access_type, value
             )
         except (NimlyCloudError, HomeAssistantError) as err:
@@ -816,6 +844,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, SERVICE_AUDIT, _audit, schema=SCHEMA_AUDIT,
         supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REPAIR_JOIN,
+        _repair_join,
+        schema=SCHEMA_REPAIR_JOIN,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,

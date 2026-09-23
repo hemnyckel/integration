@@ -8,11 +8,16 @@ guessed. Everything here is idempotent: a re-run plans nothing.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 from typing import Any
 
+from homeassistant.exceptions import HomeAssistantError
+
+from .api import NimlyCloudError
 from .coordinator import NimlyCloudCoordinator
-from .guests import choose_identity, validity
+from .guests import choose_identity, update_fields, validity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,6 +85,124 @@ async def async_sync_guest(
     return await _async_sync_candidate(
         cloud, mirror, candidate, device_id, guests, by_id, accesses, dry_run=dry_run
     )
+
+
+async def delete_access_resilient(
+    cloud: NimlyCloudCoordinator, device_id: str, user_id: str, access_type: str
+) -> None:
+    """Delete an access, retrying once through the vendor's gateway flake.
+
+    The vendor sometimes answers "gateway is offline" from a stale check even
+    while the gateway is connected; a second attempt, moments later, goes
+    through. A missing access (404) is not an error — the wanted end state is
+    already true.
+    """
+    try:
+        await cloud.api.async_delete_access(device_id, user_id, access_type)
+    except NimlyCloudError as err:
+        text = str(err)
+        if "404" in text:
+            return
+        if "offline" not in text.lower():
+            raise HomeAssistantError(f"could not remove the access: {err}") from err
+        await asyncio.sleep(5)
+        try:
+            await cloud.api.async_delete_access(device_id, user_id, access_type)
+        except NimlyCloudError as second:
+            raise HomeAssistantError(
+                f"could not remove the access: {second}"
+            ) from second
+
+
+async def create_access_after_delete(
+    cloud: NimlyCloudCoordinator,
+    device_id: str,
+    user_id: str,
+    access_type: str,
+    value: str,
+) -> None:
+    """Create the access, retrying while the vendor's delete settles.
+
+    The vendor processes an access deletion asynchronously (the module has to
+    answer first), so an immediate create can still see the old record and
+    answer 409 "already exists". Re-read and retry instead of failing a change
+    that is really only waiting.
+    """
+    for attempt in range(6):
+        try:
+            await cloud.api.async_create_access(device_id, user_id, access_type, value)
+            return
+        except NimlyCloudError as err:
+            if "already exists" not in str(err).lower() or attempt == 5:
+                raise
+            await asyncio.sleep(3)
+            await cloud.async_request_refresh()
+            try:
+                live = await cloud.api.async_device_access(device_id)
+                cloud.access[device_id] = live
+            except NimlyCloudError:
+                pass
+
+
+async def async_push_guest_update(
+    cloud: NimlyCloudCoordinator,
+    mirror: Any,
+    slot: int,
+    changes: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Push a local guest edit (name, expiry, code) to the cloud.
+
+    Only for a guest the cloud already knows: creation is ``async_sync_guest``'s
+    job, and a guest the cloud never saw has nothing to sync. The caller (the
+    mirror) journals both outcomes and never lets a vendor hiccup fail the
+    local edit.
+    """
+    user_id = str(mirror.cloud_user(slot) or "")
+    if not user_id:
+        return []
+    device_id = cloud_device_for(cloud, mirror)
+    guests = await cloud.api.async_guest_users(cloud.location_id)
+    by_id = {str(guest.get("id")): guest for guest in guests if guest.get("id")}
+    if user_id not in by_id:
+        # The remembered identity is gone; the reconcile path re-creates it.
+        return []
+    entry_id = mirror.entry.entry_id
+    actions: list[dict[str, Any]] = []
+
+    fields = update_fields(by_id[user_id], changes)
+    if fields:
+        await cloud.api.async_update_guest(user_id, fields)
+        # The vendor answers a patch with an empty body; re-read so the account
+        # sensor and the card show the guest as it is now.
+        cloud.guest_users = await cloud.api.async_guest_users(cloud.location_id)
+        cloud.async_update_listeners()
+        actions.append(
+            {
+                "lock": entry_id,
+                "slot": slot,
+                "action": "update_guest",
+                "changed": sorted(fields),
+            }
+        )
+
+    value = str(changes.get("code") or "")
+    if "code" in changes and device_id and re.fullmatch(r"\d{4,10}", value):
+        # Replace the access instead of patching it: the vendor's PATCH waits
+        # for a module acknowledgement the emulator does not speak, while the
+        # delete/create pair are flows the module answers.
+        live = await cloud.api.async_device_access(device_id)
+        exists = any(
+            str(access.get("userId")) == user_id
+            and str(access.get("type")) == "pin"
+            for access in live
+        )
+        if exists:
+            await delete_access_resilient(cloud, device_id, user_id, "pin")
+        await create_access_after_delete(cloud, device_id, user_id, "pin", value)
+        actions.append(
+            {"lock": entry_id, "slot": slot, "action": "set_access", "type": "pin"}
+        )
+    return actions
 
 
 async def _async_sync_candidate(

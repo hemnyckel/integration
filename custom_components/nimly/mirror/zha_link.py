@@ -259,6 +259,32 @@ class ZhaLink:
         """Clear a slot's credential (ClearPINCode, ZCL 0x07)."""
         return await self.send_command(0x0007, params={"user_id": slot})
 
+    async def send_vendor_detailed(self, command: int, arg: int) -> dict[str, Any]:
+        """Send a raw vendor command and return the lock's reply, verbatim.
+
+        For commands the vendor app knows and we are still learning (the tag
+        scan, 0x70): the reply is data to inspect whole, not a boolean.
+        """
+        cluster = self._find_cluster()
+        if cluster is None:
+            return {"ok": False, "error": "the cluster was not found"}
+        try:
+            from zigpy import types as t
+
+            async with asyncio.timeout(30):
+                reply = await cluster.request(
+                    False, command, t.uint16_t, arg, expect_reply=True
+                )
+        except TimeoutError:
+            return {"ok": False, "error": "timeout"}
+        except Exception as err:  # noqa: BLE001
+            return {"ok": False, "error": str(err)[:120]}
+        try:
+            payload = reply[1] if isinstance(reply, (tuple, list)) else reply
+            return {"ok": True, "reply": bytes(payload).hex(" ")}
+        except Exception:  # noqa: BLE001
+            return {"ok": True, "reply": repr(reply)[:160]}
+
     async def send_fingerprint(self, command: int, slot: int) -> bool:
         """The raw fingerprint commands 0x71/0x72, sent as a uint16 argument.
 

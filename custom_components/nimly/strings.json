@@ -305,6 +305,22 @@
     "cloud_link_ambiguous": {
       "title": "Cloud credentials need linking for slot {slot}",
       "description": "The lock holds a {type} in slot {slot}, but {count} cloud accesses of that type have no slot yet. Link them before a sync so the app attributes the right person; nimly.link_credential does it, and nimly.audit shows the state."
+    },
+    "cloud_push_failed": {
+      "title": "A change for {name} (slot {slot}) did not reach the app",
+      "description": "The edit landed on the lock and in Home Assistant, but the vendor cloud refused the update - the app still shows the old value. Submit to send it again.",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Retry the cloud update",
+            "description": "Send {name}'s current name, validity and code to the vendor cloud again."
+          }
+        },
+        "abort": {
+          "no_mirror": "No lock mirror is loaded.",
+          "retry_failed": "The vendor cloud still refuses the update. The journal has the details."
+        }
+      }
     }
   },
   "services": {

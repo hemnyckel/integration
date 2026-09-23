@@ -53,6 +53,7 @@ from ..const import (
     CMD_BATTERY,
     CMD_EVENT,
     CMD_GET_STATE,
+    CMD_FACTORY_RESET,
     CMD_LOCK,
     CMD_OTA,
     CMD_UNLOCK,
@@ -70,6 +71,7 @@ from ..const import (
     EV_ACTION,
     EV_FP_CLEAR,
     EV_FP_ENROLL,
+    EV_TAG_SCAN,
     EV_PIN_CLEAR,
     EV_PIN_SET,
     EV_VOLUME,
@@ -93,6 +95,7 @@ from ..const import (
     TYPE_CLOUD,
     ZCL_CMD_FP_CLEAR,
     ZCL_CMD_FP_ENROLL,
+    ZCL_CMD_TAG_SCAN,
 )
 
 from .facts import (
@@ -1125,6 +1128,90 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 detail=f"slot {slot}",
             )
 
+    async def _async_cloud_push_guest_update(
+        self, slot: int, changes: dict[str, Any]
+    ) -> bool:
+        """Tell the vendor cloud about a rename, expiry or code we just made.
+
+        Best effort by design: a slow or angry vendor must never fail the local
+        edit. The journal records what happened and a repair says so when the
+        app would otherwise keep showing the old value. Only guests the cloud
+        already knows are pushed — creation goes through
+        ``_async_cloud_sync_guest``.
+        """
+        if not self.active(CH_CLOUD):
+            return True
+        from ..cloud.coordinator import NimlyCloudCoordinator
+        from ..cloud.sync import async_push_guest_update
+
+        clouds = [
+            item
+            for item in self.hass.data.get(DOMAIN, {}).values()
+            if isinstance(item, NimlyCloudCoordinator)
+        ]
+        if not clouds:
+            return True
+        issue_id = self._issue_id(f"cloud_push_{slot}")
+        try:
+            actions = await async_push_guest_update(clouds[0], self, slot, changes)
+        except Exception:  # noqa: BLE001 - never fail the local edit
+            _LOGGER.exception("Cloud push of slot %s failed", slot)
+            await self.async_journal_note("cloud_update_failed", detail=f"slot {slot}")
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                issue_id,
+                is_fixable=True,
+                is_persistent=False,
+                data={"slot": slot, "entry_id": self.entry.entry_id},
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="cloud_push_failed",
+                translation_placeholders={
+                    "slot": str(slot),
+                    "name": str((self.guests.get(str(slot)) or {}).get("name") or ""),
+                },
+            )
+            return False
+        if not actions:
+            return True
+        ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+        changed = sorted(
+            {
+                str(field)
+                for action in actions
+                for field in (action.get("changed") or [])
+            }
+            | {str(action.get("type")) for action in actions if action.get("type")}
+        )
+        await self.async_journal_note(
+            "cloud_updated",
+            detail=f"slot {slot}" + (f": {', '.join(changed)}" if changed else ""),
+        )
+        return True
+
+    async def async_retry_cloud_push(self, slot: int) -> bool:
+        """Re-send a guest's local state to the cloud (the repair's action).
+
+        The values are the ones we already hold: name and validity are
+        idempotent, and a stored code goes through the access replace. True
+        means the cloud accepted everything.
+        """
+        guest = dict(self.guests.get(str(slot)) or {})
+        if not guest:
+            return False
+        changes: dict[str, Any] = {}
+        name = str(guest.get("name") or "").strip()
+        if name:
+            changes["name"] = name
+        if "until" in guest:
+            changes["until"] = str(guest.get("until") or "")
+        code = str(guest.get("code") or "")
+        if code:
+            changes["code"] = code
+        if not changes:
+            return False
+        return await self._async_cloud_push_guest_update(slot, changes)
+
     async def _async_cloud_remove_guest(self, slot: int, user_id: str) -> None:
         """After a revoke: take the guest's cloud accesses away, and its identity
         when no lock or other guest still needs it.
@@ -1497,6 +1584,10 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._apply_guest_state(slot)
         self._schedule_guest_boundary(slot)
         self._publish_snapshot()
+        if {"name", "until", "code"} & set(changes):
+            # The cloud follows a rename, an expiry or a code change; creation
+            # and revocation have their own paths.
+            await self._async_cloud_push_guest_update(slot, changes)
         return {"slot": slot, "guest": dict(guest)}
 
     def _guest_boundary_active(self, guest: dict[str, Any]) -> bool:
@@ -1840,6 +1931,10 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elif ev == EV_FP_CLEAR:
             self.hass.async_create_task(
                 self._async_handle_fingerprint(data.get("slot"), enroll=False)
+            )
+        elif ev == EV_TAG_SCAN:
+            self.hass.async_create_task(
+                self._async_handle_tag_scan(int(data.get("arg") or 0))
             )
         elif ev == EV_VOLUME:
             self._on_app_volume(data.get("value"))
@@ -2557,6 +2652,25 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             entry["detail"] = f"cleared local slot {slot}"
         await self._async_journal_add(entry)
 
+    async def async_forget_zigbee_network(self) -> None:
+        """Ask the emulator to drop its Zigbee state and start as a fresh module.
+
+        The vendor hub refuses a device it no longer knows, and a module that
+        still holds the old network cannot fall back to a fresh join on its own
+        — so a repair resets the module first. The UART/MQTT identity (the C3
+        link, the emulator's role) is untouched.
+        """
+        await self._async_publish({"cmd": CMD_FACTORY_RESET})
+        await self._async_journal_add(
+            make_entry(
+                action="zigbee_reset",
+                time=dt_util.utcnow().isoformat(),
+                origin=ORIGIN_HA,
+                detail="the emulator starts fresh for a repair",
+            )
+        )
+        self._publish_snapshot()
+
     async def async_start_finger_enroll(self, slot: int, mode: str = "auto") -> dict[str, Any]:
         """Start a fingerprint enrollment for one slot.
 
@@ -2612,6 +2726,31 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_publish_slot(slot, self.slots.occupied(slot))
         self._publish_snapshot()
         return {"slot": slot, "name": name, "via": "local"}
+
+    async def _async_handle_tag_scan(self, arg: int) -> None:
+        """The app asked for a tag scan; make the real lock read the tag.
+
+        Command 0x70 is new (found 2026-09-23): the reader is lit on the real
+        lock, and the whole reply is journaled — its shape is what the module
+        must eventually ferry back to the vendor so the cloud can record the
+        tag's value.
+        """
+        if self.zha is None:
+            return
+        result = await self.zha.send_vendor_detailed(ZCL_CMD_TAG_SCAN, arg)
+        await self._async_journal_add(
+            make_entry(
+                action="tag_scan",
+                time=dt_util.utcnow().isoformat(),
+                origin=ORIGIN_HA,
+                detail=(
+                    f"arg 0x{arg:04x} · svar {result.get('reply')}"
+                    if result.get("ok")
+                    else f"arg 0x{arg:04x} · fel {result.get('error')}"
+                ),
+            )
+        )
+        self._publish_snapshot()
 
     async def _async_cloud_enroll_finger(self, user_id: str) -> bool:
         """Ask the cloud to enroll one of its users' fingers.
