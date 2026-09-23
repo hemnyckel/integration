@@ -118,3 +118,28 @@ add-device flow in the app.
 
 - **We do** treat `emulator_not_joined` as the repair for this state, and a
   reboot alone re-joins once the bridge has a record to accept.
+
+## The vendor's access delete wants a module ack
+
+Measured 2026-09-23 (the wipe): `DELETE /devices/{id}/access` is pushed to the
+bridge over MQTT and the bridge waits for the module to answer. The emulator
+does not speak that flow yet, so the cloud reports
+`Mqtt timeout ... Gateway response timeout` (504, code 2040), and an identity
+can be left behind — a retry with `nimly.delete_cloud_guest` went through.
+
+- **We do** report the failed removal, retry it, and keep it visible in the
+  audit until it is really gone. Answering the bridge's delete flow is a
+  firmware item: capture what the bridge sends the emulator during a real
+  delete and speak it (the C6 console logs unknown Door Lock commands).
+
+## A fresh registration can carry a garbled settings value
+
+Measured 2026-09-23: the device record created right after a join showed
+`autorelocktime: 65537` although the emulator held 1 (the mirror had pushed it
+and the console logged it). The lock's own attributes are the source of truth,
+and nothing in the firmware re-reports a settings attribute after a pushed
+change, so the record keeps whatever the interview read.
+
+- **We do** treat the lock's attributes as the source and the app's settings as
+  a view; reporting `0x0023`/`0x0024` after a pushed value is a firmware item
+  (0.5.5), after which the record corrects itself on the next read.
