@@ -1579,15 +1579,23 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             kind = guest.get("kind", "simple")
             windows = guest.get("schedule") or []
             cloud_users: list[str] = []
+            has_finger = False
+            finger_restorable = False
             if key.isdigit():
                 slot = int(key)
                 if pin_user := self.cloud_user(slot):
                     cloud_users.append(pin_user)
+                linked = self.cloud_links()
                 cloud_users.extend(
                     user
-                    for link_key, user in self.cloud_links().items()
+                    for link_key, user in linked.items()
                     if link_key.startswith(f"{slot}:")
                 )
+                # A finger can be replayed by reusing the slot, but only when
+                # one has really opened the door: an enrollment alone proves
+                # nothing about the template the lock holds.
+                has_finger = f"{slot}:finger" in linked
+                finger_restorable = has_finger and self.slots.finger_confirmed(slot)
             row: dict[str, Any] = {
                 "slot": int(key) if key.isdigit() else None,
                 "name": guest.get("name"),
@@ -1600,6 +1608,8 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # can be replayed after a loss; a temporary guest's code is
                 # shown once and never stored.
                 "restorable": bool(guest.get("code")),
+                "has_finger": has_finger,
+                "finger_restorable": finger_restorable,
             }
             if kind == "recurring":
                 row["schedule"] = windows

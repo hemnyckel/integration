@@ -112,7 +112,12 @@ once that finger has really opened the door, which is why `finger_used` (not
 the enrollment) is the evidence the catalog trusts. The guest card's
 fingerprint button calls the same service.
 
-The guest card marks every row with a key: solid (green) when the catalog holds
-the PIN value itself — a recurring guest — so the code can be replayed after a
-loss, and slashed when it does not: a temporary guest's code is shown once and
-never stored, and an app-created guest's value only exists in the app.
+The guest card marks every row twice over. A **key**: solid (green) when the
+catalog holds the PIN value itself — a recurring guest — so the code can be
+replayed after a loss, and struck through when it does not (a temporary
+guest's code is shown once and never stored; an app-created guest's value only
+exists in the app). A **fingerprint**: solid when a finger in the slot has
+really opened the door, so the slot can be reused when restoring, and struck
+through when the finger was enrolled but never used — an enrollment proves
+nothing about the template the lock holds, so it is never replayed on faith.
+A guest with no linked finger shows no fingerprint at all.

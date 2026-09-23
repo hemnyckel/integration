@@ -153,7 +153,25 @@ check(
 );
 check(
   "an unstored code shows the slashed key",
-  card._guestRow({ ...astrid, restorable: false }).innerHTML.includes("mdi:key-off")
+  card._guestRow({ ...astrid, restorable: false }).innerHTML.includes("mdi:key-remove")
+);
+check(
+  "a used finger shows the solid fingerprint",
+  card
+    ._guestRow({ ...isabelle, has_finger: true, finger_restorable: true })
+    .innerHTML.includes('title="Fingret i sloten')
+);
+check(
+  "an unused finger shows the slashed fingerprint",
+  card
+    ._guestRow({ ...astrid, has_finger: true, finger_restorable: false })
+    .innerHTML.includes('title="Fingret är registrerat')
+);
+check(
+  "no finger mark without a linked finger",
+  !card
+    ._guestRow({ ...astrid, has_finger: false, finger_restorable: false })
+    .innerHTML.includes('title="Fingret')
 );
 check("row tooltip lists the other lock", row.innerHTML.includes("Källarlås"));
 

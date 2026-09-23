@@ -584,13 +584,16 @@ class NimlyGuestsCard extends HTMLElement {
       );
     }
     const pinFromApp = guest.has_pin
-      ? '<span class="cloudmark off" title="PIN-koden finns bara i appen — värdet kan inte återställas härifrån"><ha-icon icon="mdi:key-off"></ha-icon></span>'
+      ? '<span class="cloudmark off" title="PIN-koden finns bara i appen — värdet kan inte återställas härifrån"><ha-icon icon="mdi:key-remove"></ha-icon></span>'
+      : "";
+    const fingerFromApp = guest.has_fingerprint
+      ? '<span class="cloudmark off" title="Fingret finns i appen men är inte kopplat till en slot här — kan inte återställas härifrån"><ha-icon icon="mdi:fingerprint-off"></ha-icon></span>'
       : "";
     const confirming = this._cloudConfirm === guest.id;
     row.innerHTML = `
       <div class="avatar">${initial}</div>
       <div class="info">
-        <div class="name"><span>${this._esc(guest.name) || "Namnlös"}</span>${pinFromApp}</div>
+        <div class="name"><span>${this._esc(guest.name) || "Namnlös"}</span>${pinFromApp}${fingerFromApp}</div>
         <div class="meta">${this._cloudValidity(guest)}</div>
         <div class="badges">${badges.join("")}</div>
       </div>
@@ -822,7 +825,13 @@ class NimlyGuestsCard extends HTMLElement {
       }${
         guest.restorable
           ? '<span class="cloudmark ok" title="PIN-koden sparas här — kan återställas efter en förlust"><ha-icon icon="mdi:key-variant"></ha-icon></span>'
-          : '<span class="cloudmark off" title="PIN-koden sparas inte — kan inte återställas efter en förlust"><ha-icon icon="mdi:key-off"></ha-icon></span>'
+          : '<span class="cloudmark off" title="PIN-koden sparas inte — kan inte återställas efter en förlust"><ha-icon icon="mdi:key-remove"></ha-icon></span>'
+      }${
+        guest.has_finger
+          ? guest.finger_restorable
+            ? '<span class="cloudmark ok" title="Fingret i sloten har öppnat dörren — kan återställas så länge låset inte nollställts"><ha-icon icon="mdi:fingerprint"></ha-icon></span>'
+            : '<span class="cloudmark off" title="Fingret är registrerat men aldrig använt — kan inte verifieras och återställs inte automatiskt"><ha-icon icon="mdi:fingerprint-off"></ha-icon></span>'
+          : ""
       }${sibBadge}${this._pill(guest)}</div>
         <div class="meta">${this._esc(meta)}</div>
       </div>
