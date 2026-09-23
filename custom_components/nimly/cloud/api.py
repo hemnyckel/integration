@@ -412,7 +412,11 @@ class NimlyCloudApi:
         """Open or close the bridge's join window, so a device can be paired from HA.
 
         The vendor's own actions are ``scan.turnOn`` and ``scan.turnOff`` (probed on a
-        real bridge: ``start``/``stop`` answer 2014 "Wrong action parameters").
+        real bridge: ``start``/``stop`` answer 2014 "Wrong action parameters"). This
+        endpoint rejects a ``deviceModelId`` (measured 2026-09-23, 400 "not allowed");
+        the plain action does open the window, which is all a join needs. The vendor
+        app's richer scan lives on ``POST /gateways/{id}/scan`` (locationId,
+        enableScan, autoAdd, deviceType) if the extra options are ever needed.
         """
         return await self.async_post(
             PATH_GATEWAY_ACTION.format(gateway_id=gateway_id),

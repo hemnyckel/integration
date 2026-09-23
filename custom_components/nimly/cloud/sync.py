@@ -205,6 +205,50 @@ async def async_push_guest_update(
     return actions
 
 
+async def async_wipe_guest_users(
+    cloud: NimlyCloudCoordinator, *, dry_run: bool
+) -> dict[str, Any]:
+    """Remove every guest identity of the account and the accesses they hold.
+
+    The app has no bulk delete: each identity goes the same way the app's own
+    "delete guest" does — accesses first (on every device), then the user. The
+    report names exactly what a real run deleted.
+    """
+    guests = await cloud.api.async_guest_users(cloud.location_id)
+    devices = [
+        str(device.get("id"))
+        for device in (cloud.home.get("devices") or [])
+        if device.get("id")
+    ]
+    report: dict[str, Any] = {"dry_run": dry_run, "users": [], "errors": []}
+    for guest in guests:
+        user_id = str(guest.get("id") or "")
+        if not user_id:
+            continue
+        role = str(guest.get("role") or "")
+        if role and role != "GUEST_USER":
+            # This endpoint should only ever list guests; belt and braces, the
+            # owner's own account is not ours to remove.
+            continue
+        name = guest.get("name")
+        report["users"].append({"id": user_id, "name": name})
+        if dry_run:
+            continue
+        for device_id in devices:
+            for access_type in ("pin", "tag", "finger"):
+                try:
+                    await delete_access_resilient(cloud, device_id, user_id, access_type)
+                except Exception as err:  # noqa: BLE001 - the wipe reports and goes on
+                    report["errors"].append(f"{name} {access_type}: {err}")
+        try:
+            await cloud.api.async_delete_guest(cloud.location_id, user_id)
+        except Exception as err:  # noqa: BLE001 - same: report, never abort the sweep
+            report["errors"].append(f"{name} delete: {err}")
+    if not dry_run:
+        await cloud.async_request_refresh()
+    return report
+
+
 async def _async_sync_candidate(
     cloud: NimlyCloudCoordinator,
     mirror: Any,

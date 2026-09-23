@@ -485,6 +485,34 @@
         }
       }
     },
+    "wipe": {
+      "name": "Töm låset och alla gäster",
+      "description": "Tömmer alla credential-slots ovanför master-slotsen och tar bort alla gäster, i Home Assistant och i molnet. Masters rörs aldrig. Kör som torrkörning först; en riktig körning kräver confirm: WIPE.",
+      "fields": {
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilket lås som ska tömmas. Lämna tomt för alla."
+        },
+        "dry_run": {
+          "name": "Torrkörning",
+          "description": "True listar vad som skulle tas bort utan att ändra något."
+        },
+        "confirm": {
+          "name": "Bekräftelse",
+          "description": "Skriv WIPE för att köra på riktigt."
+        }
+      }
+    },
+    "clear_repairs": {
+      "name": "Rensa repair-ärenden",
+      "description": "Raderar alla repair-ärenden som integrationen har skapat. Home Assistants eget gränssnitt kan bara avfärda dem, vilket lämnar dem kvar i registret.",
+      "fields": {
+        "entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Vilket lås ärenden ska rensas för. Lämna tomt för alla."
+        }
+      }
+    },
     "read_lock_attributes": {
       "name": "Läs låsets attribut",
       "description": "Läser låsets standardattribut (DoorLock) över Zigbee och returnerar dem. PIN-koder läses aldrig.",

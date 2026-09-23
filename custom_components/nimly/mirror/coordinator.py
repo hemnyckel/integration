@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import pathlib
+import re
 import time
 from collections import deque
 from datetime import timedelta
@@ -72,6 +73,7 @@ from ..const import (
     EV_FP_CLEAR,
     EV_FP_ENROLL,
     EV_TAG_SCAN,
+    EV_TAG_CLEAR,
     EV_PIN_CLEAR,
     EV_PIN_SET,
     EV_VOLUME,
@@ -96,6 +98,7 @@ from ..const import (
     ZCL_CMD_FP_CLEAR,
     ZCL_CMD_FP_ENROLL,
     ZCL_CMD_TAG_SCAN,
+    ZCL_CMD_TAG_CLEAR,
 )
 
 from .facts import (
@@ -677,8 +680,135 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.slot_map.pop(owner, None)
             self._save_slot_map()
         self.slots.clear(slot)
+        # The repairs that asked for a name or reported a conflict point at a
+        # slot that no longer holds anything.
+        ir.async_delete_issue(self.hass, DOMAIN, self._issue_id(f"new_slot_{slot}"))
+        ir.async_delete_issue(self.hass, DOMAIN, self._issue_id(f"slot_conflict_{slot}"))
         await self._async_publish_slot(slot, False)
         self._publish_snapshot()
+
+    async def async_wipe_credentials(
+        self, *, dry_run: bool, confirm: str | None
+    ) -> dict[str, Any]:
+        """Empty the lock's user space and every guest, masters untouched.
+
+        Slots below the master floor are never written (the pin rules refuse
+        them anyway). The plan lists exactly what a real run does, and a real
+        run also needs ``confirm="WIPE"``: the one command that removes
+        everything takes two deliberate steps to fire.
+        """
+        if not dry_run and confirm != "WIPE":
+            raise ValueError("pass confirm: WIPE to run the wipe for real")
+
+        floor = first_user_slot(self.entry.options)
+        slot_numbers = {slot for slot, _data in self.slots.items() if slot >= floor} | {
+            int(real) for real in self.slot_map.values() if int(real) >= floor
+        }
+        report: dict[str, Any] = {
+            "dry_run": dry_run,
+            "master_floor": floor,
+            "slots": [],
+            "guests": [],
+            "tags": [],
+            "cloud": {},
+            "errors": [],
+        }
+
+        # The lock cannot report which slots hold something (the module ignores
+        # read commands and exposes no occupancy attribute), so the catalog is
+        # only a map, not proof. The sweep therefore covers the whole user
+        # range above the master floor — an unknown credential in an
+        # unlisted slot is cleared too.
+        capacity = max(pin_capacity(self.lock_facts), floor + 1)
+        report["sweep"] = {"from": floor, "to": capacity - 1, "count": capacity - floor}
+        report["slots"] = [
+            {"slot": slot, "credentials": self.slots.credentials(slot)}
+            for slot in sorted(slot_numbers)
+        ]
+        if not dry_run:
+            for slot in range(floor, capacity):
+                try:
+                    await self.async_clear_slot(slot)
+                except Exception as err:  # noqa: BLE001
+                    report["errors"].append(f"slot {slot} pin: {err}")
+                try:
+                    await self._async_zcl(ZCL_CMD_FP_CLEAR, slot)
+                except Exception as err:  # noqa: BLE001
+                    report["errors"].append(f"slot {slot} finger: {err}")
+
+        # A tag is keyed by the vendor id its enroll flow journaled; sweep the
+        # ones we can prove were ever enrolled.
+        tag_ids = sorted(
+            {
+                int(match, 16)
+                for entry in self.journal
+                if entry.get("action") == "tag_scan"
+                for match in re.findall(
+                    r"0x([0-9a-fA-F]{4})", str(entry.get("detail") or "")
+                )
+            }
+        )
+        report["tags"] = [f"0x{tag:04x}" for tag in tag_ids]
+        if not dry_run:
+            for tag in tag_ids:
+                try:
+                    await self._async_zcl(ZCL_CMD_TAG_CLEAR, tag)
+                except Exception as err:  # noqa: BLE001
+                    report["errors"].append(f"tag 0x{tag:04x}: {err}")
+
+        for key, guest in sorted(self.guests.items()):
+            report["guests"].append({"slot": int(key), "name": guest.get("name")})
+            if dry_run:
+                continue
+            try:
+                await self.async_revoke_guest(int(key))
+            except Exception as err:  # noqa: BLE001
+                report["errors"].append(f"guest {key}: {err}")
+
+        from ..cloud.coordinator import NimlyCloudCoordinator
+        from ..cloud.sync import async_wipe_guest_users
+
+        try:
+            for item in self.hass.data.get(DOMAIN, {}).values():
+                if isinstance(item, NimlyCloudCoordinator):
+                    report["cloud"] = await async_wipe_guest_users(
+                        item, dry_run=dry_run
+                    )
+        except Exception as err:  # noqa: BLE001 - report it, keep the summary
+            report["errors"].append(f"cloud: {err}")
+
+        if not dry_run:
+            await self._async_journal_add(
+                make_entry(
+                    action="wipe",
+                    time=dt_util.utcnow().isoformat(),
+                    origin=ORIGIN_HA,
+                    detail=(
+                        f"swept {report['sweep']['count']} slots, "
+                        f"{len(report['guests'])} guests, "
+                        f"{len(report['tags'])} tags"
+                    ),
+                )
+            )
+        self._publish_snapshot()
+        return report
+
+    async def async_clear_repairs(self) -> int:
+        """Delete every repair issue this integration raised.
+
+        Home Assistant offers no delete in the UI — only dismiss, which leaves
+        the issue in the registry — so the integration that raised it is the
+        one that can really remove it. The registry is iterated, so ids from
+        older versions (without the entry suffix) go too.
+        """
+        registry = ir.async_get(self.hass)
+        removed = 0
+        for domain, issue_id in list(getattr(registry, "issues", {}) or {}):
+            if domain != DOMAIN:
+                continue
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            removed += 1
+        return removed
 
     async def async_read_lock_attributes(
         self, attributes: list[int | str] | None = None
@@ -1936,6 +2066,10 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.hass.async_create_task(
                 self._async_handle_tag_scan(int(data.get("arg") or 0))
             )
+        elif ev == EV_TAG_CLEAR:
+            self.hass.async_create_task(
+                self._async_handle_tag_clear(int(data.get("arg") or 0))
+            )
         elif ev == EV_VOLUME:
             self._on_app_volume(data.get("value"))
         elif ev == EV_AUTOLOCK:
@@ -2741,6 +2875,30 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_journal_add(
             make_entry(
                 action="tag_scan",
+                time=dt_util.utcnow().isoformat(),
+                origin=ORIGIN_HA,
+                detail=(
+                    f"arg 0x{arg:04x} · svar {result.get('reply')}"
+                    if result.get("ok")
+                    else f"arg 0x{arg:04x} · fel {result.get('error')}"
+                ),
+            )
+        )
+        self._publish_snapshot()
+
+    async def _async_handle_tag_clear(self, arg: int) -> None:
+        """The app removed a credential (0x18); do the same on the real lock.
+
+        The id is the vendor's credential handle from the enroll flow, and the
+        real module answers the same command natively — the reply is journaled
+        so the ferry back can be built from measured bytes (docs/protocol.md).
+        """
+        if self.zha is None:
+            return
+        result = await self.zha.send_vendor_detailed(ZCL_CMD_TAG_CLEAR, arg)
+        await self._async_journal_add(
+            make_entry(
+                action="tag_clear",
                 time=dt_util.utcnow().isoformat(),
                 origin=ORIGIN_HA,
                 detail=(

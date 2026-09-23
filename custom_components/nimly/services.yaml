@@ -11,6 +11,8 @@ provision_wifi:
 set_slot_name:
 set_pin:
 clear_slot:
+wipe:
+clear_repairs:
 read_lock_attributes:
 set_auto_lock:
 set_sound_volume:

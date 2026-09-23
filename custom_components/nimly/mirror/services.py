@@ -22,6 +22,8 @@ SERVICE_PROVISION = "provision_wifi"
 SERVICE_SET_SLOT_NAME = "set_slot_name"
 SERVICE_SET_PIN = "set_pin"
 SERVICE_CLEAR_SLOT = "clear_slot"
+SERVICE_WIPE = "wipe"
+SERVICE_CLEAR_REPAIRS = "clear_repairs"
 SERVICE_READ_LOCK_ATTRIBUTES = "read_lock_attributes"
 SERVICE_SET_AUTO_LOCK = "set_auto_lock"
 SERVICE_SET_SOUND_VOLUME = "set_sound_volume"
@@ -85,6 +87,20 @@ SET_PIN_SCHEMA = vol.Schema(
 CLEAR_SLOT_SCHEMA = vol.Schema(
     {
         vol.Required("slot"): vol.Coerce(int),
+        vol.Optional("entry_id"): cv.string,
+    }
+)
+
+WIPE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): cv.string,
+        vol.Optional("dry_run", default=True): cv.boolean,
+        vol.Optional("confirm"): cv.string,
+    }
+)
+
+CLEAR_REPAIRS_SCHEMA = vol.Schema(
+    {
         vol.Optional("entry_id"): cv.string,
     }
 )
@@ -273,6 +289,31 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             return
         for coord in coordinators:
             await coord.async_clear_slot(slot)
+
+    async def _async_handle_wipe(call: ServiceCall) -> dict[str, Any]:
+        entry_id = call.data.get("entry_id")
+        coordinators = _coordinators(hass, entry_id, "async_wipe_credentials")
+        if not coordinators:
+            _LOGGER.error("wipe: no matching mirror (%s)", entry_id)
+            return {}
+        reports: dict[str, Any] = {}
+        for coord in coordinators:
+            reports[coord.entry.entry_id] = await coord.async_wipe_credentials(
+                dry_run=bool(call.data["dry_run"]),
+                confirm=call.data.get("confirm"),
+            )
+        return reports
+
+    async def _async_handle_clear_repairs(call: ServiceCall) -> dict[str, Any]:
+        entry_id = call.data.get("entry_id")
+        coordinators = _coordinators(hass, entry_id, "async_clear_repairs")
+        if not coordinators:
+            _LOGGER.error("clear_repairs: no matching mirror (%s)", entry_id)
+            return {}
+        reports: dict[str, Any] = {}
+        for coord in coordinators:
+            reports[coord.entry.entry_id] = {"removed": await coord.async_clear_repairs()}
+        return reports
 
     async def _async_handle_provision(call: ServiceCall) -> None:
         from .improv_ble import async_provision
@@ -469,6 +510,20 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN,
+        SERVICE_WIPE,
+        _validated(_async_handle_wipe),
+        schema=WIPE_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CLEAR_REPAIRS,
+        _validated(_async_handle_clear_repairs),
+        schema=CLEAR_REPAIRS_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_READ_LOCK_ATTRIBUTES,
         _validated(_async_handle_read_lock_attributes),
         schema=READ_LOCK_ATTRIBUTES_SCHEMA,
@@ -560,6 +615,8 @@ async def async_unload_services(hass: HomeAssistant) -> None:
     hass.services.async_remove(DOMAIN, SERVICE_SET_SLOT_NAME)
     hass.services.async_remove(DOMAIN, SERVICE_SET_PIN)
     hass.services.async_remove(DOMAIN, SERVICE_CLEAR_SLOT)
+    hass.services.async_remove(DOMAIN, SERVICE_WIPE)
+    hass.services.async_remove(DOMAIN, SERVICE_CLEAR_REPAIRS)
     hass.services.async_remove(DOMAIN, SERVICE_READ_LOCK_ATTRIBUTES)
     hass.services.async_remove(DOMAIN, SERVICE_SET_AUTO_LOCK)
     hass.services.async_remove(DOMAIN, SERVICE_SET_SOUND_VOLUME)

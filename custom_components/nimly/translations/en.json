@@ -485,6 +485,34 @@
         }
       }
     },
+    "wipe": {
+      "name": "Wipe the lock and every guest",
+      "description": "Empties every credential slot above the master slots and removes every guest, in Home Assistant and in the vendor cloud. Masters are never touched. Runs as a dry run first; a real run needs confirm: WIPE.",
+      "fields": {
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which lock to wipe. Leave out for all of them."
+        },
+        "dry_run": {
+          "name": "Dry run",
+          "description": "True lists what would be removed without changing anything."
+        },
+        "confirm": {
+          "name": "Confirmation",
+          "description": "Type WIPE to run the wipe for real."
+        }
+      }
+    },
+    "clear_repairs": {
+      "name": "Clear repair issues",
+      "description": "Deletes every repair issue this integration raised. Home Assistant's own UI can only dismiss them, which leaves them in the registry.",
+      "fields": {
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Which lock's issues to remove. Leave out for all of them."
+        }
+      }
+    },
     "read_lock_attributes": {
       "name": "Read the lock's attributes",
       "description": "Reads the lock's standard DoorLock attributes over Zigbee and returns them. PIN codes are never read.",
