@@ -1329,13 +1329,17 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         )
 
-    async def _async_cloud_sync_guest(self, slot: int, code: str | None) -> None:
+    async def _async_cloud_sync_guest(
+        self, slot: int, code: str | None
+    ) -> bool | None:
         """Tell the vendor cloud about a guest we just created, when enabled.
 
         A code that exists only in the service response (a temporary guest) is
         passed in; a recurring or permanent guest keeps it in the entry options.
-        Failure here must never fail the local creation, so everything is
-        caught and logged.
+        Failure here must never fail the local creation - but it must not pass
+        silently either: it is journaled and, when the code is held, a fixable
+        repair offers the same sync again. True means the cloud accepted
+        everything, False a failure, None that there was nothing to do.
         """
         if not self.active(CH_CLOUD):
             return
@@ -1357,12 +1361,32 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "user_id": self.cloud_user(slot),
         }
         if not candidate["name"] or not candidate["code"]:
-            return
+            return None
+        issue_id = self._issue_id(f"cloud_sync_{slot}")
         try:
             actions = await async_sync_guest(clouds[0], self, candidate, dry_run=False)
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Cloud sync of slot %s failed", slot)
-            return
+            await self.async_journal_note("cloud_sync_failed", detail=f"slot {slot}")
+            if guest.get("code"):
+                # We hold the value, so the guest can be sent again; surface
+                # it where a human will see it, not only in the log.
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    issue_id,
+                    is_fixable=True,
+                    is_persistent=False,
+                    data={"slot": slot, "entry_id": self.entry.entry_id},
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="cloud_sync_failed",
+                    translation_placeholders={
+                        "slot": str(slot),
+                        "name": str(guest.get("name") or ""),
+                    },
+                )
+            return False
+        ir.async_delete_issue(self.hass, DOMAIN, issue_id)
         if any(
             action["action"] in ("create_guest", "adopt_guest", "create_access")
             for action in actions
@@ -1371,6 +1395,20 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "cloud_synced",
                 detail=f"slot {slot}",
             )
+        return True
+
+    async def async_retry_cloud_sync(self, slot: int) -> bool:
+        """Send a guest that failed at creation to the cloud again (repair fix).
+
+        Only a guest whose code we hold can be sent again - for anyone else
+        there is nothing to replay, which is why the repair is only offered
+        then. True means the cloud accepted everything.
+        """
+        guest = dict(self.guests.get(str(slot)) or {})
+        code = str(guest.get("code") or "")
+        if not code:
+            return False
+        return await self._async_cloud_sync_guest(slot, code) is True
 
     async def _async_cloud_push_guest_update(
         self, slot: int, changes: dict[str, Any]

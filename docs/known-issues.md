@@ -37,6 +37,10 @@ present — one guest's PIN exists only as such a ghost.
 - **We do** mark them in `nimly.cloud_guests` (`ghost`) and in `nimly.audit`,
   and never count them as "on this lock".
 - Cannot be re-pointed through the API; deleting the guest removes them.
+- A ghost can also be invisible in the access list while still blocking a new
+  access for the same user: the create answers `409 … already exists`
+  (code 2801) with nothing to delete first. Deleting the guest identity clears
+  it; re-create the guest after that (measured 2026-09-23).
 
 ## "Gateway is offline" from a stale check
 
@@ -131,6 +135,20 @@ can be left behind — a retry with `nimly.delete_cloud_guest` went through.
   audit until it is really gone. Answering the bridge's delete flow is a
   firmware item: capture what the bridge sends the emulator during a real
   delete and speak it (the C6 console logs unknown Door Lock commands).
+
+## A request storm can reboot the bridge
+
+Measured 2026-09-23: a burst of access creates — the 409 retry loop turning
+six attempts, twice, plus the sync attempts around them — wedged the bridge's
+request path and it **restarted itself**: the cloud view went offline for
+~31 s and came back on its own. The emulator stayed joined throughout; only
+the bridge's cloud link bounced.
+
+- **We do** one retry at a time, then leave the bridge alone: every repair
+  retry is a manual click, and a failed sync waits for the next attempt.
+  Hammering a freshly recovered bridge is how it wedges again.
+- Never factory-reset the bridge over this; quiet time heals it (and a longer
+  power-off if needed).
 
 ## A fresh registration can carry a garbled settings value
 

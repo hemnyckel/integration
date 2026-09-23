@@ -324,6 +324,22 @@
           "retry_failed": "Molnet avvisar fortfarande uppdateringen. Journalen har detaljerna."
         }
       }
+    },
+    "cloud_sync_failed": {
+      "title": "Gästen {name} (slot {slot}) nådde aldrig appen",
+      "description": "Koden fungerar på låset, men molnet accepterade inte gästen - appen visar den inte än. Skicka in för att försöka igen; journalen och nimly.audit har detaljerna.",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Skicka gästen igen",
+            "description": "Spela upp {name}s identitet och PIN-access till molnet igen."
+          }
+        },
+        "abort": {
+          "no_mirror": "Ingen låsspegel är laddad.",
+          "retry_failed": "Molnet avvisar fortfarande gästen. Journalen har detaljerna."
+        }
+      }
     }
   },
   "services": {

@@ -124,6 +124,12 @@ a guest, changing its validity or changing its code pushes the change
 retries with the values Home Assistant already holds; a later successful push
 clears the repair. The `Cloud sync` channel switch gates all of it.
 
+A guest that fails already at creation — the identity or the PIN access was
+refused — journals `cloud_sync_failed` and, when the code is kept (a recurring
+or permanent guest), raises the `cloud_sync_failed` repair; its fix replays the
+whole sync and a later success clears it. A temporary guest's failure stays in
+the journal and the audit — there is no value to replay.
+
 ## Auto vs guided
 
 A wrong cloud access hands someone a door. The policy is therefore split by how

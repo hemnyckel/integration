@@ -321,6 +321,22 @@
           "retry_failed": "The vendor cloud still refuses the update. The journal has the details."
         }
       }
+    },
+    "cloud_sync_failed": {
+      "title": "The guest {name} (slot {slot}) never reached the app",
+      "description": "The code works on the lock, but the vendor cloud did not accept the guest - the app does not show it yet. Submit to send it again; the journal and nimly.audit have the details.",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Send the guest again",
+            "description": "Replay {name}'s identity and PIN access to the vendor cloud."
+          }
+        },
+        "abort": {
+          "no_mirror": "No lock mirror is loaded.",
+          "retry_failed": "The vendor cloud still refuses the guest. The journal has the details."
+        }
+      }
     }
   },
   "services": {

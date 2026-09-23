@@ -50,7 +50,7 @@ Real lock  ───────────────►  Home Assistant  ◄
 | **Slot virtualization** | App-created credentials never collide with local ones, and vice versa — the app keeps its own slot numbers while the lock keeps its own secrets. |
 | **A journal** | One timeline of access and admin events, local and cloud merged, with a `nimly_journal_entry` event for your automations. |
 | **OTA both ways** | The bridge and the emulator update over the air from Home Assistant. |
-| **Diagnostics and repairs** | Stale bridge, unpaired emulator, cloud feedback and slot conflicts surface as repairs instead of silence. |
+| **Diagnostics and repairs** | Stale bridge, unpaired emulator, cloud feedback, failed cloud syncs and slot conflicts surface as repairs instead of silence. |
 
 ## Requirements
 
