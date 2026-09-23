@@ -1596,6 +1596,10 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "has_code": key.isdigit() and "pin" in self.slots.credentials(int(key)),
                 "cloud_users": sorted(set(cloud_users)),
                 "group": guest.get("group"),
+                # True when the catalog holds the PIN value itself, so the code
+                # can be replayed after a loss; a temporary guest's code is
+                # shown once and never stored.
+                "restorable": bool(guest.get("code")),
             }
             if kind == "recurring":
                 row["schedule"] = windows

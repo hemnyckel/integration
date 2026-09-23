@@ -111,3 +111,8 @@ the lock reports nothing while the enrollment runs — a template exists only
 once that finger has really opened the door, which is why `finger_used` (not
 the enrollment) is the evidence the catalog trusts. The guest card's
 fingerprint button calls the same service.
+
+The guest card marks every row with a key: solid (green) when the catalog holds
+the PIN value itself — a recurring guest — so the code can be replayed after a
+loss, and slashed when it does not: a temporary guest's code is shown once and
+never stored, and an app-created guest's value only exists in the app.

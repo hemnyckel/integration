@@ -181,6 +181,8 @@ const STYLE = `
   .cloudrow .avatar { background: var(--secondary-text-color); }
   .cloudmark { display: inline-flex; color: var(--secondary-text-color); }
   .cloudmark ha-icon { --mdc-icon-size: 16px; }
+  .cloudmark.ok { color: var(--success-color, #43a047); }
+  .cloudmark.off { opacity: .55; }
 `;
 
 class NimlyGuestsCard extends HTMLElement {
@@ -581,11 +583,14 @@ class NimlyGuestsCard extends HTMLElement {
           `<ha-icon icon="mdi:alert-circle-outline"></ha-icon>(!)</span>`
       );
     }
+    const pinFromApp = guest.has_pin
+      ? '<span class="cloudmark off" title="PIN-koden finns bara i appen — värdet kan inte återställas härifrån"><ha-icon icon="mdi:key-off"></ha-icon></span>'
+      : "";
     const confirming = this._cloudConfirm === guest.id;
     row.innerHTML = `
       <div class="avatar">${initial}</div>
       <div class="info">
-        <div class="name"><span>${this._esc(guest.name) || "Namnlös"}</span></div>
+        <div class="name"><span>${this._esc(guest.name) || "Namnlös"}</span>${pinFromApp}</div>
         <div class="meta">${this._cloudValidity(guest)}</div>
         <div class="badges">${badges.join("")}</div>
       </div>
@@ -814,6 +819,10 @@ class NimlyGuestsCard extends HTMLElement {
         (guest.cloud_users || []).length
           ? '<span class="cloudmark" title="Synkad med appen"><ha-icon icon="mdi:cloud-check-outline"></ha-icon></span>'
           : ""
+      }${
+        guest.restorable
+          ? '<span class="cloudmark ok" title="PIN-koden sparas här — kan återställas efter en förlust"><ha-icon icon="mdi:key-variant"></ha-icon></span>'
+          : '<span class="cloudmark off" title="PIN-koden sparas inte — kan inte återställas efter en förlust"><ha-icon icon="mdi:key-off"></ha-icon></span>'
       }${sibBadge}${this._pill(guest)}</div>
         <div class="meta">${this._esc(meta)}</div>
       </div>

@@ -147,6 +147,14 @@ check("unrelated identity finds nothing", card._siblings(unrelated).length === 0
 const row = card._guestRow(isabelle);
 check("row shows the lock count", row.innerHTML.includes("2 lås"), row.innerHTML.slice(0, 200));
 check("row offers fingerprint enrollment", row.innerHTML.includes('data-act="finger"'));
+check(
+  "a stored code shows the restorable key",
+  card._guestRow({ ...isabelle, restorable: true }).innerHTML.includes("mdi:key-variant")
+);
+check(
+  "an unstored code shows the slashed key",
+  card._guestRow({ ...astrid, restorable: false }).innerHTML.includes("mdi:key-off")
+);
 check("row tooltip lists the other lock", row.innerHTML.includes("Källarlås"));
 
 // -- create across locks ------------------------------------------------
