@@ -90,6 +90,14 @@ void uart_bridge_send_tag_scan(uint16_t arg)
     uart_send_line(buf);
 }
 
+// Tagg-/credential-radering från appen (0x18) -> speglas till riktiga låset.
+void uart_bridge_send_tag_clear(uint16_t arg)
+{
+    char buf[64];
+    snprintf(buf, sizeof(buf), "{\"ev\":\"tag_clear\",\"arg\":%u}", arg);
+    uart_send_line(buf);
+}
+
 void uart_bridge_send_fp_clear(uint16_t slot)
 {
     char buf[64];

@@ -374,21 +374,12 @@ static void ieee_addr_cb(const ezb_zdo_ieee_addr_req_result_t *result, void *use
     ezb_nwk_get_extended_address(&own);
     log_eui64("koordinator IEEE", &coord);
 
-    ezb_zdo_bind_req_t bind = {
-        .dst_nwk_addr = 0x0000,
-        .field = {
-            .src_addr = own,
-            .src_ep = NIMLY_EP_ID,
-            .cluster_id = NIMLY_CLUSTER_DOORLOCK,
-            .dst_addr_mode = 0x03,
-            .dst_addr.extended_addr = coord,
-            .dst_ep = 1,
-        },
-        .cb = bind_req_cb,
-        .user_ctx = NULL,
-    };
-    ESP_LOGI(TAG, "Skickar bind (ep %d, kluster 0x%04x -> koordinatorn)", NIMLY_EP_ID, NIMLY_CLUSTER_DOORLOCK);
-    ezb_zdo_bind_req(&bind);
+    // The real module does not bind to the coordinator: the bridge binds the
+    // Door Lock cluster to its own EUI right after the interview, and an
+    // outbound bind only earns a NOT_SUPPORTED (docs/protocol.md).
+    (void)own;
+    (void)coord;
+    (void)bind_req_cb;
 }
 
 static void request_coordinator_bind(void)
@@ -1005,6 +996,19 @@ static bool aps_data_indication_handler(const ezb_apsde_data_ind_t *ind)
         nimly_aps_send(rsp70, sizeof(rsp70));
         return true;
     }
+    case 0x18: {
+        // Appens credential-radering (samma id som enrollen): spegla till
+        // riktiga låset och svara som modulen gör — ett resultat på 1 byte.
+        uint16_t arg = 0;
+        if ((uint16_t)(i + 2) <= len) {
+            arg = (uint16_t)(p[i] | (p[i + 1] << 8));
+        }
+        uart_bridge_send_tag_clear(arg);
+        ESP_LOGI(TAG, "  0x18 (radering) arg=0x%04x -> speglar till riktiga låset", arg);
+        uint8_t rsp18[4] = {0x19, tsn, cmd, 0x00};
+        nimly_aps_send(rsp18, sizeof(rsp18));
+        return true;
+    }
     case 0x71:
     case 0x72: {
         // Nimly proprietära credential-/fingeravtryckskommandon. Appen skickar
@@ -1103,7 +1107,8 @@ static esp_err_t create_nimly_device(void)
 
     // --- Basic (0x0000): identitet ---
     ezb_zcl_basic_cluster_server_config_t basic_cfg = {
-        .zcl_version = EZB_ZCL_BASIC_ZCL_VERSION_DEFAULT_VALUE,
+        // The real module answers ZCL version 2; the SDK default is 8.
+        .zcl_version = 2,
         .power_source = EZB_ZCL_BASIC_POWER_SOURCE_BATTERY,
     };
     ezb_zcl_cluster_desc_t basic_desc = ezb_zcl_basic_create_cluster_desc(&basic_cfg, EZB_ZCL_CLUSTER_SERVER);

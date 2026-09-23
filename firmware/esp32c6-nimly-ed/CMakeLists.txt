@@ -11,7 +11,7 @@ cmake_minimum_required(VERSION 3.16)
 
 # Fast programvaruversion (rapporteras i "hello" till integrationen).
 if(NOT DEFINED PROJECT_VER)
-    set(PROJECT_VER "0.5.3")
+    set(PROJECT_VER "0.5.4")
 endif()
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
