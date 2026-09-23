@@ -83,6 +83,13 @@ void uart_bridge_send_fp_enroll(uint16_t slot)
     uart_send_line(buf);
 }
 
+void uart_bridge_send_tag_scan(uint16_t arg)
+{
+    char buf[64];
+    snprintf(buf, sizeof(buf), "{\"ev\":\"tag_scan\",\"arg\":%u}", arg);
+    uart_send_line(buf);
+}
+
 void uart_bridge_send_fp_clear(uint16_t slot)
 {
     char buf[64];

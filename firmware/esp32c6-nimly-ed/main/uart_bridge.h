@@ -18,6 +18,7 @@ void uart_bridge_send_pin_clear(uint16_t slot);
 
 // Fingeravtrycks-begäran från appen (0x71) -> speglas till riktiga låset.
 void uart_bridge_send_fp_enroll(uint16_t slot);
+void uart_bridge_send_tag_scan(uint16_t arg);
 
 // Fingeravtrycks-radering från appen (0x72) -> speglas till riktiga låset.
 void uart_bridge_send_fp_clear(uint16_t slot);

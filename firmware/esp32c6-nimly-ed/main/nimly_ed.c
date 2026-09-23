@@ -991,6 +991,20 @@ static bool aps_data_indication_handler(const ezb_apsde_data_ind_t *ind)
         }
         return true;
     }
+    case 0x70: {
+        // Appens tagg-scan (hittad 2026-09-23): spegla till riktiga låset via HA.
+        // Svaret till appen är provisoriskt (som finger-grenen) tills låsets
+        // eget svar på 0x70 är känt och kan ferjas tillbaka med UID:n.
+        uint16_t arg = 0;
+        if ((uint16_t)(i + 2) <= len) {
+            arg = (uint16_t)(p[i] | (p[i + 1] << 8));
+        }
+        uart_bridge_send_tag_scan(arg);
+        ESP_LOGI(TAG, "  0x70 (tagg-scan) arg=0x%04x -> speglar till riktiga låset", arg);
+        uint8_t rsp70[4] = {0x19, tsn, cmd, 0x01};
+        nimly_aps_send(rsp70, sizeof(rsp70));
+        return true;
+    }
     case 0x71:
     case 0x72: {
         // Nimly proprietära credential-/fingeravtryckskommandon. Appen skickar
@@ -1029,6 +1043,12 @@ static bool aps_data_indication_handler(const ezb_apsde_data_ind_t *ind)
         return true;
     }
     default:
+        // Logga okända DoorLock-kommandon med payload, så nya vendor-flöden
+        // (t.ex. tagg-registrering) kan identifieras i konsolen. Koden loggas aldrig.
+        ESP_LOGW(TAG, "OKÄNT DoorLock-kommando cmd=0x%02x tsn=%u manuf=0x%04x len=%u", cmd, tsn, manuf, len);
+        if (len > i) {
+            log_hex("  payload", &p[i], (uint16_t)(len - i));
+        }
         break;
     }
     return false;
