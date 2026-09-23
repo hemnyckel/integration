@@ -170,3 +170,15 @@ nothing when tapped and cannot be locked or unlocked.
 - **We do** keep the record deliberately (a rejoin reuses it: same id, same
   name), and read `online` as "last known" rather than live — the cloud only
   flips it on the device's own reports.
+
+## The scan endpoint that acks without opening
+
+Measured 2026-09-23 (the API-only cycle): `POST /gateways/{id}/action` with
+`{"feature": "scan", "action": "turnOn"}` is what actually opens the join
+window — it carried the whole app-free cycle. The vendor app's dedicated
+`POST /gateways/{id}/scan` (`locationId`, `enableScan`, `autoAdd`,
+`deviceType: ZIGBEE`) answers 200 but did not open the window in two attempts,
+so it is only kept as a fallback.
+
+- **We do** treat the action payload as the primary scan and verify a window by
+  the hub's Permit Join broadcast, never by the API answer alone.

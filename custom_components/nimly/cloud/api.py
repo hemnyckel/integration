@@ -414,28 +414,29 @@ class NimlyCloudApi:
     ) -> Any:
         """Open or close the bridge's join window, so a device can be paired from HA.
 
-        Primary path is the vendor app's own endpoint, ``POST /gateways/{id}/scan``
-        (measured 2026-09-23: it takes ``locationId``, ``enableScan``, ``autoAdd``
-        and ``deviceType`` — one of ZIGBEE/CAMERA — and answers 200). The legacy
-        ``action`` path stays as the fallback: it is what the first working
-        re-add used, and it rejects a ``deviceModelId`` (400).
+        The action payload (``scan.turnOn`` / ``scan.turnOff``) is the measured
+        path that actually opens the window: it carried the first app-free
+        re-add and the whole API-only cycle on 2026-09-23. The vendor app's
+        dedicated endpoint (``POST /gateways/{id}/scan`` with locationId,
+        enableScan, autoAdd and deviceType) accepts the request and answers 200
+        but was observed not to open the window, so it is only the fallback.
         """
-        if start and location_id:
-            try:
-                return await self.async_post(
-                    PATH_GATEWAY_SCAN.format(gateway_id=gateway_id),
-                    {
-                        "locationId": location_id,
-                        "enableScan": True,
-                        "autoAdd": False,
-                        "deviceType": "ZIGBEE",
-                    },
-                )
-            except NimlyCloudError:
-                pass  # fall through to the action path
+        try:
+            return await self.async_post(
+                PATH_GATEWAY_ACTION.format(gateway_id=gateway_id),
+                {"feature": "scan", "action": "turnOn" if start else "turnOff"},
+            )
+        except NimlyCloudError:
+            if not (start and location_id):
+                raise
         return await self.async_post(
-            PATH_GATEWAY_ACTION.format(gateway_id=gateway_id),
-            {"feature": "scan", "action": "turnOn" if start else "turnOff"},
+            PATH_GATEWAY_SCAN.format(gateway_id=gateway_id),
+            {
+                "locationId": location_id,
+                "enableScan": True,
+                "autoAdd": False,
+                "deviceType": "ZIGBEE",
+            },
         )
 
     # -- diagnostics --------------------------------------------------------
