@@ -82,8 +82,34 @@ emulator therefore never uses it for remote commands.
 
 Commands the emulator answers: `SetPINCode` (0x05), `ClearPINCode` (0x07),
 `GetPINCode` (0x06), `GetUserStatus` (0x0A, empty), `LockDoor`/`UnlockDoor`
-(0x00/0x01) and the vendor's fingerprint commands `0x71`/`0x72` with the
-measured response shapes.
+(0x00/0x01) and the vendor's private commands, measured against the real module
+on 2026-09-23 (capture `camp16-rfid`, decrypted with the network key):
+
+| Flow | Bridge → lock | Lock → bridge | Reply |
+|---|---|---|---|
+| Enroll tag/finger | `0x70` `[id:2]` | `0x79` `[status][id]` — `0x9a` when enroll mode opens, the result byte on the touch | `0x70` `[result]` |
+| Clear tag/finger | `0x18` `[id:2]` (standard ClearRFIDCode) | sometimes `0x18` `[00]` | `0x18` `[result]` |
+| Enroll on a slot | `0x71` `[slot:2]` | `0x78` `[status][slot]` ×2 | `0x71` `[result]` |
+| Clear a slot | `0x72` `[slot:2]` | — | `0x72` `[00]` |
+| PIN | `0x05` `[user:2][status][type][len][pin]` | — | `0x05` `[result]`, then an `0x0101` report |
+| Clear PIN | `0x07` `[user:2]` | — | `0x07` `[result]` |
+
+The result byte varies with the flow (both `0x00` and `0x01` were observed for
+successful enrolls), so the emulator relays the real module's own answers
+instead of inventing one.
+
+**RFID unlocks are not reported at all.** Locking and unlocking with a tag
+leaves the Zigbee link completely silent — no `0x0100`, not even a lock-state
+report — and the vendor app shows nothing. Fingerprint and keypad unlocks do
+report. There is therefore no tag-unlock event for the mirror to relay, and the
+emulator does not invent one either: parity by omission.
+
+**Joins and rejoins.** On a fresh join the bridge reads Basic (`0x0004`,
+`0x0005`, `0x0000`), `LockState` and `auto_relock_time`/`sound_volume`
+(`0x0023`/`0x0024`), binds Door Lock to its own EUI and then leaves the link
+idle. A device that still holds the network key **rejoins on its own** after a
+reboot (measured: the bridge accepts the rejoin, then removes the device again
+if the app no longer lists it — a deleted app record is the eviction trigger).
 
 Standard attributes are readable for diagnostics (lock state, capabilities,
 `auto_relock_time`, `sound_volume`); attribute `0x0101` — the PIN material — is

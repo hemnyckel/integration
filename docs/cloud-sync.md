@@ -1,7 +1,8 @@
 # Cloud sync: keeping the lock, Home Assistant and the vendor cloud in step
 
-Status: **design** (2026-09-22). The services below are not built yet; the API
-behaviour they rely on is verified (see "Verified on hardware").
+Status: **built and live** (2026-09-23). The services below exist and the push
+triggers are wired into the mirror; the API behaviour they rely on is verified
+(see "Verified on hardware").
 
 ## Principles
 
@@ -105,15 +106,23 @@ next loss is a pure replay.
 - `nimly.audit` compares the three stores (lock slots ↔ catalog ↔ cloud accesses)
   and reports drift instead of fixing it silently.
 
-## Services to build
+## Services (built)
 
-| Service | Purpose |
-| --- | --- |
-| `nimly.cloud_guests` | Read the cloud's guest users into a response (and a sensor). |
-| `nimly.sync_cloud` | Reconcile HA → cloud (identities, pin/tag accesses, finger records), dry-run first. |
-| `nimly.restore_cloud` | Replay the catalog onto a fresh cloud/device without touching the lock's codes. |
-| `nimly.simulate_enroll` | The guarded finger-enrollment replay (also used by sync/restore). |
-| `nimly.audit` | The drift report across lock, catalog and cloud. |
+| Service | Purpose | Status |
+| --- | --- | --- |
+| `nimly.cloud_guests` | Read the cloud's guest users into a response (and a sensor). | built |
+| `nimly.sync_cloud` | Reconcile HA → cloud (identities, pin/tag accesses, finger records), dry-run first. | built |
+| `nimly.restore_cloud` | Replay the catalog onto a fresh cloud/device without touching the lock's codes. | built |
+| `nimly.simulate_enroll` | The guarded finger-enrollment replay (also used by sync/restore). | inside restore, no separate service yet |
+| `nimly.audit` | The drift report across lock, catalog and cloud. | built |
+
+Every local guest edit follows the same direction — not only creation: renaming
+a guest, changing its validity or changing its code pushes the change
+(`PATCH /guest-users/{id}`, and an access replace for a code) through
+`nimly.update_guest`, the plan card included. A rejected push journals
+`cloud_update_failed` and raises the `cloud_push_failed` repair, whose fix
+retries with the values Home Assistant already holds; a later successful push
+clears the repair. The `Cloud sync` channel switch gates all of it.
 
 ## Auto vs guided
 

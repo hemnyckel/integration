@@ -98,3 +98,23 @@ halves of a lock cannot be merged into one device in the registry.
 
 - **We do** keep cloud entities on the cloud-owned device and the ZHA entities
   on the ZHA device, both named after the lock.
+
+## In a tag flow the bridge never learns the UID
+
+Measured 2026-09-23: enrolling a tag sends only the credential id over Zigbee
+(`0x70`/`0x18` with a 16-bit id); the UID itself never leaves the lock. Scanning
+the tag at the door reports nothing at all (see `protocol.md`), so the cloud's
+`LastTagScanned` state stays empty.
+
+- **We do** keep a tag's UID only when we read it ourselves, and restore by
+  re-enrolling: a tag we never scanned cannot be re-created.
+
+## The bridge evicts a device whose app record is gone
+
+On 2026-09-23 the emulator rejoined with its stored keys and the bridge removed
+it again after ~15 s with a Leave — the app's device record had been deleted.
+The Leave is the expected cleanup, not a pairing failure; the fix is the normal
+add-device flow in the app.
+
+- **We do** treat `emulator_not_joined` as the repair for this state, and a
+  reboot alone re-joins once the bridge has a record to accept.
