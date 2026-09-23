@@ -42,7 +42,7 @@ Real lock  ───────────────►  Home Assistant  ◄
 |---|---|
 | **Local first** | Lock, unlock, codes, settings and history work with no cloud at all. The vendor app is a convenience, never a dependency. |
 | **The app keeps working** | Notifications, who-unlocked history, guest codes and settings stay in sync through the emulator. |
-| **Guest codes with schedules** | Temporary codes with an expiry, one-time codes, and recurring guests (a cleaner, a nanny) whose code **never changes** but only works inside weekly windows. |
+| **Guest codes with schedules** | Temporary codes with an expiry, one-time codes, recurring guests (a cleaner, a nanny) whose code **never changes** but only works inside weekly windows, and permanent codes for family members — stored and restorable, with no window at all. |
 | **Cloud insight (optional)** | Sign in with the vendor account for the app's attributed history: *who* opened the door when Zigbee alone cannot say. |
 | **Two-way cloud sync** | Guests created here get a vendor identity and a PIN access automatically — and app-created PINs, tags and fingerprints are paired back to the slot they live in. A **Cloud sync** switch pauses the automatic side. |
 | **Several locks** | The guest card discovers every lock and, when there is more than one, offers a lock picker: create a guest once, choose the doors, and one code lands on each — with edit, pause and revoke following the person across locks. |
@@ -106,8 +106,10 @@ data:
 
 A recurring guest's code never changes: Home Assistant writes it when a window
 opens and clears the credential when it closes, and repairs the state after a
-restart. The vendor app shows the code as always valid — the schedule is
-enforced locally. Details: [docs/guests.md](docs/guests.md).
+restart. A permanent guest (`permanent: true`) has no window at all — the code
+is written once, stored, and replayed after a loss. The vendor app shows both
+as always valid; the schedule is enforced locally. Details:
+[docs/guests.md](docs/guests.md).
 
 ## Services
 

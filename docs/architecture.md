@@ -101,7 +101,8 @@ the schedule attributes answer UNSUPPORTED. Home Assistant is the schedule
 keeper instead: a temporary guest code is written when it is created and cleared
 when it expires; a recurring guest keeps **one code forever** and the credential
 is written when a window opens and cleared when it closes, with the startup pass
-repairing whatever a restart missed.
+repairing whatever a restart missed. A permanent guest is that same kept code
+without any window: written once, never cleared.
 
 Keeping one code for years means storing it, which is the deliberate cost of the
 feature: the code lives in the config entry's options and never in an entity

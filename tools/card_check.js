@@ -197,6 +197,72 @@ check("row tooltip lists the other lock", row.innerHTML.includes("Källarlås"))
   check("partial failure is reported", card._form.result && card._form.result.failed.length === 1 && card._form.result.failed[0].name === "Källarlås", JSON.stringify(card._form.result && card._form.result.failed));
   check("the code survives a partial failure", card._form.result.code === "123456");
 
+  // -- permanent guests ---------------------------------------------------
+  check(
+    "a permanent guest gets its own pill",
+    card._pill({ kind: "permanent" }).includes("Permanent")
+  );
+  check(
+    "permanent meta says the code is stored",
+    card._meta({ kind: "permanent" }).includes("sparad")
+  );
+  check(
+    "a permanent row shows the permanent pill",
+    card
+      ._guestRow({ slot: 8, kind: "permanent", name: "Alva", restorable: true })
+      .innerHTML.includes('class="pill permanent"')
+  );
+  card._startEdit({ slot: 8, kind: "permanent", name: "Alva" });
+  check(
+    "editing a permanent guest keeps the permanent mode",
+    card._form.editKind === "permanent" && card._form.mode === "permanent"
+  );
+  card._form = card._blankForm();
+  card._form.mode = "permanent";
+  const permanentHtml = card._formHtml();
+  check(
+    "the form offers the permanent mode",
+    permanentHtml.includes('data-mode="permanent"')
+  );
+  check(
+    "a permanent form has no duration chips",
+    !permanentHtml.includes("data-duration")
+  );
+  check(
+    "a permanent form has no one-time toggle",
+    !permanentHtml.includes('id="onetime"')
+  );
+  const permanentCalls = [];
+  card._callServiceWS = async (domain, service, payload) => {
+    permanentCalls.push({ service, payload });
+    return {
+      [payload.entry_id]: {
+        slot: 8,
+        code: "445566",
+        name: "Alva",
+        permanent: true,
+      },
+    };
+  };
+  card._form = card._blankForm();
+  card._form.name = "Alva";
+  card._form.mode = "permanent";
+  card._form.locks = new Set([OWN]);
+  await card._submit();
+  check(
+    "permanent creation flags the service",
+    permanentCalls.length === 1 &&
+      permanentCalls[0].service === "create_guest_code" &&
+      permanentCalls[0].payload.permanent === true &&
+      permanentCalls[0].payload.until === undefined &&
+      permanentCalls[0].payload.one_time === undefined,
+    JSON.stringify(permanentCalls.map((c) => c.payload))
+  );
+  check(
+    "the permanent result is marked permanent",
+    Boolean(card._form.result && card._form.result.permanent === true)
+  );
+
   // -- fan-out of an edit ----------------------------------------------
   const fanCalls = [];
   card._callServiceWS = async (domain, service, payload) => {

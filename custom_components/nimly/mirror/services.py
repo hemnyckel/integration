@@ -154,6 +154,7 @@ CREATE_GUEST_SCHEMA = vol.Schema(
         vol.Optional("slot"): vol.Coerce(int),
         vol.Optional("until"): cv.string,
         vol.Optional("one_time", default=False): cv.boolean,
+        vol.Optional("permanent", default=False): cv.boolean,
         vol.Optional("entry_id"): cv.string,
         vol.Optional("group"): cv.string,
     }
@@ -404,6 +405,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 slot=call.data.get("slot"),
                 until=call.data.get("until"),
                 one_time=bool(call.data.get("one_time")),
+                permanent=bool(call.data.get("permanent")),
                 group=call.data.get("group"),
             )
         return results

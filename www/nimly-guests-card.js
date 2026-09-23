@@ -2,10 +2,12 @@
  * nimly-guests-card — guest codes with three-tap simplicity.
  *
  * A Lovelace card for the Nimly integration's guest codes: create a temporary
- * code or a recurring guest (weekly windows, same code every time), see what
- * is active right now, pause it, change it or revoke it. The card reads
+ * code, a recurring guest (weekly windows, same code every time) or a
+ * permanent one (family; the code is stored and can be restored), see what is
+ * active right now, pause it, change it or revoke it. The card reads
  * sensor.nimly_guests (attributes.guests) and calls the nimly guest services;
- * a freshly created code is shown once, in the card only, and never stored.
+ * a freshly created temporary code is shown once, in the card only, and never
+ * stored - a recurring or permanent code lives in the config entry's options.
  *
  * Config: { entity: "sensor.nimly_guests" } — the entity is optional.
  */
@@ -68,6 +70,7 @@ const STYLE = `
   .pill.outside { background: rgba(255, 166, 0, .18); color: #ffa600; }
   .pill.paused { background: rgba(158, 158, 158, .22); color: var(--secondary-text-color); }
   .pill.temp { background: rgba(33, 150, 243, .16); color: #42a5f5; }
+  .pill.permanent { background: rgba(0, 150, 136, .18); color: #009688; }
   .meta { font-size: 13px; color: var(--secondary-text-color); margin-top: 2px;
           overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; }
@@ -341,8 +344,12 @@ class NimlyGuestsCard extends HTMLElement {
       ...this._blankForm(),
       open: true,
       editSlot: guest.slot,
-      editKind: guest.kind === "recurring" ? "recurring" : "simple",
-      mode: guest.kind === "recurring" ? "recurring" : "simple",
+      editKind: ["recurring", "permanent"].includes(guest.kind)
+        ? guest.kind
+        : "simple",
+      mode: ["recurring", "permanent"].includes(guest.kind)
+        ? guest.kind
+        : "simple",
       name: guest.name || "",
       paused: Boolean(guest.paused),
       forever: !guest.until,
@@ -915,6 +922,9 @@ class NimlyGuestsCard extends HTMLElement {
       if (guest.in_window) return `<span class="pill active">Aktiv</span>`;
       return `<span class="pill outside">Utanför</span>`;
     }
+    if (guest.kind === "permanent") {
+      return `<span class="pill permanent">Permanent</span>`;
+    }
     if (guest.one_time) return `<span class="pill temp">Engång</span>`;
     return `<span class="pill temp">Tillfällig</span>`;
   }
@@ -928,6 +938,9 @@ class NimlyGuestsCard extends HTMLElement {
       if (guest.paused) return `Återupptas manuellt · ${summary}`;
       if (guest.in_window) return summary;
       return `Öppnar nästa gång enligt ${summary}`;
+    }
+    if (guest.kind === "permanent") {
+      return "Alltid · koden är sparad och kan återställas";
     }
     if (guest.one_time) return "Återkallas efter första upplåsningen";
     if (guest.until) return `Giltig till ${this._niceTime(guest.until)}`;
@@ -997,13 +1010,17 @@ class NimlyGuestsCard extends HTMLElement {
       )
       .join("");
     const recurring = form.mode === "recurring";
+    const permanent = form.mode === "permanent";
     const editing = form.editSlot !== null;
     const keepRecurring = editing && form.editKind === "recurring";
-    const segmented = keepRecurring
-      ? ""
-      : `<div class="seg">
-          <button class="${recurring ? "" : "on"}" data-mode="simple">Tillfällig</button>
+    const keepPermanent = editing && form.editKind === "permanent";
+    const segmented =
+      keepRecurring || keepPermanent
+        ? ""
+        : `<div class="seg">
+          <button class="${!recurring && !permanent ? "on" : ""}" data-mode="simple">Tillfällig</button>
           <button class="${recurring ? "on" : ""}" data-mode="recurring">Återkommande</button>
+          <button class="${permanent ? "on" : ""}" data-mode="permanent">Permanent</button>
         </div>`;
     const simpleFields = editing
       ? `
@@ -1056,6 +1073,8 @@ class NimlyGuestsCard extends HTMLElement {
           <div class="switch"><span>Pausad</span>
             <button class="toggle ${form.paused ? "on" : ""}" id="paused"></button></div>
         `
+            : permanent
+            ? `<div class="empty">Alltid giltig — koden sparas och kan återställas.</div>`
             : simpleFields
         }
         <div class="label">Kod${editing ? "" : " (valfritt)"}</div>
@@ -1160,6 +1179,7 @@ class NimlyGuestsCard extends HTMLElement {
     }
     const editing = form.editSlot !== null;
     const recurring = form.mode === "recurring";
+    const permanent = form.mode === "permanent";
     if (recurring && !form.days.size) {
       form.error = "Välj minst en dag.";
       this._renderForm();
@@ -1223,6 +1243,10 @@ class NimlyGuestsCard extends HTMLElement {
         };
         if (form.code.trim()) data.code = form.code.trim();
         if (form.paused) data.paused = true;
+      } else if (permanent) {
+        service = "create_guest_code";
+        data = { name, permanent: true };
+        if (form.code.trim()) data.code = form.code.trim();
       } else {
         service = "create_guest_code";
         data = { name };
@@ -1270,6 +1294,7 @@ class NimlyGuestsCard extends HTMLElement {
         name,
         until: created.until,
         schedule: created.schedule,
+        permanent: Boolean(created.permanent),
         failed,
       };
       this._renderForm();
@@ -1285,6 +1310,8 @@ class NimlyGuestsCard extends HTMLElement {
   _resultHtml(result) {
     const valid = result.schedule
       ? "Återkommande · samma kod varje gång"
+      : result.permanent
+      ? "Permanent · koden är sparad och kan återställas"
       : result.until
       ? `Giltig till ${this._niceTime(result.until)}`
       : "Tills vidare";
@@ -1384,5 +1411,5 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "nimly-guests-card",
   name: "Nimly Gästkoder",
-  description: "Skapa och hantera gästkoder — tillfälliga och återkommande scheman.",
+  description: "Skapa och hantera gästkoder — tillfälliga, återkommande och permanenta.",
 });

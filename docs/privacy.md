@@ -36,7 +36,7 @@ check against any server of this project's own.
 | Where | What | Why |
 |---|---|---|
 | Config entry data | Vendor tokens, location id | Keeping the session alive across restarts. |
-| Config entry options | Slot names, the slot map, guest definitions (and, for recurring guests, their code), channel switches | Local behaviour and schedules. |
+| Config entry options | Slot names, the slot map, guest definitions (and, for recurring and permanent guests, their code), channel switches | Local behaviour and schedules. |
 | `.nimly/journal_<entry>.jsonl` | The access and admin timeline | The journal sensor and `fetch_journal`. |
 | The firmware | Wi-Fi and MQTT credentials, on the bridge only | It has to connect; the emulator stores none. |
 

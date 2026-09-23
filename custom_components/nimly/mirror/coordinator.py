@@ -1287,10 +1287,18 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return None
 
     def cloud_sync_candidates(self) -> list[dict[str, Any]]:
-        """Local guests the cloud can be told about: recurring, with a stored code."""
+        """Local guests the cloud can be told about: a stored code, any kind.
+
+        Recurring and permanent guests keep their code, so both are replayed
+        after a loss and both may be told to the cloud; a temporary guest's
+        value dies with the response that carried it.
+        """
         rows: list[dict[str, Any]] = []
         for key, guest in self.guests.items():
-            if not isinstance(guest, dict) or guest.get("kind") != "recurring":
+            if not isinstance(guest, dict) or guest.get("kind") not in (
+                "recurring",
+                "permanent",
+            ):
                 continue
             name = str(guest.get("name") or "").strip()
             code = str(guest.get("code") or "")
@@ -1324,9 +1332,10 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_cloud_sync_guest(self, slot: int, code: str | None) -> None:
         """Tell the vendor cloud about a guest we just created, when enabled.
 
-        A code that exists only in the service response (a simple guest) is passed
-        in; a recurring guest keeps it in the entry options. Failure here must
-        never fail the local creation, so everything is caught and logged.
+        A code that exists only in the service response (a temporary guest) is
+        passed in; a recurring or permanent guest keeps it in the entry options.
+        Failure here must never fail the local creation, so everything is
+        caught and logged.
         """
         if not self.active(CH_CLOUD):
             return
@@ -1644,18 +1653,29 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         until: str | None = None,
         one_time: bool = False,
         group: str | None = None,
+        permanent: bool = False,
     ) -> dict[str, Any]:
         """Write a guest PIN, name the slot and remember the window.
 
-        The code is returned once so the caller can hand it to the guest; it is
-        never stored or logged anywhere. A one-time code is revoked by itself
-        the first time that slot opens the door.
+        The code is returned once so the caller can hand it to the guest; for
+        temporary and one-time guests it is never stored or logged anywhere. A
+        one-time code is revoked by itself the first time that slot opens the
+        door.
+
+        A guest created with ``permanent`` is the exception: the code is kept
+        in the entry options (like a recurring guest's), so a cleared slot or a
+        lost lock can be replayed with the same digits, and nothing is ever
+        cleared - no expiry, no window.
         """
         clean_name = str(name or "").strip()
         if not clean_name:
             raise RuntimeError("a guest name is required")
         normalized_until = normalize_until(until) if until else None
-        if until and normalized_until is None:
+        if permanent:
+            # A permanent code is never cleared: expiry and one-time do not apply.
+            normalized_until = None
+            one_time = False
+        elif until and normalized_until is None:
             raise RuntimeError("until is not a valid ISO timestamp")
         if slot is None:
             occupied = {s for s, _data in self.slots.items() if self.slots.occupied(s)}
@@ -1671,32 +1691,45 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         code_text = str(code) if code else generate_code()
         if not valid_code(code_text):
             raise RuntimeError("the code must be 4-8 digits")
+        if permanent:
+            detail = "permanent"
+        elif normalized_until:
+            detail = f"until {normalized_until}"
+        else:
+            detail = "no expiry"
         await self._async_set_pin(
             slot,
             code_text,
             journal={
                 "action": GUEST_CREATED,
                 "name": clean_name,
-                "detail": f"until {normalized_until}" if normalized_until else "no expiry",
+                "detail": detail,
             },
         )
         self.slots.set_name(slot, clean_name)
         await self._async_publish_slot(slot, self.slots.occupied(slot))
-        self.guests[str(slot)] = {
+        record: dict[str, Any] = {
             "name": clean_name,
-            "kind": "simple",
+            "kind": "permanent" if permanent else "simple",
             "one_time": bool(one_time),
             "until": normalized_until,
             "created": dt_util.utcnow().isoformat(),
             **({"group": str(group)} if group else {}),
         }
+        if permanent:
+            # The deliberate cost of a permanent code: we hold the value, so a
+            # cleared slot or a lost lock can be replayed with the same digits.
+            record["code"] = code_text
+        self.guests[str(slot)] = record
         await self._async_save_guests()
         if normalized_until:
             self._schedule_guest_expiry(slot, normalized_until)
         await self._async_cloud_sync_guest(slot, code_text)
         self._publish_snapshot()
         _LOGGER.info(
-            "Guest code created on slot %s (%s)", slot, normalized_until or "no expiry"
+            "Guest code created on slot %s (%s)",
+            slot,
+            "permanent" if permanent else normalized_until or "no expiry",
         )
         return {
             "slot": slot,
@@ -1704,6 +1737,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "name": clean_name,
             "until": normalized_until,
             "one_time": bool(one_time),
+            "permanent": bool(permanent),
         }
 
     async def async_create_recurring_guest(
@@ -1948,6 +1982,9 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     row["state"] = "paused"
                 else:
                     row["state"] = "active" if row["in_window"] else "outside"
+            elif kind == "permanent":
+                # Always valid until revoked; the stored code survives a loss.
+                row["state"] = "active" if row["has_code"] else "expired"
             else:
                 row["until"] = guest.get("until")
                 row["one_time"] = bool(guest.get("one_time"))

@@ -3,13 +3,14 @@
 A guest code is a PIN written to the lock for someone who is not part of the
 household. The lock can hold 50 PINs; guests do not need a vendor-app user.
 
-Three kinds exist:
+Four kinds exist:
 
 | Kind | Behaviour |
 |---|---|
 | **Temporary** | Valid until a timestamp; Home Assistant clears it at that moment and repairs the state after a restart. |
 | **One-time** | Revoked by itself the first time its slot opens the door. |
 | **Recurring** | Valid inside weekly windows. The code **never changes**; the credential is written when a window opens and cleared when it closes. |
+| **Permanent** | Always valid — no expiry, no window. The code is **stored** so it can be replayed; the family-member case: a PIN (and a finger) without the vendor app. |
 
 ## Creating one
 
@@ -39,11 +40,19 @@ data:
       end: "12:00"
 ```
 
+```yaml
+# Permanent: a family member; the code is stored and never cleared
+action: nimly.create_guest_code
+data:
+  name: "Alva"
+  permanent: true
+```
+
 The service **returns the code once** — hand it to the guest. For temporary and
-one-time guests the code is never stored anywhere; for a recurring guest it is
-stored in the config entry's options, because the same digits have to be
-restored on every window. That storage is the deliberate cost of a fixed code
-(see [privacy.md](privacy.md)).
+one-time guests the code is never stored anywhere; for a recurring or permanent
+guest it is stored in the config entry's options, because the same digits have
+to come back — on every window, or after a loss. That storage is the deliberate
+cost of a fixed code (see [privacy.md](privacy.md)).
 
 ## Schedules
 
@@ -100,7 +109,9 @@ data:
 ```
 
 `nimly.update_guest` can also turn a temporary guest into a recurring one, but
-only when it is given a code — a temporary guest never stored its own.
+only when it is given a code — a temporary guest never stored its own. A
+permanent guest keeps its code: rename it or change the code the same way, and
+it never expires on its own.
 
 ## Fingerprint enrollment from Home Assistant
 
@@ -113,10 +124,10 @@ the enrollment) is the evidence the catalog trusts. The guest card's
 fingerprint button calls the same service.
 
 The guest card marks every row twice over. A **key**: solid (green) when the
-catalog holds the PIN value itself — a recurring guest — so the code can be
-replayed after a loss, and struck through when it does not (a temporary
-guest's code is shown once and never stored; an app-created guest's value only
-exists in the app). A **fingerprint**: solid when a finger in the slot has
+catalog holds the PIN value itself — a recurring or permanent guest — so the
+code can be replayed after a loss, and struck through when it does not (a
+temporary guest's code is shown once and never stored; an app-created guest's
+value only exists in the app). A **fingerprint**: solid when a finger in the slot has
 really opened the door, so the slot can be reused when restoring, and struck
 through when the finger was enrolled but never used — an enrollment proves
 nothing about the template the lock holds, so it is never replayed on faith.
