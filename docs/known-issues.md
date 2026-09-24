@@ -163,6 +163,15 @@ window and heals what the fresh record lost — the remembered name goes back
 return with the same codes. Tag UIDs still need a rescan; everything else
 survives.
 
+Why: the bridge has no graceful shutdown, so a move is an unclean power cut.
+Its boot can restore the Zigbee network (same PAN, devices local) while
+leaving the cloud session dead and the device bookkeeping half-restored — it
+evicted a device whose account record still existed. It does not self-heal
+that state: a second power cycle brought the cloud link back, but the
+device's send/receive session was only rebuilt by a fresh registration. There
+is no vendor-side fix to rely on; watch for the stale-link repair and re-pair
+when commands keep timing out.
+
 - **We do** treat a stranded app path as a re-pair, never a rebuild: one
   `repair_join` call, then `nimly.audit` for the drift report.
 - A re-registration always yields a new device id and bumps
