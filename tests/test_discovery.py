@@ -40,6 +40,27 @@ class NormaliseMacTest(unittest.TestCase):
         self.assertNotEqual(discovery.normalise_mac("not-a-mac"), MAC)
 
 
+class MacMatchTest(unittest.TestCase):
+    def test_any_separator_style(self) -> None:
+        self.assertTrue(discovery.mac_match(COLONED.upper(), MAC))
+        self.assertTrue(discovery.mac_match(DASHED, COLONED))
+
+    def test_interface_neighbours(self) -> None:
+        base = int(MAC, 16)
+        for delta in (1, 2):
+            neighbour = f"{base + delta:012x}"
+            self.assertTrue(discovery.mac_match(neighbour, MAC))
+            self.assertTrue(discovery.mac_match(MAC, neighbour))
+
+    def test_unrelated_addresses(self) -> None:
+        base = int(MAC, 16)
+        for delta in (3, -3, 0x100):
+            self.assertFalse(discovery.mac_match(f"{base + delta:012x}", MAC))
+        self.assertFalse(discovery.mac_match(OTHER, MAC))
+        self.assertFalse(discovery.mac_match(None, MAC))
+        self.assertFalse(discovery.mac_match("junk", MAC))
+
+
 class BridgePrefixTest(unittest.TestCase):
     def test_default_shape(self) -> None:
         self.assertEqual(discovery.bridge_prefix(COLONED.upper()), f"nimly/{MAC}")

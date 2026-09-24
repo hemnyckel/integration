@@ -26,6 +26,20 @@ def normalise_mac(value: object) -> str:
     return "".join(ch for ch in str(value or "").lower() if ch in _HEX)
 
 
+def mac_match(left: object, right: object) -> bool:
+    """True when two addresses name the same ESP32 (any of its interfaces).
+
+    An ESP32 exposes one base address through the firmware/cloud APIs and the
+    next addresses through its Wi-Fi AP and Bluetooth interfaces. Discovery may
+    store whichever the radio advertised while the firmware announces the base,
+    so a match tolerates a small offset between the two.
+    """
+    one, two = normalise_mac(left), normalise_mac(right)
+    if len(one) != 12 or len(two) != 12:
+        return False
+    return abs(int(one, 16) - int(two, 16)) <= 2
+
+
 def bridge_prefix(mac: object) -> str:
     """The prefix a default-configured kit uses: ``nimly/<mac>``."""
     return f"nimly/{normalise_mac(mac)}"

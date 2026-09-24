@@ -36,7 +36,7 @@ from ..const import (
     TOPIC_HA_TO_BRIDGE,
     TOPIC_OTA,
 )
-from .discovery import LEGACY_TOPIC, WILDCARD_TOPIC, normalise_mac
+from .discovery import LEGACY_TOPIC, WILDCARD_TOPIC, mac_match
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ class BridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if msg.topic == LEGACY_TOPIC and self.info:
             # Bootstrap only: the live per-prefix identity is authoritative.
             return
-        if normalise_mac(data.get("bridge")) != normalise_mac(self.address):
+        if not mac_match(data.get("bridge"), self.address):
             return
         prefix = data.get("prefix")
         if isinstance(prefix, str) and prefix and prefix.rstrip("/") != (self.prefix or ""):

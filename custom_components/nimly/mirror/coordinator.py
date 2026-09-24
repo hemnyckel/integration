@@ -107,7 +107,7 @@ from ..const import (
     ZCL_CMD_TAG_CLEAR,
 )
 
-from .discovery import normalise_mac
+from .discovery import mac_match
 from .facts import (
     compute_settings_drift,
     placeholder_slot_name,
@@ -2312,9 +2312,8 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.bridge_info:
                 return
             known = self.entry.data.get(CONF_BRIDGE)
-            mac = normalise_mac(known) if isinstance(known, str) else ""
-            if mac:
-                if normalise_mac(data.get("bridge")) != mac:
+            if isinstance(known, str) and known:
+                if not mac_match(data.get("bridge"), known):
                     return
             elif str(data.get("prefix") or "").rstrip("/") != self.prefix:
                 return
