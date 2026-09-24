@@ -64,6 +64,26 @@ def is_vendor_uuid(identity: str) -> bool:
     return len(identity) == 36 and [len(part) for part in parts] == [8, 4, 4, 4, 12]
 
 
+def rename_target(record: object, remembered: object) -> str | None:
+    """The name to write onto a vendor device record, or None.
+
+    A record the user has named itself (``manualName``) is never touched, and
+    neither is one already carrying what we remember. Otherwise the remembered
+    name heals a record the vendor re-created with its default: the same lock,
+    the same serial, but a fresh device id and the "Touch Pro" placeholder.
+    """
+    if not isinstance(record, dict):
+        return None
+    name = str(remembered or "").strip()
+    if not name:
+        return None
+    if bool(record.get("manualName")):
+        return None
+    if str(record.get("name") or "").strip() == name:
+        return None
+    return name
+
+
 def collision_rank(entity_id: str) -> tuple[int, int]:
     """Sort key preferring the entity without a ``_2`` collision suffix."""
     tail = entity_id.rsplit("_", 1)[-1]

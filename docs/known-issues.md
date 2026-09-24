@@ -150,6 +150,24 @@ the bridge's cloud link bounced.
 - Never factory-reset the bridge over this; quiet time heals it (and a longer
   power-off if needed).
 
+## A bridge move can strand the app path — repair_join restores it
+
+Measured 2026-09-24: after a physical move, the bridge's cloud link stayed
+silent (its telemetry timestamps froze) until a power cycle — and even with
+the link back, lock commands still answered `504 Gateway response timeout`
+while management requests (scan) worked and the lock's own reports never
+reached the cloud. Re-registering the lock record was the fix:
+`nimly.repair_join` drops the record, resets the emulator, opens the join
+window and heals what the fresh record lost — the remembered name goes back
+(`manualName: true` again) and the catalog is replayed so guest accesses
+return with the same codes. Tag UIDs still need a rescan; everything else
+survives.
+
+- **We do** treat a stranded app path as a re-pair, never a rebuild: one
+  `repair_join` call, then `nimly.audit` for the drift report.
+- A re-registration always yields a new device id and bumps
+  `gatewayGeneratedId`; entity identity follows the serial, not the id.
+
 ## A fresh registration can carry a garbled settings value
 
 Measured 2026-09-23: the device record created right after a join showed

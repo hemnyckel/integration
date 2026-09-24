@@ -134,7 +134,8 @@ as always valid; the schedule is enforced locally. Details:
 | `nimly.restore_cloud` | Replay the catalog after a loss (identities, PINs, fingerprints; reports what only the guest can restore). |
 | `nimly.audit` | Read-only drift report across lock, catalog and cloud. |
 | `nimly.link_credential` | Tie a slot's credential to a vendor user (pin, tag or finger) when a link needs a human. |
-| `nimly.cleanup_cloud` | Align the registry with the account: migrate, prune and rename (`dry_run` supported). Runs automatically at cloud setup. |
+| `nimly.cleanup_cloud` | Align the registry with the account: migrate, prune and put the remembered name back on a record the vendor re-created with its default (`dry_run` supported). Runs automatically at cloud setup. |
+| `nimly.repair_join` | One-call re-pair on the bridge: drop the record, reset the emulator, wait for a fresh join — then the remembered name and the catalog replay onto the new record. |
 
 ## The vendor cloud, honestly
 

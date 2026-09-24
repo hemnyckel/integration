@@ -254,6 +254,12 @@ class NimlyCloudApi:
     async def async_device(self, device_id: str) -> dict[str, Any]:
         return await self.async_get(PATH_DEVICE.format(device_id=device_id)) or {}
 
+    async def async_rename_device(self, device_id: str, name: str) -> Any:
+        """Name the vendor's device record (what the app shows for the lock)."""
+        return await self.async_patch(
+            PATH_DEVICE.format(device_id=device_id), {"name": name}
+        )
+
     async def async_device_access(self, device_id: str) -> list[dict[str, Any]]:
         return await self.async_get(
             PATH_DEVICE_ACCESS.format(device_id=device_id)

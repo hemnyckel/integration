@@ -32,11 +32,13 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from ..const import DOMAIN
+from .api import NimlyCloudError
 from .coordinator import NimlyCloudCoordinator
 from .identity import (
     collision_rank,
     is_vendor_uuid,
     normalise_serial,
+    rename_target,
     serial_from_identifiers,
     split_unique_id,
 )
@@ -212,7 +214,34 @@ async def async_reconcile(
             entry, options={**entry.options, OPTION_LOCK_NAMES: names}
         )
 
-    if any(report[key] for key in ("migrated", "removed_entities", "removed_devices")):
+    # A re-registration comes back with the vendor's default name ("Touch Pro");
+    # put the remembered one back whenever nobody has named the fresh record.
+    # The app's own choice (manualName) is never overwritten.
+    renamed: dict[str, str] = {}
+    for device_id, serial in device_serials.items():
+        record = next(
+            (item for item in coordinator.devices if str(item.get("id")) == device_id),
+            None,
+        )
+        wanted = rename_target(record, device_name(coordinator, device_id))
+        if not wanted:
+            continue
+        renamed[serial] = wanted
+        if dry_run:
+            continue
+        try:
+            await coordinator.api.async_rename_device(device_id, wanted)
+        except NimlyCloudError as err:
+            _LOGGER.warning("Naming %s failed: %s", serial, err)
+            renamed.pop(serial, None)
+        else:
+            _LOGGER.info("Named the re-registered lock %s", wanted)
+    report["renamed"] = renamed
+
+    if any(
+        report[key]
+        for key in ("migrated", "removed_entities", "removed_devices", "renamed")
+    ):
         _LOGGER.info(
             "Cloud registry cleanup: %s migrated, %s entities and %s devices removed%s",
             len(report["migrated"]),

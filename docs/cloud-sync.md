@@ -86,7 +86,7 @@ the lock just gained:
 | --- | --- | --- | --- | --- |
 | Emulator evicted / module swapped | intact | device record orphaned or gone | intact | Re-pair the emulator (IEEE provisioning); replay identities + accesses. For app-created PINs whose value we do not hold, let the emulator accept the cloud's push **without mirroring it to the lock**, so the code in the lock stays the one the guest knows. Fingers by simulation. |
 | Cloud account / device record removed | intact | empty | intact | Same replay as above; the lock is untouched. |
-| Bridge replaced | intact | device record gone | intact | Re-pair module + bridge (join recovery: remove the device in the app, search again), then the same replay. |
+| Bridge replaced | intact | device record gone | intact | Re-pair module + bridge — `nimly.repair_join` drops the record, resets the emulator and waits for the join, then re-applies the remembered name and the same replay. |
 | Lock factory reset (hardware intact) | credentials gone | intact | intact | Write back every PIN/tag we hold the value for; users re-enroll fingers and re-enter codes we do not know; re-sync the cloud (finger records by simulation). Every value re-entered through us is **promoted** into the catalog. |
 | Lock destroyed | gone | intact | intact | A new lock is provisioned; the catalog is the blueprint. Everything we hold a value for is restored; everything else is re-created by the users (finger, codes, tags). Then promoted. |
 | Home Assistant lost | intact | intact | backup | Restore the catalog from backup and audit against the lock and the cloud. |
@@ -113,6 +113,7 @@ next loss is a pure replay.
 | `nimly.cloud_guests` | Read the cloud's guest users into a response (and a sensor). | built |
 | `nimly.sync_cloud` | Reconcile HA → cloud (identities, pin/tag accesses, finger records), dry-run first. | built |
 | `nimly.restore_cloud` | Replay the catalog onto a fresh cloud/device without touching the lock's codes. | built |
+| `nimly.repair_join` | One call to re-pair onto the bridge: drop the record, reset the emulator, wait for the join — then name the record and replay the catalog. | built |
 | `nimly.simulate_enroll` | The guarded finger-enrollment replay (also used by sync/restore). | inside restore, no separate service yet |
 | `nimly.audit` | The drift report across lock, catalog and cloud. | built |
 

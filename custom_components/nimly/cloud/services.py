@@ -412,7 +412,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         join window and wait for the emulator to walk in. The bridge must be
         online; an offline bridge needs mains before anything can help.
         """
-        from .sync import cloud_device_for
+        from .identity import rename_target
+        from .maintenance import device_name
+        from .sync import async_sync_lock, cloud_device_for
 
         cloud = _coordinator(hass)
         mirrors = _mirrors(hass)
@@ -477,6 +479,50 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         except NimlyCloudError:
             pass
         steps.append("join window closed")
+
+        if joined:
+            # The fresh record comes back with the vendor's default name and no
+            # guest accesses; put the remembered name back and replay the
+            # catalog so a re-pair is a replay, never a rebuild. The vendor
+            # creates the record a moment after the join, so give it a window.
+            new_device_id = None
+            for _ in range(10):
+                await cloud.async_request_refresh()
+                new_device_id = cloud_device_for(cloud, mirror)
+                if new_device_id:
+                    break
+                await asyncio.sleep(8)
+            if new_device_id:
+                record = next(
+                    (
+                        item
+                        for item in cloud.devices
+                        if str(item.get("id")) == new_device_id
+                    ),
+                    None,
+                )
+                wanted = rename_target(record, device_name(cloud, new_device_id))
+                if wanted:
+                    await cloud.api.async_rename_device(new_device_id, wanted)
+                    steps.append(f"named {wanted}")
+                    _LOGGER.info("Re-paired lock named %s", wanted)
+            actions = await async_sync_lock(cloud, mirror, dry_run=False)
+            identities = sum(
+                1
+                for item in actions
+                if item["action"] in ("create_guest", "adopt_guest")
+            )
+            accesses = sum(
+                1 for item in actions if item["action"] == "create_access"
+            )
+            steps.append(f"catalog replayed ({identities} identities, {accesses} accesses)")
+            if identities or accesses:
+                await mirror.async_journal_note(
+                    "cloud_synced",
+                    detail=f"{identities} identit(ies), {accesses} access(es)",
+                )
+            await cloud.async_request_refresh()
+
         await mirror.async_journal_note(
             "repair_join",
             detail="joined" if joined else "no join this round",

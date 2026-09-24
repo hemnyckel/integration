@@ -94,5 +94,25 @@ class CollisionRankTest(unittest.TestCase):
         )
 
 
+class RenameTargetTest(unittest.TestCase):
+    def test_heals_a_recreated_default(self) -> None:
+        record = {"name": "Touch Pro", "manualName": False}
+        self.assertEqual(ident.rename_target(record, "Ytterdörren"), "Ytterdörren")
+
+    def test_never_touches_a_user_named_record(self) -> None:
+        record = {"name": "App-namnet", "manualName": True}
+        self.assertIsNone(ident.rename_target(record, "Ytterdörren"))
+
+    def test_noop_when_already_right(self) -> None:
+        record = {"name": "Ytterdörren", "manualName": False}
+        self.assertIsNone(ident.rename_target(record, "Ytterdörren"))
+
+    def test_needs_something_remembered(self) -> None:
+        record = {"name": "Touch Pro", "manualName": False}
+        self.assertIsNone(ident.rename_target(record, None))
+        self.assertIsNone(ident.rename_target(record, "  "))
+        self.assertIsNone(ident.rename_target(None, "Ytterdörren"))
+
+
 if __name__ == "__main__":
     unittest.main()
