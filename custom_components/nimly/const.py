@@ -19,6 +19,10 @@ TYPE_BRIDGE = "bridge"
 CONF_LOCK_ENTITY = "lock_entity_id"
 CONF_LOCK_NAME = "lock_name"
 CONF_PREFIX = "topic_prefix"
+
+# The bridge (kit) a mirror entry is bound to, as 12 hex characters: the MAC the
+# wizard matched from the bridge's retained <prefix>/info identity.
+CONF_BRIDGE = "bridge"
 CONF_CHANNELS = "channels"
 CONF_ENABLED = "enabled"
 CONF_ADDRESS = "address"
@@ -153,9 +157,11 @@ TOPIC_STATE = "state"
 TOPIC_BATTERY = "battery"
 TOPIC_PIN = "pin"
 TOPIC_OTA = "ota"
+TOPIC_INFO = "info"
 
-# Well-known retained topic where the bridge announces itself (prefix, id, firmware).
-# Sits outside the prefix so the wizard can find the emulator without knowing it.
+# The legacy shared identity topic (firmware 0.5.x). Firmware 0.6.0 and later
+# announces on its own "<prefix>/info"; discovery listens on the wildcard
+# nimly/+/info plus this topic for the transition.
 TOPIC_BRIDGE_INFO = "nimly/info"
 
 # --- Event names used in the protocol ---------------------------------------

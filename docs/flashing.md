@@ -69,8 +69,11 @@ Three wires (see [hardware.md](hardware.md)): C6 `GPIO6 →` C3 `GPIO5`, C6
 ## 5. Pairing the emulator with the vendor bridge
 
 The emulator must join the Nimly Connect Bridge's Zigbee network wearing the
-lock module's own IEEE address, because the vendor cloud only accepts known
-modules. The sequence that works, learned on hardware:
+lock module's own IEEE address: the account keys every device record on that
+serial, so the app and the cloud treat the emulator as *this* lock. (Measured
+2026-09-23: the cloud itself has no serial whitelist — a fabricated sibling
+address joined and was accepted — but the identity is what makes the emulator
+this lock and nothing else.) The sequence that works, learned on hardware:
 
 1. **Give the emulator the right IEEE** — the mirror device exposes
    `nimly.set_ieee`; called without a value it uses the real lock's address.
@@ -79,14 +82,19 @@ modules. The sequence that works, learned on hardware:
    before will not start a fresh join. The `nimly` firmware accepts a
    `factory_reset` command over the bridge (it wipes the Zigbee stack, not the
    IEEE).
-3. **Open the bridge's pairing window** by starting *add device* in the vendor
-   app. The emulator steers continuously and joins within seconds when the
-   window is open.
-4. **If the app still has the old lock registered, remove it first.** A stale
-   device registration blocks the rejoin; this is the step that is easy to miss.
-   Only then should a factory reset of the vendor bridge be considered at all.
-5. When the app finds the new device, name it and finish its wizard. The mirror
-   re-applies the lock's settings to the app's record automatically.
+3. **Open the bridge's pairing window from Home Assistant** —
+   `nimly.gateway_scan` uses the same action the vendor app's search does, so
+   the app is not needed. The emulator steers continuously and joins within
+   seconds when the window is open.
+4. **A stale device registration does not block a rejoin** — the emulator
+   rejoining an existing network is enough. If the app path is stranded
+   entirely (commands time out, no reports reach the cloud), run
+   `nimly.repair_join`: it removes the record, resets the emulator, waits for a
+   fresh join, then re-applies the remembered name and replays the catalog.
+   Factory-resetting the vendor bridge is never part of the flow.
+5. When the lock appears in the app, its name is applied automatically (the
+   ZHA device's name wins). The mirror re-applies the lock's settings to the
+   app's record automatically.
 
 > **Power-cycle, never factory-reset.** A bridge that is offline in the app
 > only needs its power pulled for ten seconds. Factory-resetting the bridge

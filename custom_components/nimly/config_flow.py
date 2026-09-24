@@ -23,6 +23,7 @@ from .const import (
     CHANNELS,
     CONF_ACCESS_TOKEN,
     CONF_ADDRESS,
+    CONF_BRIDGE,
     CONF_CHANNELS,
     CONF_COMPANY_ID,
     CONF_EMAIL,
@@ -54,6 +55,12 @@ from .mirror.pin_rules import (  # noqa: E402 - after the const imports
     RESERVED_SLOTS_MAX,
     RESERVED_SLOTS_MIN,
     first_user_slot,
+)
+from .mirror.discovery import (  # noqa: E402 - after the const imports
+    LEGACY_TOPIC,
+    WILDCARD_TOPIC,
+    collect_bridges,
+    valid_prefix,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -94,28 +101,40 @@ def _extract_channels(user_input: dict[str, Any]) -> dict[str, bool]:
     return {key: bool(user_input.get(f"ch_{key}")) for key in CHANNELS}
 
 
-async def _detect_bridge(hass: Any) -> dict[str, Any] | None:
-    """Listens briefly to the bridge's retained nimly/info so the wizard can prefill the prefix."""
-    fut: asyncio.Future = hass.loop.create_future()
+async def _detect_bridges(hass: Any) -> list[dict[str, Any]]:
+    """Every kit's retained identity, for the wizard's bridge picker.
+
+    Listens briefly to the wildcard nimly/+/info (firmware 0.6.0+, one topic per
+    kit) plus the legacy shared nimly/info (0.5.x). Each kit is returned with a
+    ``free`` flag: a prefix another mirror entry already bound is taken, so the
+    wizard only offers kits nobody owns.
+    """
+    payloads: list[dict[str, Any]] = []
 
     @callback
     def _cb(msg: mqtt.ReceiveMessage) -> None:
-        if fut.done():
-            return
         try:
             data = json.loads(msg.payload)
         except (ValueError, TypeError):
-            fut.set_result(None)
             return
-        fut.set_result(data if isinstance(data, dict) else None)
+        if isinstance(data, dict):
+            payloads.append(data)
 
-    unsub = await mqtt.async_subscribe(hass, TOPIC_BRIDGE_INFO, _cb, qos=1)
+    unsubs = [
+        await mqtt.async_subscribe(hass, topic, _cb, qos=1)
+        for topic in (WILDCARD_TOPIC, LEGACY_TOPIC)
+    ]
     try:
-        return await asyncio.wait_for(fut, timeout=3)
-    except asyncio.TimeoutError:
-        return None
+        await asyncio.sleep(3)
     finally:
-        unsub()
+        for unsub in unsubs:
+            unsub()
+    used = {
+        entry.options.get(CONF_PREFIX) or entry.data.get(CONF_PREFIX) or DEFAULT_PREFIX
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if entry.data.get(CONF_TYPE) == TYPE_MIRROR
+    }
+    return collect_bridges(payloads, used)
 
 
 class NimlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -129,6 +148,8 @@ class NimlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._locations: list[dict[str, Any]] = []
         self._lock_entity: str | None = None
         self._prefix: str = DEFAULT_PREFIX
+        self._bridge: str | None = None
+        self._bridges: list[dict[str, Any]] = []
         self._channels: dict[str, bool] = dict(DEFAULT_CHANNELS)
         self._ble_address: str | None = None
         self._ble_name: str = ""
@@ -283,43 +304,88 @@ class NimlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_mirror(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
+        errors: dict[str, str] = {}
         if user_input is not None:
             lock_entity: str = user_input[CONF_LOCK_ENTITY]
-            self._lock_entity = lock_entity
-            self._prefix = user_input.get(CONF_PREFIX) or DEFAULT_PREFIX
-            await self.async_set_unique_id(lock_entity.lower())
-            self._abort_if_unique_id_configured()
-            return await self.async_step_channels()
+            chosen = str(user_input.get(CONF_BRIDGE) or "")
+            bridge = next(
+                (item for item in self._bridges if item["mac"] == chosen), None
+            )
+            prefix = (
+                bridge["prefix"] if bridge else str(user_input.get(CONF_PREFIX) or "")
+            ).rstrip("/") or DEFAULT_PREFIX
+            if not valid_prefix(prefix):
+                errors["base"] = "invalid_prefix"
+            elif any(
+                (
+                    entry.options.get(CONF_PREFIX)
+                    or entry.data.get(CONF_PREFIX)
+                    or DEFAULT_PREFIX
+                )
+                == prefix
+                for entry in self.hass.config_entries.async_entries(DOMAIN)
+                if entry.data.get(CONF_TYPE) == TYPE_MIRROR
+            ):
+                errors["base"] = "prefix_in_use"
+            if not errors:
+                self._lock_entity = lock_entity
+                self._prefix = prefix
+                self._bridge = bridge["mac"] if bridge else None
+                await self.async_set_unique_id(lock_entity.lower())
+                self._abort_if_unique_id_configured()
+                return await self.async_step_channels()
 
-        detected = await _detect_bridge(self.hass)
-        prefix_default = DEFAULT_PREFIX
-        if detected:
-            found = detected.get("prefix")
-            if isinstance(found, str) and found:
-                prefix_default = found
+        if not self._bridges:
+            self._bridges = await _detect_bridges(self.hass)
+        free = [item for item in self._bridges if item["free"]]
+        prefix_default = free[0]["prefix"] if free else DEFAULT_PREFIX
+        if self._bridges:
+            listed = ", ".join(
+                f"{item['prefix']} ({item['mac']}, fw {item['fw'] or '?'})"
+                + ("" if item["free"] else " - in use")
+                for item in self._bridges
+            )
             text = (
-                f"Found the bridge {detected.get('model', 'Nimly Bridge')} "
-                f"({detected.get('bridge', '?')}), firmware {detected.get('fw', '?')}."
+                f"Found {len(self._bridges)} bridge(s): {listed}. "
+                "Pick one, or enter a prefix manually."
             )
         else:
             text = (
-                "No bridge was found automatically (nimly/info is empty) - "
+                "No bridge was found automatically (nimly/+/info is empty) - "
                 "enter the MQTT prefix manually."
             )
 
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_LOCK_ENTITY): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="lock")
-                ),
-                vol.Optional(CONF_PREFIX, default=prefix_default): selector.TextSelector(
-                    selector.TextSelectorConfig()
-                ),
-            }
+        fields: dict[Any, Any] = {
+            vol.Required(CONF_LOCK_ENTITY): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="lock")
+            )
+        }
+        if self._bridges:
+            fields[
+                vol.Optional(
+                    CONF_BRIDGE,
+                    default=(free[0]["mac"] if free else self._bridges[0]["mac"]),
+                )
+            ] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(
+                            value=item["mac"],
+                            label=f"{item['prefix']} · fw {item['fw'] or '?'}"
+                            + ("" if item["free"] else " (in use)"),
+                        )
+                        for item in self._bridges
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            )
+        fields[vol.Optional(CONF_PREFIX, default=prefix_default)] = (
+            selector.TextSelector()
         )
         return self.async_show_form(
             step_id="mirror",
-            data_schema=schema,
+            data_schema=vol.Schema(fields),
+            errors=errors,
             description_placeholders={"detected": text},
         )
 
@@ -360,6 +426,7 @@ class NimlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_TYPE: TYPE_MIRROR,
                 CONF_LOCK_ENTITY: self._lock_entity,
                 CONF_PREFIX: self._prefix,
+                **({CONF_BRIDGE: self._bridge} if self._bridge else {}),
             },
             options={CONF_CHANNELS: self._channels},
         )

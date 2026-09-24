@@ -80,7 +80,9 @@
       "invalid_auth": "Invalid email or password.",
       "cannot_connect": "Could not reach the vendor cloud.",
       "no_locations": "The account has no locations.",
-      "provision_failed": "Provisioning failed – check the network and try again."
+      "provision_failed": "Provisioning failed – check the network and try again.",
+      "invalid_prefix": "Invalid MQTT prefix (a-z, 0-9, /, _ and -).",
+      "prefix_in_use": "That prefix is already used by another mirror - pick another one."
     }
   },
   "options": {
@@ -340,6 +342,10 @@
           "retry_failed": "The vendor cloud still refuses the guest. The journal has the details."
         }
       }
+    },
+    "prefix_conflict": {
+      "title": "Two mirrors share the MQTT prefix {prefix}",
+      "description": "Another mirror entry uses the same prefix - commands would reach both kits. Give each kit its own prefix (a new kit defaults to nimly/<mac>)."
     }
   },
   "services": {

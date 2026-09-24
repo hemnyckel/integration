@@ -49,6 +49,22 @@ def _fraction(status: dict[str, Any]) -> float | None:
     return min(max(float(pct) / 100.0, 0.0), 0.999)
 
 
+def _report_progress(entity: Any, fraction: float) -> None:
+    """Show OTA progress through whichever API the running core offers.
+
+    ``async_update_progress`` existed up to 2025 and was removed in 2026, where
+    the percentage travels through the entity attribute instead. Try both so a
+    newer core neither errors nor loses the progress bar entirely.
+    """
+    legacy = getattr(entity, "async_update_progress", None)
+    if callable(legacy):
+        legacy(fraction)
+        return
+    if hasattr(entity, "_attr_update_percentage"):
+        entity._attr_update_percentage = round(fraction * 100, 1)
+        entity.async_write_ha_state()
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -110,7 +126,7 @@ class MirrorEmulatorUpdate(MirrorEntity, UpdateEntity):
     def _handle_coordinator_update(self) -> None:
         fraction = _fraction(self._ota_status())
         if fraction is not None and self.in_progress:
-            self.async_update_progress(fraction)
+            _report_progress(self, fraction)
         super()._handle_coordinator_update()
 
     async def async_install(
@@ -175,7 +191,7 @@ class MirrorBridgeUpdate(MirrorEntity, UpdateEntity):
     def _handle_coordinator_update(self) -> None:
         fraction = _fraction(self._ota_status())
         if fraction is not None and self.in_progress:
-            self.async_update_progress(fraction)
+            _report_progress(self, fraction)
         super()._handle_coordinator_update()
 
     def _binary_url(self) -> str | None:
@@ -240,7 +256,7 @@ class BridgeUpdate(BridgeEntity, UpdateEntity):
     def _handle_coordinator_update(self) -> None:
         fraction = _fraction(self._ota_status())
         if fraction is not None and self.in_progress:
-            self.async_update_progress(fraction)
+            _report_progress(self, fraction)
         super()._handle_coordinator_update()
 
     async def async_install(
@@ -266,11 +282,10 @@ async def _wait_for_ota(entity: Any, status_getter: Any) -> None:
         status = status_getter()
         state = status.get("state")
         fraction = _fraction(status)
-        if fraction is not None and hasattr(entity, "async_update_progress"):
-            entity.async_update_progress(fraction)
+        if fraction is not None:
+            _report_progress(entity, fraction)
         if state == _TERMINAL_DONE:
-            if hasattr(entity, "async_update_progress"):
-                entity.async_update_progress(1.0)
+            _report_progress(entity, 1.0)
             return
         if state == _TERMINAL_ERROR:
             raise HomeAssistantError(

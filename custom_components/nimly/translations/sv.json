@@ -80,7 +80,9 @@
       "invalid_auth": "Fel e-post eller lösenord.",
       "cannot_connect": "Kunde inte nå leverantörens moln.",
       "no_locations": "Kontot har inga platser.",
-      "provision_failed": "Kunde inte provisionera – kontrollera nätverket och försök igen."
+      "provision_failed": "Kunde inte provisionera – kontrollera nätverket och försök igen.",
+      "invalid_prefix": "Ogiltigt MQTT-prefix (a-z, 0-9, /, _ och -).",
+      "prefix_in_use": "Det prefixet används redan av en annan spegel - välj ett annat."
     }
   },
   "options": {
@@ -340,6 +342,10 @@
           "retry_failed": "Molnet avvisar fortfarande gästen. Journalen har detaljerna."
         }
       }
+    },
+    "prefix_conflict": {
+      "title": "Två speglar delar MQTT-prefix {prefix}",
+      "description": "En annan spegel använder samma prefix - kommandon skulle nå båda kiten. Ge varje kit eget prefix (nya kit får nimly/<mac> automatiskt)."
     }
   },
   "services": {

@@ -227,3 +227,20 @@ so it is only kept as a fallback.
 
 - **We do** treat the action payload as the primary scan and verify a window by
   the hub's Permit Join broadcast, never by the API answer alone.
+
+## Flaky USB on some cheap boards: flash in small chunks
+
+Measured 2026-09-24 on a fresh ESP32-C6: full `write_flash` runs died at
+random points ("No more data to read from the serial port") while an
+ESP32-C3 on the same cable, port and VM flashed flawlessly. That board's
+USB-serial-JTAG link does not survive long sustained writes. What works:
+
+- write the big app image in 32 KiB chunks, retrying each chunk (partial
+  progress is kept and every chunk is verified on its own), and
+- write the small parts (bootloader, partition table, ota_data) with
+  `--no-stub` at 115200.
+
+A partition table that was written and verified once can still read back as
+0xFF later on such a board - re-check 0x8000 after a chunked flash. (Also:
+the lab VM lost its Proxmox USB passthrough mid-session; when every USB
+device vanishes at once, that is host-side, not the boards.)

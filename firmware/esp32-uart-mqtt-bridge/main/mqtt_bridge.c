@@ -23,6 +23,80 @@
 static const char *TAG = "mqtt_bridge";
 
 #define WIFI_NVS_NS        "nimly_wifi"
+#define CONFIG_NVS_NS      "nimly_cfg"
+
+// Prefix-overlagring i byggen/kort som saknar nyckeln i secrets.h.
+#ifndef NIMLY_TOPIC_PREFIX
+#define NIMLY_TOPIC_PREFIX ""
+#endif
+
+// Alla MQTT-topics bor under ett per-enhet-prefix (normalt "nimly/<mac>"), så
+// flera kit kan dela broker utan att korsprata. Prefixet kan överlagras i NVS
+// (nyckeln "prefix" i CONFIG_NVS_NS) eller i secrets.h för dev-byggen.
+static char s_prefix[48];
+static char s_c6_fw[16];
+static char s_c6_ieee[24];
+static char s_lw_topic[64];
+
+// Bygger "<prefix>/<suffix>" i buf.
+static void topic_for(char *buf, size_t n, const char *suffix)
+{
+    snprintf(buf, n, "%s/%s", s_prefix, suffix);
+}
+
+// Enhetens WiFi-MAC som 12 hextecken (samma form som integrations-wizarden).
+static const char *mac_hex(void)
+{
+    static char out[13];
+    uint8_t mac[6] = { 0 };
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    snprintf(out, sizeof(out), "%02x%02x%02x%02x%02x%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return out;
+}
+
+static bool prefix_ok_char(char c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '/' || c == '_' || c == '-';
+}
+
+static bool prefix_valid(const char *p)
+{
+    size_t n = strlen(p);
+    if (n < 3 || n >= sizeof(s_prefix) || p[0] == '/' || p[n - 1] == '/') {
+        return false;
+    }
+    for (size_t i = 0; i < n; i++) {
+        if (!prefix_ok_char(p[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Prefix i tur och ordning: NVS -> secrets.h -> "nimly/<mac>".
+static void prefix_load(void)
+{
+    s_prefix[0] = '\0';
+    nvs_handle_t h;
+    if (nvs_open(CONFIG_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        size_t n = sizeof(s_prefix);
+        if (nvs_get_str(h, "prefix", s_prefix, &n) != ESP_OK || !prefix_valid(s_prefix)) {
+            s_prefix[0] = '\0';
+        }
+        nvs_close(h);
+    }
+    if (s_prefix[0] == '\0' && sizeof(NIMLY_TOPIC_PREFIX) > 1) {
+        if (prefix_valid(NIMLY_TOPIC_PREFIX)) {
+            strncpy(s_prefix, NIMLY_TOPIC_PREFIX, sizeof(s_prefix) - 1);
+        }
+    }
+    if (s_prefix[0] == '\0') {
+        snprintf(s_prefix, sizeof(s_prefix), "nimly/%s", mac_hex());
+    }
+    s_prefix[sizeof(s_prefix) - 1] = '\0';
+    ESP_LOGI(TAG, "MQTT-prefix: %s", s_prefix);
+}
 
 static char s_ssid[33];
 static char s_pass[65];
@@ -32,19 +106,28 @@ static int s_fail_count = 0;
 
 static void wifi_connect_now(void);
 
-#define TOPIC_HA_TO_BRIDGE "nimly/proxy/ha_to_bridge"
-#define TOPIC_BRIDGE_TO_HA "nimly/proxy/bridge_to_ha"
-#define TOPIC_STATE        "nimly/proxy/state"
-#define TOPIC_BATTERY      "nimly/proxy/battery"
-#define TOPIC_PIN          "nimly/proxy/pin"
-#define TOPIC_INFO         "nimly/info"
-#define TOPIC_OTA          "nimly/proxy/ota"
+#define TOPIC_HA_TO_BRIDGE "ha_to_bridge"
+#define TOPIC_BRIDGE_TO_HA "bridge_to_ha"
+#define TOPIC_STATE        "state"
+#define TOPIC_BATTERY      "battery"
+#define TOPIC_PIN          "pin"
+#define TOPIC_INFO         "info"
+#define TOPIC_OTA          "ota"
 
 static esp_mqtt_client_handle_t s_client = NULL;
 static bool s_mqtt_connected = false;
 static void (*s_cmd_cb)(const char *json, int len) = NULL;
 static void (*s_connect_cb)(void) = NULL;
 static TimerHandle_t s_reconn_timer = NULL;
+static TimerHandle_t s_info_timer = NULL;
+
+// Republiserar den retainade identiteten med jämna mellanrum: en HA-omstart
+// kan missa retained-leveransen, och då läker nästa tick det.
+static void info_timer_cb(TimerHandle_t t)
+{
+    (void)t;
+    mqtt_bridge_publish_info();
+}
 
 // Ackumulerar MQTT-payload över flera events (en publikation kan fragmenteras).
 static char s_rx[512];
@@ -72,9 +155,11 @@ void mqtt_bridge_publish_state(bool locked)
     if (!s_mqtt_connected) {
         return;
     }
+    char topic[64];
     char msg[64];
+    topic_for(topic, sizeof(topic), TOPIC_STATE);
     snprintf(msg, sizeof(msg), "{\"lock\":\"%s\"}", locked ? "locked" : "unlocked");
-    esp_mqtt_client_publish(s_client, TOPIC_STATE, msg, 0, 1, 1);
+    esp_mqtt_client_publish(s_client, topic, msg, 0, 1, 1);
 }
 
 void mqtt_bridge_publish_from_c6(const char *json)
@@ -82,7 +167,9 @@ void mqtt_bridge_publish_from_c6(const char *json)
     if (!s_mqtt_connected || !json) {
         return;
     }
-    esp_mqtt_client_publish(s_client, TOPIC_BRIDGE_TO_HA, json, 0, 1, 0);
+    char topic[64];
+    topic_for(topic, sizeof(topic), TOPIC_BRIDGE_TO_HA);
+    esp_mqtt_client_publish(s_client, topic, json, 0, 1, 0);
 }
 
 void mqtt_bridge_publish_battery(int percentage)
@@ -90,9 +177,11 @@ void mqtt_bridge_publish_battery(int percentage)
     if (!s_mqtt_connected) {
         return;
     }
+    char topic[64];
     char msg[48];
+    topic_for(topic, sizeof(topic), TOPIC_BATTERY);
     snprintf(msg, sizeof(msg), "{\"battery\":%d}", percentage);
-    esp_mqtt_client_publish(s_client, TOPIC_BATTERY, msg, 0, 1, 1);
+    esp_mqtt_client_publish(s_client, topic, msg, 0, 1, 1);
 }
 
 void mqtt_bridge_publish_pin(const char *json)
@@ -100,7 +189,9 @@ void mqtt_bridge_publish_pin(const char *json)
     if (!s_mqtt_connected || !json) {
         return;
     }
-    esp_mqtt_client_publish(s_client, TOPIC_PIN, json, 0, 1, 0);
+    char topic[64];
+    topic_for(topic, sizeof(topic), TOPIC_PIN);
+    esp_mqtt_client_publish(s_client, topic, json, 0, 1, 0);
 }
 
 void mqtt_bridge_publish_info(void)
@@ -108,16 +199,28 @@ void mqtt_bridge_publish_info(void)
     if (!s_mqtt_connected) {
         return;
     }
-    uint8_t mac[6] = { 0 };
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
     const esp_app_desc_t *desc = esp_app_get_description();
-    char msg[224];
-    snprintf(msg, sizeof(msg),
-             "{\"bridge\":\"%02x%02x%02x%02x%02x%02x\",\"fw\":\"%s\",\"prefix\":\"nimly/proxy\","
-             "\"target\":\"%s\",\"model\":\"Nimly Shadow Bridge\"}",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], desc ? desc->version : "?",
-             CONFIG_IDF_TARGET);
-    esp_mqtt_client_publish(s_client, TOPIC_INFO, msg, 0, 1, 1); // retainad
+    char topic[64];
+    char msg[352];
+    topic_for(topic, sizeof(topic), TOPIC_INFO);
+    int n = snprintf(msg, sizeof(msg),
+                     "{\"bridge\":\"%s\",\"fw\":\"%s\",\"prefix\":\"%s\","
+                     "\"target\":\"%s\",\"model\":\"Nimly Shadow Bridge\"",
+                     mac_hex(), desc ? desc->version : "?", s_prefix, CONFIG_IDF_TARGET);
+    size_t used = (n > 0) ? (size_t)n : 0;
+    if (s_c6_fw[0] != '\0' && used < sizeof(msg)) {
+        int m = snprintf(msg + used, sizeof(msg) - used,
+                         ",\"c6\":{\"fw\":\"%s\",\"ieee\":\"%s\"}", s_c6_fw, s_c6_ieee);
+        if (m > 0) {
+            used += (size_t)m;
+        }
+    }
+    if (used < sizeof(msg)) {
+        snprintf(msg + used, sizeof(msg) - used, "}");
+    } else {
+        msg[sizeof(msg) - 1] = '\0';
+    }
+    esp_mqtt_client_publish(s_client, topic, msg, 0, 1, 1); // retainad
     ESP_LOGI(TAG, "Info publicerad: %s", msg);
 }
 
@@ -126,7 +229,46 @@ void mqtt_bridge_publish_ota(const char *json)
     if (!s_mqtt_connected || !json) {
         return;
     }
-    esp_mqtt_client_publish(s_client, TOPIC_OTA, json, 0, 1, 0);
+    char topic[64];
+    topic_for(topic, sizeof(topic), TOPIC_OTA);
+    esp_mqtt_client_publish(s_client, topic, json, 0, 1, 0);
+}
+
+const char *mqtt_bridge_prefix(void)
+{
+    return s_prefix;
+}
+
+void mqtt_bridge_set_c6_info(const char *fw, const char *ieee)
+{
+    if (fw && *fw) {
+        strncpy(s_c6_fw, fw, sizeof(s_c6_fw) - 1);
+        s_c6_fw[sizeof(s_c6_fw) - 1] = '\0';
+    }
+    if (ieee && *ieee) {
+        strncpy(s_c6_ieee, ieee, sizeof(s_c6_ieee) - 1);
+        s_c6_ieee[sizeof(s_c6_ieee) - 1] = '\0';
+    }
+    // Retainad info: uppdatera direkt så HA ser C6:ans fw/IEEE utan att vänta
+    // på nästa återanslutning.
+    mqtt_bridge_publish_info();
+}
+
+bool mqtt_bridge_set_prefix(const char *prefix)
+{
+    if (!prefix || !prefix_valid(prefix)) {
+        return false;
+    }
+    nvs_handle_t h;
+    if (nvs_open(CONFIG_NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
+        return false;
+    }
+    esp_err_t err = nvs_set_str(h, "prefix", prefix);
+    if (err == ESP_OK) {
+        err = nvs_commit(h);
+    }
+    nvs_close(h);
+    return err == ESP_OK;
 }
 
 static void mqtt_event_handler(void *args, esp_event_base_t base, int32_t id, void *data)
@@ -136,17 +278,20 @@ static void mqtt_event_handler(void *args, esp_event_base_t base, int32_t id, vo
     esp_mqtt_event_handle_t e = (esp_mqtt_event_handle_t)data;
 
     switch ((esp_mqtt_event_id_t)id) {
-    case MQTT_EVENT_CONNECTED:
+    case MQTT_EVENT_CONNECTED: {
         s_mqtt_connected = true;
         ESP_LOGI(TAG, "MQTT ansluten till %s", NIMLY_MQTT_URI);
-        esp_mqtt_client_subscribe(s_client, TOPIC_HA_TO_BRIDGE, 1);
-        // Publicera identiteten (retainat) så att nimly_shadow hittar oss automatiskt.
+        char topic[64];
+        topic_for(topic, sizeof(topic), TOPIC_HA_TO_BRIDGE);
+        esp_mqtt_client_subscribe(s_client, topic, 1);
+        // Publicera identiteten (retainat) så att integrationen hittar oss automatiskt.
         mqtt_bridge_publish_info();
         // Begär aktuell status från C6 (retainade state-topicen kan vara inaktuell).
         if (s_connect_cb) {
             s_connect_cb();
         }
         break;
+    }
     case MQTT_EVENT_DISCONNECTED:
         s_mqtt_connected = false;
         ESP_LOGW(TAG, "MQTT frånkopplad – återansluter automatiskt");
@@ -306,6 +451,7 @@ bool mqtt_bridge_wifi_configured(void)
 
 void mqtt_bridge_start(void)
 {
+    prefix_load();
     wifi_load_creds();
 
     ESP_ERROR_CHECK(esp_netif_init());
@@ -341,11 +487,12 @@ void mqtt_bridge_start(void)
 
     wifi_connect_now();
 
+    topic_for(s_lw_topic, sizeof(s_lw_topic), TOPIC_STATE);
     esp_mqtt_client_config_t mc = {
         .broker.address.uri = NIMLY_MQTT_URI,
         .credentials.username = (strlen(NIMLY_MQTT_USER) ? NIMLY_MQTT_USER : NULL),
         .credentials.authentication.password = (strlen(NIMLY_MQTT_PASS) ? NIMLY_MQTT_PASS : NULL),
-        .session.last_will.topic = TOPIC_STATE,
+        .session.last_will.topic = s_lw_topic,
         .session.last_will.msg = "{\"lock\":\"unknown\"}",
         .session.last_will.qos = 1,
         .session.last_will.retain = 1,
@@ -353,4 +500,10 @@ void mqtt_bridge_start(void)
     s_client = esp_mqtt_client_init(&mc);
     esp_mqtt_client_register_event(s_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
     esp_mqtt_client_start(s_client);
+
+    if (!s_info_timer) {
+        s_info_timer = xTimerCreate("info_repub", pdMS_TO_TICKS(300000), pdTRUE, NULL, info_timer_cb);
+        xTimerStart(s_info_timer, 0);
+        ESP_LOGI(TAG, "Info-republish var 5:e minut aktiverad");
+    }
 }

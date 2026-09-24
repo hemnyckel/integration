@@ -45,6 +45,7 @@ static void ota_task(void *arg)
         .url = url,
         .timeout_ms = 20000,
         .keep_alive_enable = true,
+        .buffer_size = 4096,
         .crt_bundle_attach = esp_crt_bundle_attach,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
@@ -80,6 +81,7 @@ static void ota_task(void *arg)
     char buf[1024];
     int total = 0;
     int last_bucket = -1;
+    int empty_reads = 0;
     while (true) {
         int r = esp_http_client_read(client, buf, sizeof(buf));
         if (r < 0) {
@@ -89,6 +91,14 @@ static void ota_task(void *arg)
             goto done;
         }
         if (r == 0) {
+            // En tom läsning med kvarvarande body kan vara transient; ge
+            // läsaren några chanser innan nedladdningen klassas som kort.
+            if (content_len > 0 && total < content_len
+                && !esp_http_client_is_complete_data_received(client)
+                && empty_reads++ < 3) {
+                vTaskDelay(pdMS_TO_TICKS(100));
+                continue;
+            }
             break; // klart
         }
         if (esp_ota_write(handle, buf, (size_t)r) != ESP_OK) {
@@ -106,11 +116,23 @@ static void ota_task(void *arg)
             }
         }
     }
+    bool complete = esp_http_client_is_complete_data_received(client);
     esp_http_client_cleanup(client);
+
+    if (!complete || (content_len > 0 && total != content_len)) {
+        // En kort eller avbruten body får aldrig bli en halvskriven OTA-slot.
+        char msg[80];
+        snprintf(msg, sizeof(msg), "kort nedladdning %d/%d", total, content_len);
+        publish("error", 0, msg);
+        esp_ota_abort(handle);
+        goto done;
+    }
 
     err = esp_ota_end(handle);
     if (err != ESP_OK) {
-        publish("error", 0, "ota-end (ogiltig bild?)");
+        char msg[80];
+        snprintf(msg, sizeof(msg), "ota-end fel 0x%x (%d byte)", (unsigned)err, total);
+        publish("error", 0, msg);
         goto done;
     }
     err = esp_ota_set_boot_partition(part);

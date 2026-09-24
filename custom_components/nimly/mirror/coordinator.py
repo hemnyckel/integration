@@ -59,13 +59,16 @@ from ..const import (
     CMD_OTA,
     CMD_UNLOCK,
     CMD_VOLUME,
+    CONF_BRIDGE,
     CONF_CHANNELS,
     CONF_DEVICE_IDENTITY,
     CONF_ENABLED,
     CONF_OTA_MANIFEST_URL,
+    CONF_PREFIX,
     CONF_TYPE,
     DEFAULT_ENDPOINT,
     DEFAULT_OTA_MANIFEST_URL,
+    DEFAULT_PREFIX,
     DOMAIN,
     ECHO_WINDOW,
     EVENT_JOURNAL,
@@ -91,17 +94,20 @@ from ..const import (
     TOPIC_BATTERY,
     TOPIC_BRIDGE_INFO,
     TOPIC_BRIDGE_TO_HA,
+    TOPIC_INFO,
     TOPIC_OTA,
     TOPIC_HA_TO_BRIDGE,
     TOPIC_PIN,
     TOPIC_STATE,
     TYPE_CLOUD,
+    TYPE_MIRROR,
     ZCL_CMD_FP_CLEAR,
     ZCL_CMD_FP_ENROLL,
     ZCL_CMD_TAG_SCAN,
     ZCL_CMD_TAG_CLEAR,
 )
 
+from .discovery import normalise_mac
 from .facts import (
     compute_settings_drift,
     placeholder_slot_name,
@@ -315,11 +321,15 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass, self._topic(TOPIC_PIN), self._on_pin, qos=1
             )
         )
-        self._unsubs.append(
-            await mqtt.async_subscribe(
-                self.hass, TOPIC_BRIDGE_INFO, self._on_bridge_info, qos=1
+        # The bridge identity: ours arrives on <prefix>/info (0.6.0+); the shared
+        # legacy topic is filtered inside the handler.
+        for topic in (self._topic(TOPIC_INFO), TOPIC_BRIDGE_INFO):
+            self._unsubs.append(
+                await mqtt.async_subscribe(
+                    self.hass, topic, self._on_bridge_info, qos=1
+                )
             )
-        )
+        self._check_prefix_conflict()
         self._unsubs.append(
             await mqtt.async_subscribe(
                 self.hass, self._topic(TOPIC_OTA), self._on_ota, qos=1
@@ -2282,24 +2292,70 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @callback
     def _on_bridge_info(self, msg: mqtt.ReceiveMessage) -> None:
-        """The bridge retained identity (nimly/info): prefix, id and firmware."""
+        """The bridge retained identity: prefix, id and firmware.
+
+        Our own kit announces on <prefix>/info; the legacy shared nimly/info is
+        accepted only for the kit that announces this entry's prefix (firmware
+        0.5.x) or by MAC when the entry knows it. Foreign kits are ignored —
+        with per-kit prefixes they can never collide.
+        """
         try:
             data = json.loads(msg.payload)
         except (ValueError, TypeError):
             return
         if not isinstance(data, dict):
             return
+        if msg.topic == TOPIC_BRIDGE_INFO:
+            # The shared 0.5.x topic is a bootstrap source only: once an
+            # identity is known, its stale retained copy must not win over the
+            # live per-prefix one.
+            if self.bridge_info:
+                return
+            known = self.entry.data.get(CONF_BRIDGE)
+            mac = normalise_mac(known) if isinstance(known, str) else ""
+            if mac:
+                if normalise_mac(data.get("bridge")) != mac:
+                    return
+            elif str(data.get("prefix") or "").rstrip("/") != self.prefix:
+                return
         self.bridge_info = data
         self._last_state_rx = time.monotonic()
         self._set_online(True)
-        prefix = data.get("prefix")
-        if isinstance(prefix, str) and prefix.rstrip("/") != self.prefix:
-            _LOGGER.warning(
-                "The bridge announces prefix %s but %s is configured",
-                prefix,
-                self.prefix,
-            )
         self._publish_snapshot()
+
+    @callback
+    def _check_prefix_conflict(self) -> None:
+        """Two mirrors on one MQTT prefix would cross-talk; surface it as a repair."""
+        others = [
+            entry
+            for entry in self.hass.config_entries.async_entries(DOMAIN)
+            if entry.entry_id != self.entry.entry_id
+            and entry.data.get(CONF_TYPE) == TYPE_MIRROR
+            and (
+                entry.options.get(CONF_PREFIX)
+                or entry.data.get(CONF_PREFIX)
+                or DEFAULT_PREFIX
+            )
+            == self.prefix
+        ]
+        issue_id = self._issue_id("prefix_conflict")
+        if not others:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            return
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=False,
+            is_persistent=True,
+            data={"entry_id": self.entry.entry_id},
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="prefix_conflict",
+            translation_placeholders={
+                "prefix": self.prefix,
+                "count": str(len(others)),
+            },
+        )
 
     @callback
     def _on_ota(self, msg: mqtt.ReceiveMessage) -> None:
