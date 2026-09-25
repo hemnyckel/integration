@@ -21,6 +21,7 @@ from ..const import ZCL_CLUSTER_DOORLOCK, ZHA_SERVICE, decode_operation_event
 _LOGGER = logging.getLogger(__name__)
 
 ATTR_OPERATION_EVENT = 0x0100
+ATTR_LOCK_STATE = 0x0000
 ZHA_DOMAIN = "zha"
 
 # Standard DoorLock attributes worth reading for diagnostics, by name so a
@@ -104,6 +105,12 @@ class ZhaLink:
         self._on_activity = on_activity
         self._unsub: Callable[[], None] | None = None
         self._cluster: Any = None
+        # Our own reporting configuration. ZHA's reconfigure can install a long
+        # minimum interval on the operation event (measured 2026-09-25: at most
+        # one report per ~10 minutes), which silently drops rapid unlocks; the
+        # lock keeps whatever we write, so this is a one-time fix per lock.
+        self._reporting_ready = False
+        self._reporting_pending = False
 
     # -- cluster lookup -----------------------------------------------------
 
@@ -173,8 +180,50 @@ class ZhaLink:
         self._unsub = None
         self._cluster = None
 
+    # -- reporting configuration --------------------------------------------
+
+    @property
+    def reporting_ready(self) -> bool:
+        return self._reporting_ready
+
+    def maybe_configure_reporting(self) -> None:
+        """Schedule the reporting fix until it has taken on this lock."""
+        if self._reporting_ready or self._reporting_pending:
+            return
+        self._reporting_pending = True
+        self.hass.async_create_task(self._async_configure_reporting())
+
+    async def _async_configure_reporting(self) -> None:
+        """Write min interval 0 for the operation event and the lock state.
+
+        The lock stores the configuration, so this runs once per lock (and
+        again if a later ZHA reconfigure overwrites it). It needs the device
+        awake; a timeout just means the next report or health tick retries.
+        """
+        cluster = self._find_cluster()
+        if cluster is None:
+            self._reporting_pending = False
+            return
+        try:
+            await cluster.configure_reporting(ATTR_OPERATION_EVENT, 0, 3600, 1)
+            await cluster.configure_reporting(ATTR_LOCK_STATE, 0, 3600, 1)
+        except Exception as err:  # noqa: BLE001 - retried on the health tick
+            _LOGGER.debug(
+                "Reporting configuration for %s failed (will retry): %s",
+                self.ieee,
+                err,
+            )
+        else:
+            self._reporting_ready = True
+            _LOGGER.info("Reporting configured (min interval 0) for %s", self.ieee)
+        finally:
+            self._reporting_pending = False
+
     @callback
     def _handle_report(self, event: Any) -> None:
+        # Any report proves the device is awake; make sure our own reporting
+        # configuration is in place while it listens.
+        self.maybe_configure_reporting()
         if getattr(event, "attribute_id", None) != ATTR_OPERATION_EVENT:
             return
         raw = getattr(event, "raw_value", None)
@@ -221,6 +270,9 @@ class ZhaLink:
                 await self.hass.services.async_call(
                     "zha", ZHA_SERVICE, data, blocking=True
                 )
+                # The device answered, so it is awake: a good moment to make
+                # sure our own reporting configuration is in place.
+                self.maybe_configure_reporting()
                 return True
             except IndexError:
                 # The lock answers SetPINCode in a shape zigpy cannot parse; the

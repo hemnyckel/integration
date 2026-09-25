@@ -3184,6 +3184,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_health(self, _now: Any = None) -> None:
         if self.zha is not None:
             self.zha.ensure_listener()
+            self.zha.maybe_configure_reporting()
         await self._async_publish({"cmd": CMD_GET_STATE})
         if self._last_state_rx and (
             time.monotonic() - self._last_state_rx > HEALTH_TIMEOUT

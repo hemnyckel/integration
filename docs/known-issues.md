@@ -244,3 +244,18 @@ A partition table that was written and verified once can still read back as
 0xFF later on such a board - re-check 0x8000 after a chunked flash. (Also:
 the lab VM lost its Proxmox USB passthrough mid-session; when every USB
 device vanishes at once, that is host-side, not the boards.)
+
+## ZHA's reconfigure can leave the operation event on a long reporting interval
+
+Measured 2026-09-25 on the bench: the only unlocks that reached Home Assistant
+were 13-19 minutes apart, and an air capture on the lock's channel during the
+silent attempts showed polls and beacons but not one data frame from the lock -
+the operation event (0x0100) was suppressed on the device, not lost on air. The
+long minimum interval comes from ZHA's `reconfigure`, which had just run.
+
+- **We do** write our own reporting configuration for the operation event
+  (0x0100) and the lock state (0x0000) - minimum interval 0, maximum 3600,
+  reportable change 1 - from the mirror at the first moment the device proves
+  awake (any report, any successful command, or the health tick). The lock
+  keeps the configuration, so it is a one-time fix per lock; a later ZHA
+  reconfigure overwrites it and the health tick puts ours back.
