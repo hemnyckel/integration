@@ -34,6 +34,9 @@ static const char *TAG = "improv";
 
 static constexpr uart_port_t IMPROV_UART = UART_NUM_0;
 static constexpr int64_t PROVISION_TIMEOUT_US = 30LL * 1000 * 1000;
+// Advertising is restarted on completion, so a finite duration lets the window
+// close on its own once the bridge has a Wi-Fi uplink (see ble_improv_advertise).
+static constexpr int32_t IMPROV_ADV_MS = 30 * 1000;
 
 static void ble_improv_advertise(void);
 
@@ -333,7 +336,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         return 0;
     case BLE_GAP_EVENT_DISCONNECT:
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-        ESP_LOGI(TAG, "BLE: frånkopplad – annonserar igen");
+        ESP_LOGI(TAG, "BLE: frånkopplad");
         ble_improv_advertise();
         return 0;
     case BLE_GAP_EVENT_ADV_COMPLETE:
@@ -346,6 +349,14 @@ static int gap_event(struct ble_gap_event *event, void *arg)
 
 static void ble_improv_advertise(void)
 {
+    // Never keep the unauthenticated provisioning service open once the bridge
+    // has a working Wi-Fi uplink. While unprovisioned or offline it stays open
+    // so the device can still be provisioned (e.g. at a new site).
+    if (mqtt_bridge_wifi_connected()) {
+        ESP_LOGD(TAG, "BLE: Wi-Fi ansluten - annonsering avstangd");
+        return;
+    }
+
     struct ble_hs_adv_fields fields = {};
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
     fields.uuids128 = &s_svc_uuid;
@@ -371,7 +382,7 @@ static void ble_improv_advertise(void)
     struct ble_gap_adv_params adv = {};
     adv.conn_mode = BLE_GAP_CONN_MODE_UND;
     adv.disc_mode = BLE_GAP_DISC_MODE_GEN;
-    rc = ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, nullptr, BLE_HS_FOREVER, &adv, gap_event, nullptr);
+    rc = ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, nullptr, IMPROV_ADV_MS, &adv, gap_event, nullptr);
     if (rc != 0 && rc != BLE_HS_EALREADY) {
         ESP_LOGW(TAG, "BLE: kunde inte starta annonsering (%d)", rc);
     } else {
