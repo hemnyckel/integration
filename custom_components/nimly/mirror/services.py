@@ -41,6 +41,9 @@ PROVISION_SCHEMA = vol.Schema(
         vol.Required("address"): cv.string,
         vol.Required("ssid"): cv.string,
         vol.Optional("password", default=""): cv.string,
+        vol.Optional("mqtt_uri"): cv.string,
+        vol.Optional("mqtt_user", default=""): cv.string,
+        vol.Optional("mqtt_password", default=""): cv.string,
     }
 )
 
@@ -319,11 +322,18 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     async def _async_handle_provision(call: ServiceCall) -> None:
         from .improv_ble import async_provision
 
+        uri = call.data.get("mqtt_uri")
+        mqtt = (
+            (uri, call.data.get("mqtt_user") or "", call.data.get("mqtt_password") or "")
+            if uri
+            else None
+        )
         await async_provision(
             hass,
             call.data["address"],
             call.data["ssid"],
             call.data.get("password") or "",
+            mqtt=mqtt,
         )
 
     async def _async_handle_read_lock_attributes(call: ServiceCall) -> dict[str, Any]:

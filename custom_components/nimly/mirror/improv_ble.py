@@ -24,11 +24,13 @@ ERROR_UUID = "00467768-6228-2272-4663-277478268002"
 RPC_COMMAND_UUID = "00467768-6228-2272-4663-277478268003"
 RPC_RESULT_UUID = "00467768-6228-2272-4663-277478268004"
 CAPABILITIES_UUID = "00467768-6228-2272-4663-277478268005"
+CONFIG_UUID = "00467768-6228-2272-4663-277478268006"
 
 CMD_WIFI_SETTINGS = 0x01
 CMD_GET_CURRENT_STATE = 0x02
 CMD_GET_DEVICE_INFO = 0x03
 CMD_GET_WIFI_NETWORKS = 0x04
+CMD_CONFIG = 0x80
 
 STATE_STOPPED = 0x00
 STATE_AUTHORIZED = 0x01
@@ -50,21 +52,37 @@ async def async_provision(
     ssid: str,
     password: str,
     timeout: int = 40,
+    mqtt: tuple[str, str, str] | None = None,
 ) -> None:
-    """Sends Wi-Fi credentials and waits for the device to be provisioned."""
+    """Sends Wi-Fi (and optionally MQTT) credentials in one BLE session.
+
+    MQTT settings go first over the encrypted config characteristic; the same
+    session then hands over Wi-Fi. Sending both together matters because the
+    bridge stops advertising once it is connected.
+    """
     device = bluetooth.async_ble_device_from_address(hass, address, connectable=True)
     if device is None:
         raise RuntimeError("The device is not reachable over Bluetooth")
 
+    ssid_bytes = ssid.encode()
+    password_bytes = password.encode()
+    if len(ssid_bytes) > 255 or len(password_bytes) > 255:
+        raise ValueError("the Wi-Fi name or password is too long")
     data = (
-        bytes([len(ssid)])
-        + ssid.encode()
-        + bytes([len(password)])
-        + password.encode()
+        bytes([len(ssid_bytes)])
+        + ssid_bytes
+        + bytes([len(password_bytes)])
+        + password_bytes
     )
 
     try:
         async with BleakClient(device, timeout=20) as client:
+            if mqtt is not None:
+                await _pair_if_possible(client)
+                await client.write_gatt_char(
+                    CONFIG_UUID, _config_payload(*mqtt), response=True
+                )
+                _LOGGER.info("MQTT settings sent to %s", address)
             await client.write_gatt_char(
                 RPC_COMMAND_UUID, build_rpc(CMD_WIFI_SETTINGS, data), response=True
             )
@@ -86,3 +104,57 @@ async def async_provision(
         raise RuntimeError(f"BLE error: {err}") from err
 
     raise RuntimeError("The device never reported that it was provisioned")
+
+
+def _length_prefixed(value: str) -> bytes:
+    raw = value.encode()
+    if len(raw) > 255:
+        raise ValueError("the field is too long")
+    return bytes([len(raw)]) + raw
+
+
+def _config_payload(uri: str, username: str, password: str) -> bytes:
+    """Builds the MQTT-config RPC: [0x80][dlen][uri][user][pass][checksum]."""
+    data = _length_prefixed(uri) + _length_prefixed(username) + _length_prefixed(password)
+    payload = bytes([CMD_CONFIG, len(data)]) + data
+    return payload + bytes([sum(payload) & 0xFF])
+
+
+async def _pair_if_possible(client: BleakClient) -> None:
+    """Pairs before writing secrets; CONFIG_UUID requires an encrypted link."""
+    pair = getattr(client, "pair", None)
+    if pair is None:
+        return
+    try:
+        await pair()
+    except Exception:  # already bonded, or the backend pairs implicitly
+        _LOGGER.debug("BLE pairing not required or already bonded")
+
+
+async def async_provision_mqtt(
+    hass: HomeAssistant,
+    address: str,
+    uri: str,
+    username: str,
+    password: str,
+    timeout: int = 20,
+) -> None:
+    """Sends MQTT connection settings over the encrypted config characteristic.
+
+    The bridge stores them in NVS and restarts to apply them. The characteristic
+    requires an encrypted link (BLE bonding / LE Secure Connections), so we pair
+    before writing - credentials never travel over an open BLE link.
+    """
+    device = bluetooth.async_ble_device_from_address(hass, address, connectable=True)
+    if device is None:
+        raise RuntimeError("The device is not reachable over Bluetooth")
+
+    try:
+        async with BleakClient(device, timeout=timeout) as client:
+            await _pair_if_possible(client)
+            await client.write_gatt_char(
+                CONFIG_UUID, _config_payload(uri, username, password), response=True
+            )
+            _LOGGER.info("MQTT settings sent to %s", address)
+    except BleakError as err:
+        raise RuntimeError(f"BLE error: {err}") from err

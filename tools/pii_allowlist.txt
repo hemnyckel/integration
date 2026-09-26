@@ -13,6 +13,8 @@
 00467768-6228-2272-4663-277478268003
 00467768-6228-2272-4663-277478268004
 00467768-6228-2272-4663-277478268005
+# Our own extension: the MQTT-config characteristic, assigned within the same Improv base UUID.
+00467768-6228-2272-4663-277478268006
 
 # The vendor's model id for the Touch Pro; the app sends it with every device scan.
 0a888888-8381-45d4-bfee-96a4fddaa743

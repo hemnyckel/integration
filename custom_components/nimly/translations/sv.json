@@ -437,7 +437,7 @@
     },
     "provision_wifi": {
       "name": "Provisionera Wi-Fi (BLE/Improv)",
-      "description": "Ansluter till bryggan över Bluetooth och skickar Wi-Fi-uppgifter med Improv. Används av upptäcktsflödet, men kan också köras manuellt.",
+      "description": "Ansluter till bryggan över Bluetooth och skickar Wi-Fi-uppgifter med Improv. Kan även skicka MQTT-uppgifter (host, användare, lösenord) över den krypterade config-karakteristikan och spara dem i NVS, så att bryggans image inte bär några hemligheter. Används av upptäcktsflödet, men kan också köras manuellt.",
       "fields": {
         "address": {
           "name": "Bluetooth-adress",
@@ -450,6 +450,18 @@
         "password": {
           "name": "Lösenord",
           "description": "Nätverkets lösenord, om det finns."
+        },
+        "mqtt_uri": {
+          "name": "MQTT-broker (URI)",
+          "description": "Valfritt: brokerns URL, till exempel mqtt://homeassistant.local:1883. Skickas över en krypterad länk och sparas i NVS."
+        },
+        "mqtt_user": {
+          "name": "MQTT-användare",
+          "description": "Valfritt: MQTT-användarnamn."
+        },
+        "mqtt_password": {
+          "name": "MQTT-lösenord",
+          "description": "Valfritt: MQTT-lösenord."
         }
       }
     },

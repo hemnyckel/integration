@@ -12,6 +12,7 @@
 #include "driver/uart.h"
 #include "esp_app_desc.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "sdkconfig.h"
@@ -20,6 +21,7 @@
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
 #include "host/ble_att.h"
+#include "host/ble_sm.h"
 #include "os/os_mbuf.h"
 #include "host/util/util.h"
 #include "services/gap/ble_svc_gap.h"
@@ -57,14 +59,16 @@ static const ble_uuid128_t s_error_uuid = IMPROV_UUID128(02);
 static const ble_uuid128_t s_rpc_cmd_uuid = IMPROV_UUID128(03);
 static const ble_uuid128_t s_rpc_res_uuid = IMPROV_UUID128(04);
 static const ble_uuid128_t s_caps_uuid = IMPROV_UUID128(05);
+static const ble_uuid128_t s_config_uuid = IMPROV_UUID128(06);
 
-enum improv_chr { CHR_STATUS, CHR_ERROR, CHR_RPC_CMD, CHR_RPC_RESULT, CHR_CAPS };
+enum improv_chr { CHR_STATUS, CHR_ERROR, CHR_RPC_CMD, CHR_RPC_RESULT, CHR_CAPS, CHR_CONFIG };
 
 static uint16_t s_handle_status;
 static uint16_t s_handle_error;
 static uint16_t s_handle_rpc_cmd;
 static uint16_t s_handle_rpc_result;
 static uint16_t s_handle_caps;
+static uint16_t s_handle_config;
 static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static std::vector<uint8_t> s_rpc_result;
 
@@ -189,6 +193,55 @@ static bool handle_command(improv::ImprovCommand command)
     }
 }
 
+// Custom config command 0x80: MQTT connection settings, written to the encrypted
+// CHR_CONFIG characteristic. Payload: [0x80][dlen][ulen][uri][nlen][user][plen][pass][checksum].
+static bool handle_config_rpc(const uint8_t *buf, uint16_t len)
+{
+    if (len < 3 || buf[0] != 0x80) {
+        return false;
+    }
+    uint8_t dlen = buf[1];
+    if ((uint16_t)(2 + dlen + 1) != len) {
+        return false;
+    }
+    uint8_t sum = 0;
+    for (uint16_t i = 0; i < (uint16_t)(2 + dlen); i++) {
+        sum += buf[i];
+    }
+    if (sum != buf[2 + dlen]) {
+        return false;
+    }
+    uint16_t pos = 2;
+    const uint16_t end = (uint16_t)(2 + dlen);
+    char uri[160];
+    char user[64];
+    char pass[96];
+    auto take = [&](char *out, size_t cap) -> bool {
+        if (pos >= end) {
+            return false;
+        }
+        uint8_t n = buf[pos++];
+        if ((uint16_t)(pos + n) > end || n >= cap) {
+            return false;
+        }
+        memcpy(out, buf + pos, n);
+        out[n] = '\0';
+        pos += n;
+        return true;
+    };
+    if (!take(uri, sizeof(uri)) || !take(user, sizeof(user)) || !take(pass, sizeof(pass))) {
+        return false;
+    }
+    bool ok = mqtt_bridge_set_mqtt_config(uri, user, pass);
+    publish_rpc(static_cast<improv::Command>(0x80), { ok ? "ok" : "error" });
+    ESP_LOGI(TAG, "MQTT-konfig via krypterad BLE: %s", ok ? "ok" : "fel");
+    if (ok) {
+        vTaskDelay(pdMS_TO_TICKS(700));
+        esp_restart();
+    }
+    return ok;
+}
+
 // --- seriell mottagning -----------------------------------------------------
 
 static void improv_task(void *arg)
@@ -280,6 +333,17 @@ static int gatt_access(uint16_t conn_handle, uint16_t attr_handle, struct ble_ga
             handle_command(cmd);
             return 0;
         }
+        if (which == CHR_CONFIG) {
+            uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
+            if (len == 0 || len > 512) {
+                return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+            }
+            uint8_t buf[512];
+            if (os_mbuf_copydata(ctxt->om, 0, len, buf) != 0) {
+                return BLE_ATT_ERR_UNLIKELY;
+            }
+            return handle_config_rpc(buf, len) ? 0 : BLE_ATT_ERR_UNLIKELY;
+        }
         return BLE_ATT_ERR_UNLIKELY;
 
     default:
@@ -313,6 +377,11 @@ static const struct ble_gatt_chr_def s_chr_defs[] = {
       .arg = reinterpret_cast<void *>(CHR_CAPS),
       .flags = BLE_GATT_CHR_F_READ,
       .val_handle = &s_handle_caps },
+    { .uuid = &s_config_uuid.u,
+      .access_cb = gatt_access,
+      .arg = reinterpret_cast<void *>(CHR_CONFIG),
+      .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
+      .val_handle = &s_handle_config },
     { 0 },
 };
 
@@ -418,6 +487,12 @@ static void ble_improv_init(void)
 
     ble_hs_cfg.sync_cb = ble_on_sync;
     ble_hs_cfg.gatts_register_cb = nullptr;
+    // Bonding + LE Secure Connections so CHR_CONFIG can require an encrypted link:
+    // MQTT credentials must never travel over an open BLE connection.
+    ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_NO_IO;
+    ble_hs_cfg.sm_bonding = 1;
+    ble_hs_cfg.sm_sc = 1;
+    ble_hs_cfg.sm_mitm = 0;
 
     int rc = ble_gatts_count_cfg(s_svc_defs);
     if (rc != 0) {

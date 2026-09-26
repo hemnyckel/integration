@@ -43,6 +43,10 @@ void mqtt_bridge_set_c6_info(const char *fw, const char *ieee);
 // WiFi-provisionering (Improv): sätter nya uppgifter (sparas i NVS) och återansluter.
 void mqtt_bridge_wifi_apply(const char *ssid, const char *pass);
 
+// MQTT-provisionering (Improv, krypterad BLE): sparar uppgifterna i NVS. Sant vid OK.
+// Tillämpas vid nästa start.
+bool mqtt_bridge_set_mqtt_config(const char *uri, const char *user, const char *pass);
+
 // Sant när WiFi-stationen har IP.
 bool mqtt_bridge_wifi_connected(void);
 

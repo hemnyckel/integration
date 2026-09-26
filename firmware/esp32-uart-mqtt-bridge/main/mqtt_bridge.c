@@ -25,6 +25,13 @@ static const char *TAG = "mqtt_bridge";
 #define WIFI_NVS_NS        "nimly_wifi"
 #define CONFIG_NVS_NS      "nimly_cfg"
 
+// MQTT connection settings can be provisioned at runtime (NVS), so the bridge
+// image itself can be credential-free. secrets.h stays the fallback for dev
+// builds and boards that are never provisioned.
+static char s_mqtt_uri[160];
+static char s_mqtt_user[64];
+static char s_mqtt_pass[96];
+
 // Prefix-overlagring i byggen/kort som saknar nyckeln i secrets.h.
 #ifndef NIMLY_TOPIC_PREFIX
 #define NIMLY_TOPIC_PREFIX ""
@@ -271,6 +278,57 @@ bool mqtt_bridge_set_prefix(const char *prefix)
     return err == ESP_OK;
 }
 
+// MQTT settings: NVS first (provisioned over BLE), then secrets.h.
+static void load_mqtt_config(void)
+{
+    snprintf(s_mqtt_uri, sizeof(s_mqtt_uri), "%s", NIMLY_MQTT_URI);
+    snprintf(s_mqtt_user, sizeof(s_mqtt_user), "%s", NIMLY_MQTT_USER);
+    snprintf(s_mqtt_pass, sizeof(s_mqtt_pass), "%s", NIMLY_MQTT_PASS);
+    nvs_handle_t h;
+    if (nvs_open(CONFIG_NVS_NS, NVS_READONLY, &h) != ESP_OK) {
+        ESP_LOGI(TAG, "MQTT-konfig: %s (secrets.h)", s_mqtt_uri);
+        return;
+    }
+    size_t n = sizeof(s_mqtt_uri);
+    if (nvs_get_str(h, "mqtt_uri", s_mqtt_uri, &n) != ESP_OK || !s_mqtt_uri[0]) {
+        snprintf(s_mqtt_uri, sizeof(s_mqtt_uri), "%s", NIMLY_MQTT_URI);
+    }
+    n = sizeof(s_mqtt_user);
+    if (nvs_get_str(h, "mqtt_user", s_mqtt_user, &n) != ESP_OK) {
+        snprintf(s_mqtt_user, sizeof(s_mqtt_user), "%s", NIMLY_MQTT_USER);
+    }
+    n = sizeof(s_mqtt_pass);
+    if (nvs_get_str(h, "mqtt_pass", s_mqtt_pass, &n) != ESP_OK) {
+        snprintf(s_mqtt_pass, sizeof(s_mqtt_pass), "%s", NIMLY_MQTT_PASS);
+    }
+    nvs_close(h);
+    ESP_LOGI(TAG, "MQTT-konfig fran NVS: %s", s_mqtt_uri);
+}
+
+// Stores MQTT settings in NVS from provisioning. Applies on the next start.
+bool mqtt_bridge_set_mqtt_config(const char *uri, const char *user, const char *pass)
+{
+    if (!uri || !uri[0] || strlen(uri) >= sizeof(s_mqtt_uri)) {
+        return false;
+    }
+    nvs_handle_t h;
+    if (nvs_open(CONFIG_NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
+        return false;
+    }
+    esp_err_t err = nvs_set_str(h, "mqtt_uri", uri);
+    if (err == ESP_OK) {
+        err = nvs_set_str(h, "mqtt_user", user ? user : "");
+    }
+    if (err == ESP_OK) {
+        err = nvs_set_str(h, "mqtt_pass", pass ? pass : "");
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(h);
+    }
+    nvs_close(h);
+    return err == ESP_OK;
+}
+
 static void mqtt_event_handler(void *args, esp_event_base_t base, int32_t id, void *data)
 {
     (void)args;
@@ -280,7 +338,7 @@ static void mqtt_event_handler(void *args, esp_event_base_t base, int32_t id, vo
     switch ((esp_mqtt_event_id_t)id) {
     case MQTT_EVENT_CONNECTED: {
         s_mqtt_connected = true;
-        ESP_LOGI(TAG, "MQTT ansluten till %s", NIMLY_MQTT_URI);
+        ESP_LOGI(TAG, "MQTT ansluten till %s", s_mqtt_uri);
         char topic[64];
         topic_for(topic, sizeof(topic), TOPIC_HA_TO_BRIDGE);
         esp_mqtt_client_subscribe(s_client, topic, 1);
@@ -453,6 +511,7 @@ void mqtt_bridge_start(void)
 {
     prefix_load();
     wifi_load_creds();
+    load_mqtt_config();
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -489,9 +548,9 @@ void mqtt_bridge_start(void)
 
     topic_for(s_lw_topic, sizeof(s_lw_topic), TOPIC_STATE);
     esp_mqtt_client_config_t mc = {
-        .broker.address.uri = NIMLY_MQTT_URI,
-        .credentials.username = (strlen(NIMLY_MQTT_USER) ? NIMLY_MQTT_USER : NULL),
-        .credentials.authentication.password = (strlen(NIMLY_MQTT_PASS) ? NIMLY_MQTT_PASS : NULL),
+        .broker.address.uri = s_mqtt_uri,
+        .credentials.username = (strlen(s_mqtt_user) ? s_mqtt_user : NULL),
+        .credentials.authentication.password = (strlen(s_mqtt_pass) ? s_mqtt_pass : NULL),
         .session.last_will.topic = s_lw_topic,
         .session.last_will.msg = "{\"lock\":\"unknown\"}",
         .session.last_will.qos = 1,

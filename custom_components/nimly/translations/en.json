@@ -450,6 +450,18 @@
         "password": {
           "name": "Password",
           "description": "The Wi-Fi password, if any."
+        },
+        "mqtt_uri": {
+          "name": "MQTT broker URI",
+          "description": "Optional: the broker URL, for example mqtt://homeassistant.local:1883. Sent over an encrypted link and stored in NVS, so the bridge image itself carries no credentials."
+        },
+        "mqtt_user": {
+          "name": "MQTT username",
+          "description": "Optional: the MQTT user name."
+        },
+        "mqtt_password": {
+          "name": "MQTT password",
+          "description": "Optional: the MQTT password."
         }
       }
     },

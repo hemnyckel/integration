@@ -84,9 +84,12 @@ No step above needs the vendor app.
   ferries it over UART. Driven per mirror entry (`update.nimly_emulator_firmware`).
 * **Bridge (C3)**: the image is per-user today (`secrets.h` carries WiFi and
   MQTT credentials), so the update source is the user's own manifest — the
-  integration option `ota_manifest_url` per entry. Once provisioning moves the
-  credentials into NVS (below), the bridge image becomes publishable like the
-  emulator's and the default manifest serves both.
+  integration option `ota_manifest_url` per entry. Provisioning now stores both
+  WiFi and MQTT credentials in NVS: Wi-Fi over Improv, MQTT over an encrypted
+  BLE config characteristic (bonding + LE Secure Connections). With a
+  credential-free image the bridge becomes publishable like the emulator's and
+  the default manifest can serve both. `secrets.h` remains the fallback for dev
+  builds and never-provisioned boards.
 * The manifest format is unchanged: `{"version", "builds": {"<target>": "<bin>"},
   "emulator": {"version", "file", "sha256"}}`; filenames are relative to the
   manifest URL. The bridge republishes its retained `info` every five minutes,
