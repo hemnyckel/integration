@@ -1153,7 +1153,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         stored, merged, trimmed = journal_add(self.journal, candidate, now=time.time())
         await self._async_save_journal(rewrite=merged or trimmed, entry=stored)
         if not merged:
-            self.hass.bus.async_fire(EVENT_JOURNAL, dict(stored))
+            self.hass.bus.async_fire(EVENT_JOURNAL, dict(stored) | {"entry_id": self.entry.entry_id})
         self._publish_snapshot()
 
     async def _async_save_journal(
