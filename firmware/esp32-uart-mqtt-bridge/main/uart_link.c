@@ -2,6 +2,7 @@
 // UART-länk på bryggan (ESP32-C3/ESP32) mot ESP32-C6 (radbaserat JSON).
 #include <string.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -49,6 +50,16 @@ void uart_link_send(const char *s)
     uart_write_bytes(UART_PORT, "\n", 1);
 }
 
+// The C6 forwards PIN events with the code in clear ("pin_set"/"pin_clear");
+// "code" is checked defensively so a future credential payload cannot slip
+// through either. Never echo such a line - the C6 firmware only logs its length.
+static bool line_carries_credential(const char *line)
+{
+    return strstr(line, "\"pin_set\"") != NULL
+        || strstr(line, "\"pin_clear\"") != NULL
+        || strstr(line, "\"code\"") != NULL;
+}
+
 static void uart_rx_task(void *arg)
 {
     (void)arg;
@@ -63,7 +74,11 @@ static void uart_rx_task(void *arg)
             if (c == '\n' || c == '\r') {
                 if (len > 0) {
                     line[len] = '\0';
-                    ESP_LOGI(TAG, "C6 -> bryggan: %s", line);
+                    if (line_carries_credential(line)) {
+                        ESP_LOGI(TAG, "C6 -> bridge: credential event (%d bytes)", len);
+                    } else {
+                        ESP_LOGI(TAG, "C6 -> bryggan: %s", line);
+                    }
                     if (s_line_cb) {
                         s_line_cb(line, len);
                     }
