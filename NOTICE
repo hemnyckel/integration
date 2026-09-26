@@ -18,3 +18,12 @@ The cloud integration communicates with the vendor's own API using the account o
 credentials and hardware. It contains no vendor source code. Request and response shapes were
 determined for interoperability by observing the API that serves the account owner's own
 devices.
+
+All product names, logos and trademarks are the property of their respective owners; this
+project claims no rights in them.
+
+This project is unofficial and independent. There is no connection to Nimly, EasyAccess or
+Onesti Products AS, and they neither sponsor nor support it. Use it entirely at your own risk:
+it drives a physical door lock and requires reflashing ESP32 boards. The authors accept no
+liability for any loss, damage or injury. If you believe this project infringes a right,
+contact the project before taking other action.

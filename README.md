@@ -2,6 +2,16 @@
 
 **Local control and the vendor app, at the same time.**
 
+> **Disclaimer — unofficial, no affiliation, use at your own risk.**
+> This is an independent hobby/research project. It is **not affiliated with,
+> endorsed by, or supported by Nimly, EasyAccess or Onesti Products AS** in any
+> way. "Nimly", "Nimly Connect" and "Nimly Connect Bridge" are their trademarks,
+> used here only to describe compatibility. It talks to the vendor's own API using
+> the account owner's own credentials and hardware, and contains no vendor source
+> code. It drives a physical door lock and involves reflashing ESP32 boards —
+> **you use it entirely at your own risk** and are solely responsible for access
+> to your home.
+
 A Home Assistant integration for [Nimly](https://nimly.se) smart locks (Nimly
 Touch, Code, Keypad, Pro and the Touch Pro families). The lock's module stays on
 ZHA — Home Assistant keeps working when the internet, the vendor cloud or the
