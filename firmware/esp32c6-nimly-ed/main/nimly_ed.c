@@ -29,6 +29,7 @@
 #include "freertos/timers.h"
 
 #include "esp_zigbee.h"
+#include "ezbee/nwk.h"
 
 // OBS: varken v2 (ezb_zcl_report_attr_cmd_req) eller v1 (esp_zb_zcl_report_attr_cmd_req)
 // kunde rapportera mfg-attributet 0x0100 i denna SDK-version (båda gav NOT_FOUND).
@@ -332,6 +333,80 @@ static void log_cmd_hdr(const char *what, const ezb_zcl_cmd_hdr_t *h)
 }
 
 // ---------------------------------------------------------------------------
+// Diagnostics: readable BDB status + "what does the radio hear?"
+// ---------------------------------------------------------------------------
+
+// The bare status code is what made the pairing blocker hard to read: 0x03 and
+// 0x0A look alike at a glance but mean completely different things. Name them.
+static const char *bdb_status_name(int status)
+{
+    switch (status) {
+    case EZB_BDB_STATUS_SUCCESS: return "SUCCESS";
+    case EZB_BDB_STATUS_IN_PROGRESS: return "IN_PROGRESS";
+    case EZB_BDB_STATUS_NOT_AA_CAPABLE: return "NOT_AA_CAPABLE";
+    case EZB_BDB_STATUS_NO_NETWORK: return "NO_NETWORK";
+    case EZB_BDB_STATUS_TARGET_FAILURE: return "TARGET_FAILURE";
+    case EZB_BDB_STATUS_FORMATION_FAILURE: return "FORMATION_FAILURE";
+    case EZB_BDB_STATUS_NO_IDENTIFY_QUERY_RESPONSE: return "NO_IDENTIFY_QUERY_RESPONSE";
+    case EZB_BDB_STATUS_BINDING_TABLE_FULL: return "BINDING_TABLE_FULL";
+    case EZB_BDB_STATUS_NO_SCAN_RESPONSE: return "NO_SCAN_RESPONSE";
+    case EZB_BDB_STATUS_NOT_PERMITTED: return "NOT_PERMITTED";
+    case EZB_BDB_STATUS_TCLK_EX_FAILURE: return "TCLK_EX_FAILURE";
+    case EZB_BDB_STATUS_NOT_ON_A_NETWORK: return "NOT_ON_A_NETWORK";
+    case EZB_BDB_STATUS_ON_A_NETWORK: return "ON_A_NETWORK";
+    case EZB_BDB_STATUS_CANCELLED: return "CANCELLED";
+    case EZB_BDB_STATUS_DEV_ANNCE_SEND_FAILURE: return "DEV_ANNCE_SEND_FAILURE";
+    default: return "UNKNOWN";
+    }
+}
+
+// Log every beacon the radio hears (channel, PAN, ext-PAN, permit, capacity).
+// This is the C6's own view of the air - the sniffer shows the raw frames, this
+// shows what the Zigbee stack actually made of them. Called before steering so
+// "no network" vs "network but window closed" is visible in our own console.
+static volatile bool s_boot_scan_steered = false;
+
+static void scan_result_cb(ezb_nwk_active_scan_result_t *result, void *user_ctx)
+{
+    (void)user_ctx;
+    if (result == NULL) {
+        ESP_LOGI(TAG, "SCAN: finished");
+        // Steer only after the scan has finished, so the MAC scan and the BDB
+        // commissioning never run on top of each other.
+        if (!s_boot_scan_steered) {
+            s_boot_scan_steered = true;
+            ESP_LOGI(TAG, "SCAN: starting NETWORK_STEERING after the scan");
+            ezb_bdb_start_top_level_commissioning(EZB_BDB_MODE_NETWORK_STEERING);
+        }
+        return;
+    }
+    ESP_LOGI(TAG,
+             "SCAN: ch=%u pan=0x%04x extpan=%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x "
+             "permit=%u router_cap=%u enddev_cap=%u coord=0x%04x",
+             result->channel_number, result->panid,
+             result->extpanid.u8[0], result->extpanid.u8[1],
+             result->extpanid.u8[2], result->extpanid.u8[3],
+             result->extpanid.u8[4], result->extpanid.u8[5],
+             result->extpanid.u8[6], result->extpanid.u8[7],
+             result->permit_join, result->router_capacity,
+             result->enddev_capacity, result->shortaddr);
+}
+
+static void nimly_scan_networks(void)
+{
+    ezb_nwk_scan_req_t req = {
+        .scan_type = EZB_NWK_SCAN_TYPE_ACTIVE,
+        .scan_duration = 3,
+        .scan_channels = NIMLY_PRIMARY_CHANNEL_MASK,
+        .active_scan_cb = scan_result_cb,
+        .user_ctx = NULL,
+    };
+    ezb_err_t err = ezb_nwk_scan(&req);
+    ESP_LOGI(TAG, "SCAN: active scan on 0x%08lx (dur=%u) -> %d",
+             (unsigned long)req.scan_channels, req.scan_duration, (int)err);
+}
+
+// ---------------------------------------------------------------------------
 // Join-retry
 // ---------------------------------------------------------------------------
 
@@ -455,15 +530,19 @@ static bool app_signal_handler(const ezb_app_signal_t *app_signal)
             // A rejoin can fail for a moment (the coordinator still booting, the
             // device evicted from a re-formed network): keep trying instead of
             // stranding the module until someone resets it.
-            ESP_LOGW(TAG, "%s misslyckades (0x%02x) - nytt forsok om %d s",
+            ESP_LOGW(TAG, "%s misslyckades (0x%02x/%s) - nytt forsok om %d s",
                      ezb_app_signal_to_string(signal_type), status,
-                     NIMLY_STEER_RETRY_SEC);
+                     bdb_status_name(status), NIMLY_STEER_RETRY_SEC);
             nimly_schedule_rejoin("misslyckad ateranslutning");
             break;
         }
         if (ezb_bdb_is_factory_new()) {
-            ESP_LOGI(TAG, "Fabriksny – startar NETWORK_STEERING (join)");
-            ezb_bdb_start_top_level_commissioning(EZB_BDB_MODE_NETWORK_STEERING);
+            ESP_LOGI(TAG, "Fabriksny – skannar natet, startar sedan NETWORK_STEERING");
+            nimly_scan_networks();
+            // Fallback: if the scan never reports finished, steer anyway.
+            if (s_steer_retry_timer) {
+                xTimerStart(s_steer_retry_timer, 0);
+            }
         } else {
             ESP_LOGI(TAG, "Startad (redan parad), försöker återansluta");
             s_zigbee_joined = true;
@@ -487,8 +566,9 @@ static bool app_signal_handler(const ezb_app_signal_t *app_signal)
                 xTimerStop(s_steer_retry_timer, 0);
             }
         } else {
-            ESP_LOGW(TAG, "SIGNAL: STEERING misslyckades (0x%02x) – nytt försök om %d s",
-                     status, NIMLY_STEER_RETRY_SEC);
+            ESP_LOGW(TAG, "SIGNAL: STEERING misslyckades (0x%02x/%s) factory_new=%d – nytt försök om %d s",
+                     status, bdb_status_name(status), ezb_bdb_is_factory_new(),
+                     NIMLY_STEER_RETRY_SEC);
             if (s_steer_retry_timer) {
                 xTimerStart(s_steer_retry_timer, 0);
             }
