@@ -11,6 +11,7 @@
 // Se docs/emulator-spec.md.
 
 #include "esp_app_desc.h"
+#include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -180,6 +181,15 @@ static void nimly_state_save_coord_ep(void)
 // whitelistar kända modulers adresser. Lagras little-endian som resten av stacken.
 static uint8_t s_ieee_override[8];
 static bool s_ieee_override_set = false;
+
+// A re-provision must survive the reboot that applies it. We keep the new address
+// in RTC memory and, on the next boot (before the Zigbee stack starts), wipe the
+// NVS partition so the stack cannot restore its old extended address - only then
+// does it adopt the override. This folds the documented factory-reset -> set_ieee
+// -> reboot dance into set_ieee itself.
+#define NIMLY_REPROVISION_MAGIC 0x1EEB7A11u
+RTC_DATA_ATTR static uint8_t s_rtc_new_ieee[8];
+RTC_DATA_ATTR static uint32_t s_rtc_reprovision_magic;
 
 static void nimly_state_load_ieee(void)
 {
@@ -1694,9 +1704,10 @@ static void uart_command_handler(const char *json, int len)
         uint8_t ieee[8];
         const char *val = json_str_value(json, "\"value\"");
         if (parse_ieee_string(val, ieee)) {
-            nimly_state_save_ieee(ieee);
+            memcpy(s_rtc_new_ieee, ieee, sizeof(s_rtc_new_ieee));
+            s_rtc_reprovision_magic = NIMLY_REPROVISION_MAGIC;
             uart_bridge_send_ieee_set(ieee);
-            ESP_LOGW(TAG, "IEEE provisionerad – startar om för att tillämpa");
+            ESP_LOGW(TAG, "IEEE provisionerad - startar om och rensar NVS for att tillampa");
             vTaskDelay(pdMS_TO_TICKS(700));
             esp_restart();
         } else {
@@ -1821,10 +1832,20 @@ static void ota_verify_start_if_pending(void)
 
 void app_main(void)
 {
+    const bool reprovision = (s_rtc_reprovision_magic == NIMLY_REPROVISION_MAGIC);
+    if (reprovision) {
+        s_rtc_reprovision_magic = 0;
+        ESP_LOGW(TAG, "Re-provisionering: rensar NVS-partitionen innan Zigbee startar");
+        nvs_flash_erase_partition("nvs");
+    }
     ESP_ERROR_CHECK(nvs_flash_init());
     nimly_state_init();
     nimly_state_load_coord_ep();
     nimly_state_load_ieee();
+    if (reprovision) {
+        nimly_state_save_ieee(s_rtc_new_ieee);
+        ESP_LOGW(TAG, "Ny IEEE skriven efter NVS-rensning - stacken startar utan sparad adress");
+    }
 
     uart_bridge_set_command_handler(uart_command_handler);
     uart_bridge_start();
