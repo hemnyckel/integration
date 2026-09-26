@@ -119,13 +119,13 @@ void uart_bridge_send_autolock(uint32_t seconds)
     uart_send_line(buf);
 }
 
-void uart_bridge_send_hello(const char *fw, const uint8_t ieee[8])
+void uart_bridge_send_hello(const char *fw, const uint8_t ieee[8], int factory_new)
 {
-    char buf[160];
+    char buf[200];
     snprintf(buf, sizeof(buf),
-             "{\"ev\":\"hello\",\"fw\":\"%s\",\"ieee\":\"%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\"}",
+             "{\"ev\":\"hello\",\"fw\":\"%s\",\"ieee\":\"%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\",\"factory_new\":%d}",
              fw ? fw : "?", ieee[7], ieee[6], ieee[5], ieee[4],
-             ieee[3], ieee[2], ieee[1], ieee[0]);
+             ieee[3], ieee[2], ieee[1], ieee[0], factory_new ? 1 : 0);
     uart_send_line(buf);
 }
 

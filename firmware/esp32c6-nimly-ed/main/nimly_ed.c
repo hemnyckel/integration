@@ -1506,7 +1506,7 @@ static void nimly_send_hello(void)
     ezb_extaddr_t own = { 0 };
     ezb_nwk_get_extended_address(&own);
     const esp_app_desc_t *desc = esp_app_get_description();
-    uart_bridge_send_hello(desc ? desc->version : "?", own.u8);
+    uart_bridge_send_hello(desc ? desc->version : "?", own.u8, ezb_bdb_is_factory_new());
 }
 
 static int hex_nibble(char c)

@@ -30,7 +30,7 @@ void uart_bridge_send_volume(uint8_t volume);
 void uart_bridge_send_autolock(uint32_t seconds);
 
 // Hälsning vid uppstart: firmware-version + egen IEEE (integrationen visar versionen).
-void uart_bridge_send_hello(const char *fw, const uint8_t ieee[8]);
+void uart_bridge_send_hello(const char *fw, const uint8_t ieee[8], int factory_new);
 
 // OTA-status till bryggan (fas 3): {"ev":"ota","phase":..,"status":..,"seq":..,"message":..}.
 void uart_bridge_send_ota(const char *phase, const char *status, int seq, const char *message);
