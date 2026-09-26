@@ -203,6 +203,13 @@ class MirrorFirmware(MirrorEntity, SensorEntity):
     def native_value(self) -> str | None:
         return self.coordinator.firmware
 
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        return {
+            "factory_new": self.coordinator.emulator_factory_new,
+            "ieee": self.coordinator.emulator_ieee,
+        }
+
 
 class MirrorBridgeFirmware(MirrorEntity, SensorEntity):
     """The bridge (Wi-Fi/MQTT) firmware version, from the retained nimly/info."""

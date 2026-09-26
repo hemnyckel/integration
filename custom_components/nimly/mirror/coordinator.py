@@ -201,6 +201,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._cloud_expect_after: float | None = None
         self.firmware: str | None = None
         self.emulator_ieee: str | None = None
+        self.emulator_factory_new: bool | None = None
         self.bridge_info: dict[str, Any] = {}
         self.ota_status: dict[str, Any] | None = None
         self.firmware_manifest: dict[str, Any] | None = None
@@ -557,6 +558,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "last_event": self.last_event,
             "firmware": self.firmware,
             "emulator_ieee": self.emulator_ieee,
+            "emulator_factory_new": self.emulator_factory_new,
             "bridge_info": dict(self.bridge_info),
             "ota_status": dict(self.ota_status or {}),
             "firmware_manifest": self.firmware_manifest,
@@ -2227,6 +2229,8 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         self.emulator_ieee,
                         self.ieee,
                     )
+            if isinstance(data.get("factory_new"), (bool, int)):
+                self.emulator_factory_new = bool(data["factory_new"])
             # The emulator greets on every health ping. A gap means it was away, so it
             # has rebooted (firmware update, power cycle) and its RAM-backed mirrored
             # settings (auto-lock, volume, battery) are back at their defaults. Re-assert
