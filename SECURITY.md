@@ -14,25 +14,24 @@ This project controls physical access to a home. Treat every part of it as secur
 In scope for this repository:
 
 - The local mirror: the ZHA ownership, the lock control path, and the emulator's MQTT contract.
-- The cloud layer: authentication, token storage, and anything that could expose account data.
 - The firmware (ESP32-C6 emulator, ESP32-C3 bridge) in [`firmware/`](firmware/).
 
 ## Design commitments
 
 - **Fail locked.** A loss of connectivity, a crash or a malformed message must never result in
   an open door.
-- **Secrets never leave their store.** Tokens live in the config entry, are never logged, and
-  are never written to the repository. Diagnostics redact them.
+- **Secrets never leave their store.** Wi-Fi and MQTT credentials live only on the bridge,
+  are never logged, and are never written to the repository. Diagnostics redact them.
 - **No PIN codes in Home Assistant.** ZCL attribute `0x0101` is write-only for us.
 - **Convenience is opt-in.** Automatic unlocking, schedules and any other convenience feature
   must be explicitly enabled, auditable afterwards, and never a single factor.
-- **The cloud cannot bypass the local layer.** The vendor cloud talks to an emulator we
-  control, never directly to the module inside the door. Every cloud-originated command passes
+- **The app path cannot bypass the local layer.** The vendor bridge talks to an emulator we
+  control, never directly to the module inside the door. Every app-originated command passes
   through the local mirror, which can be audited and can refuse.
 
 ## What is *not* a vulnerability
 
-- The vendor API changing and an entity becoming unavailable. That is expected for an
-  undocumented interface; report it as a bug.
-- The cloud account having access to the vendor's own data. That is the account owner's own
-  data, accessed with their own credentials.
+- A vendor-side change making an entity unavailable. The integration relies only on the local
+  Zigbee link, so report it as a bug.
+- The vendor app having access to the owner's own data. That is the account owner's own
+  data, on their own hardware.

@@ -11,7 +11,7 @@ a slot the app believes is used. Neither is allowed to happen silently:
 - A write that would collide with a local credential is relocated to a free
   real slot and remembered as virtual -> real.
 - The same mapping translates the lock's own usage events back to the virtual
-  number, so the vendor cloud attributes the person it provisioned.
+  number, so the app attributes the person it provisioned.
 - A clear only touches the app's own relocated credential; a local credential
   in the same-numbered slot is left alone.
 - When nothing can be done safely, the resolver reports it so the coordinator

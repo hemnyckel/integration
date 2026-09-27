@@ -15,8 +15,8 @@ under `translations/` are the only exception.
   built for a specific device. Use the placeholders already present in the code.
 - **No PIN codes in Home Assistant.** ZCL attribute `0x0101` is write-only; never read,
   forward, log or store it.
-- **The local path must never depend on the cloud.** The mirror layer has to keep working with
-  no internet access; the cloud is context, not control.
+- **Keep it local.** The mirror layer has to keep working with no internet access; nothing may
+  require an external service to unlock the door.
 - **Never make convenience a security regression.** New behaviour is opt-in, auditable and
   fails locked.
 - **One change per pull request.** Small, reviewable, with a clear reason.
@@ -47,4 +47,4 @@ integration is published.
 ## Commit messages
 
 Short imperative subject, then a body explaining *why* when it is not obvious. Prefix with the
-layer when it helps: `cloud: ...`, `mirror: ...`, `bridge: ...`.
+layer when it helps: `mirror: ...`, `bridge: ...`, `firmware: ...`, `docs: ...`.

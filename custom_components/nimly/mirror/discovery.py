@@ -29,7 +29,7 @@ def normalise_mac(value: object) -> str:
 def mac_match(left: object, right: object) -> bool:
     """True when two addresses name the same ESP32 (any of its interfaces).
 
-    An ESP32 exposes one base address through the firmware/cloud APIs and the
+    An ESP32 exposes one base address through the firmware APIs and the
     next addresses through its Wi-Fi AP and Bluetooth interfaces. Discovery may
     store whichever the radio advertised while the firmware announces the base,
     so a match tolerates a small offset between the two.

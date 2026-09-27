@@ -1,7 +1,7 @@
 """Config and options flow for nimly.
 
-The user step is a menu: the vendor account (``cloud``) or the lock mirror (``mirror``).
-The bridge (``bridge``) is discovered over Bluetooth and provisioned with Improv.
+The user step picks the lock mirror (``mirror``); the bridge (``bridge``) is
+discovered over Bluetooth and provisioned with Improv.
 """
 
 from __future__ import annotations
@@ -18,27 +18,18 @@ from homeassistant.components import mqtt
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 
-from .cloud.api import NimlyCloudApi, NimlyCloudAuthError, NimlyCloudError
 from .const import (
     CHANNELS,
-    CONF_ACCESS_TOKEN,
     CONF_ADDRESS,
     CONF_BRIDGE,
     CONF_CHANNELS,
-    CONF_COMPANY_ID,
-    CONF_EMAIL,
     CONF_LOCK_ENTITY,
-    CONF_LOCATION_ID,
     CONF_OTA_MANIFEST_URL,
-    CONF_PASSWORD,
     CONF_PREFIX,
-    CONF_REFRESH_TOKEN,
-    CONF_SCAN_INTERVAL,
     CONF_TYPE,
     DEFAULT_CHANNELS,
     DEFAULT_OTA_MANIFEST_URL,
     DEFAULT_PREFIX,
-    DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     PRESET_CUSTOM,
     PRESET_FULL,
@@ -47,7 +38,6 @@ from .const import (
     PRESETS,
     TOPIC_BRIDGE_INFO,
     TYPE_BRIDGE,
-    TYPE_CLOUD,
     TYPE_MIRROR,
 )
 from .mirror.pin_rules import (  # noqa: E402 - after the const imports
@@ -138,14 +128,11 @@ async def _detect_bridges(hass: Any) -> list[dict[str, Any]]:
 
 
 class NimlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Set up a Nimly entry: the vendor account, the lock mirror or the bridge."""
+    """Set up a Nimly entry: the lock mirror or the bridge."""
 
     VERSION = 1
 
     def __init__(self) -> None:
-        self._email: str | None = None
-        self._api: NimlyCloudApi | None = None
-        self._locations: list[dict[str, Any]] = []
         self._lock_entity: str | None = None
         self._prefix: str = DEFAULT_PREFIX
         self._bridge: str | None = None
@@ -158,145 +145,7 @@ class NimlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         return self.async_show_menu(
-            step_id="user", menu_options=[TYPE_CLOUD, TYPE_MIRROR]
-        )
-
-    # --- Cloud -----------------------------------------------------------------
-
-    async def async_step_cloud(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            api = NimlyCloudApi(self.hass)
-            try:
-                await api.async_login(user_input[CONF_EMAIL], user_input[CONF_PASSWORD])
-                self._locations = await api.async_locations()
-            except NimlyCloudAuthError:
-                errors["base"] = "invalid_auth"
-            except NimlyCloudError:
-                errors["base"] = "cannot_connect"
-            else:
-                if not self._locations:
-                    errors["base"] = "no_locations"
-                else:
-                    self._email = user_input[CONF_EMAIL]
-                    self._api = api
-                    await self.async_set_unique_id((self._email or "").lower())
-                    self._abort_if_unique_id_configured()
-                    return await self.async_step_location()
-
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_EMAIL): selector.TextSelector(),
-                vol.Required(CONF_PASSWORD): selector.TextSelector(
-                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
-                ),
-            }
-        )
-        return self.async_show_form(step_id="cloud", data_schema=schema, errors=errors)
-
-    async def async_step_location(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        if user_input is not None:
-            location_id = user_input[CONF_LOCATION_ID]
-            location = next(
-                (item for item in self._locations if item.get("locationId") == location_id),
-                {},
-            )
-            assert self._api is not None
-            data: dict[str, Any] = {
-                CONF_TYPE: TYPE_CLOUD,
-                CONF_EMAIL: self._email,
-                CONF_LOCATION_ID: location_id,
-                CONF_ACCESS_TOKEN: self._api.access_token,
-                CONF_REFRESH_TOKEN: self._api.refresh_token,
-            }
-            if self._api.company_id:
-                data[CONF_COMPANY_ID] = self._api.company_id
-            return self.async_create_entry(
-                title=f"Nimly Cloud ({location.get('name') or self._email})",
-                data=data,
-            )
-
-        options = [
-            selector.SelectOptionDict(
-                value=str(item.get("locationId")),
-                label=f"{item.get('name')} ({item.get('role', '')})".strip(),
-            )
-            for item in self._locations
-            if item.get("locationId")
-        ]
-        return self.async_show_form(
-            step_id="location",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_LOCATION_ID): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=options, mode=selector.SelectSelectorMode.LIST
-                        )
-                    )
-                }
-            ),
-        )
-
-    # --- Reauthentication ------------------------------------------------------
-
-    async def async_step_reauth(
-        self, entry_data: dict[str, Any]
-    ) -> config_entries.ConfigFlowResult:
-        """The cloud session died; ask for the password again."""
-        return await self.async_step_reauth_confirm()
-
-    async def async_step_reauth_confirm(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        errors: dict[str, str] = {}
-        entry = self._get_reauth_entry()
-        if user_input is not None:
-            api = NimlyCloudApi(self.hass)
-            try:
-                await api.async_login(user_input[CONF_EMAIL], user_input[CONF_PASSWORD])
-                locations = await api.async_locations()
-            except NimlyCloudAuthError:
-                errors["base"] = "invalid_auth"
-            except NimlyCloudError:
-                errors["base"] = "cannot_connect"
-            else:
-                known = entry.data.get(CONF_LOCATION_ID)
-                if known and not any(
-                    item.get("locationId") == known for item in locations
-                ):
-                    errors["base"] = "no_locations"
-                else:
-                    data = {
-                        **entry.data,
-                        CONF_EMAIL: user_input[CONF_EMAIL],
-                        CONF_ACCESS_TOKEN: api.access_token,
-                        CONF_REFRESH_TOKEN: api.refresh_token,
-                    }
-                    if api.company_id:
-                        data[CONF_COMPANY_ID] = api.company_id
-                    self.hass.config_entries.async_update_entry(entry, data=data)
-                    await self.hass.config_entries.async_reload(entry.entry_id)
-                    return self.async_abort(reason="reauth_successful")
-
-        return self.async_show_form(
-            step_id="reauth_confirm",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_EMAIL, default=entry.data.get(CONF_EMAIL)
-                    ): selector.TextSelector(),
-                    vol.Required(CONF_PASSWORD): selector.TextSelector(
-                        selector.TextSelectorConfig(
-                            type=selector.TextSelectorType.PASSWORD
-                        )
-                    ),
-                }
-            ),
-            errors=errors,
+            step_id="user", menu_options=[TYPE_MIRROR]
         )
 
     # --- Mirror ----------------------------------------------------------------
@@ -496,7 +345,7 @@ class NimlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class NimlyOptionsFlow(config_entries.OptionsFlow):
-    """Options: polling for the cloud entry; channels and slots for the mirror."""
+    """Options for the mirror: channels, slots and the firmware source."""
 
     _pin_task: asyncio.Task | None = None
     _pin_input: dict[str, Any] | None = None
@@ -510,21 +359,7 @@ class NimlyOptionsFlow(config_entries.OptionsFlow):
     ) -> config_entries.ConfigFlowResult:
         if self.config_entry.data.get(CONF_TYPE) == TYPE_MIRROR:
             return await self.async_step_mirror_menu()
-
-        if user_input is not None:
-            return self.async_create_entry(data=user_input)
-
-        current = self.config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
-        return self.async_show_form(
-            step_id="init",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_SCAN_INTERVAL, default=current): vol.All(
-                        int, vol.Range(min=10, max=600)
-                    )
-                }
-            ),
-        )
+        return self.async_abort(reason="no_options")
 
     # -- mirror: menu -------------------------------------------------------
 

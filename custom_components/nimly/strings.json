@@ -4,23 +4,7 @@
       "user": {
         "title": "Nimly",
         "menu_options": {
-          "cloud": "Vendor account (cloud)",
           "mirror": "Lock mirror (the app side)"
-        }
-      },
-      "cloud": {
-        "title": "Nimly account",
-        "description": "Sign in with the account you use in the official app.",
-        "data": {
-          "email": "Email",
-          "password": "Password"
-        }
-      },
-      "location": {
-        "title": "Location",
-        "description": "Choose which location to expose in Home Assistant.",
-        "data": {
-          "location_id": "Location"
         }
       },
       "mirror": {
@@ -61,14 +45,6 @@
           "ssid": "Network (SSID)",
           "password": "Password"
         }
-      },
-      "reauth_confirm": {
-        "title": "Sign in again",
-        "description": "The cloud session for {email} is no longer valid. Enter the password to reconnect; the lock keeps working locally meanwhile.",
-        "data": {
-          "email": "Email",
-          "password": "Password"
-        }
       }
     },
     "abort": {
@@ -77,9 +53,6 @@
       "no_address": "Could not read the device address."
     },
     "error": {
-      "invalid_auth": "Invalid email or password.",
-      "cannot_connect": "Could not reach the vendor cloud.",
-      "no_locations": "The account has no locations.",
       "provision_failed": "Provisioning failed – check the network and try again.",
       "invalid_prefix": "Invalid MQTT prefix (a-z, 0-9, /, _ and -).",
       "prefix_in_use": "That prefix is already used by another mirror - pick another one."
@@ -87,13 +60,6 @@
   },
   "options": {
     "step": {
-      "init": {
-        "title": "Polling",
-        "description": "How often to ask the account for new activity. Shorter is more responsive and asks more of the vendor's API.",
-        "data": {
-          "scan_interval": "Seconds between polls"
-        }
-      },
       "mirror_menu": {
         "title": "Nimly mirror",
         "menu_options": {
@@ -179,85 +145,8 @@
       "lock_unreachable": "The lock did not respond. Press a button on the lock to wake it and try again."
     },
     "abort": {
-      "no_active_slots": "No occupied slots to clear."
-    }
-  },
-  "entity": {
-    "sensor": {
-      "lock_state": {
-        "name": "Cloud lock state"
-      },
-      "last_event": {
-        "name": "Last event"
-      },
-      "last_person": {
-        "name": "Last person"
-      },
-      "last_pin_slot": {
-        "name": "Last PIN slot"
-      },
-      "last_tag": {
-        "name": "Last tag"
-      },
-      "battery": {
-        "name": "Cloud battery"
-      },
-      "lqi": {
-        "name": "Cloud link quality"
-      },
-      "sound_volume": {
-        "name": "Cloud sound volume"
-      },
-      "volume_name": {
-        "name": "Cloud volume level"
-      },
-      "autorelock_time": {
-        "name": "Cloud auto-relock time"
-      },
-      "firmware": {
-        "name": "Cloud firmware"
-      },
-      "config_progress": {
-        "name": "Cloud configuration progress"
-      },
-      "raw": {
-        "name": "Cloud raw data"
-      },
-      "remaining_pin_attempts": {
-        "name": "Remaining PIN attempts"
-      },
-      "alarm_state": {
-        "name": "Alarm state"
-      },
-      "device_count": {
-        "name": "Devices in the account"
-      },
-      "user_count": {
-        "name": "People in the account"
-      },
-      "user_access": {
-        "name": "Access for {name}"
-      }
-    },
-    "binary_sensor": {
-      "online": {
-        "name": "Cloud online"
-      },
-      "autolock": {
-        "name": "Cloud auto-lock"
-      },
-      "master_pin_mode": {
-        "name": "Cloud master PIN mode"
-      },
-      "pin_required_remote": {
-        "name": "Cloud PIN required for remote unlock"
-      },
-      "part_of_alarm": {
-        "name": "Cloud part of alarm"
-      },
-      "gateway_online": {
-        "name": "Bridge online"
-      }
+      "no_active_slots": "No occupied slots to clear.",
+      "no_options": "This entry has no options."
     }
   },
   "issues": {
@@ -283,62 +172,14 @@
         "step": {
           "init": {
             "title": "Repair the app registration",
-            "description": "The emulator answers Home Assistant but the Nimly bridge refuses its join. Usually the app still has the old lock registered, which blocks the re-pairing; removing that record is exactly what the app's remove-device does. Submit to do it from here."
-          },
-          "next": {
-            "title": "Now add the device in the app",
-            "description": "Open the Nimly app, add a device and start the search. The emulator is steering on its own and joins within seconds of the bridge's window opening. This repair closes by itself when it does."
+            "description": "The emulator answers Home Assistant but the Nimly bridge refuses its join. Usually the app still has the old lock registered, which blocks the re-pairing. Open the Nimly app, remove the old lock, then start the app's add-device search. The emulator is steering on its own and joins within seconds of the bridge's window opening; this repair closes by itself when it does."
           }
-        },
-        "abort": {
-          "no_mirror": "No lock mirror is loaded.",
-          "reset_failed": "The app registration could not be removed (no matching cloud device)."
         }
       }
-    },
-    "cloud_feedback_stale": {
-      "title": "The vendor cloud is not answering",
-      "description": "A change was sent towards the Nimly app but never appeared in the account. The bridge's cloud link is likely stuck - power-cycle the Nimly Connect Bridge."
     },
     "slot_conflict": {
       "title": "An app credential for slot {slot} could not be stored",
       "description": "The app provisioned a credential for slot {slot}, but it could not be stored on the lock: {reason}. Nothing was overwritten. Free a slot and try again in the app."
-    },
-    "cloud_link_ambiguous": {
-      "title": "Cloud credentials need linking for slot {slot}",
-      "description": "The lock holds a {type} in slot {slot}, but {count} cloud accesses of that type have no slot yet. Link them before a sync so the app attributes the right person; nimly.link_credential does it, and nimly.audit shows the state."
-    },
-    "cloud_push_failed": {
-      "title": "A change for {name} (slot {slot}) did not reach the app",
-      "description": "The edit landed on the lock and in Home Assistant, but the vendor cloud refused the update - the app still shows the old value. Submit to send it again.",
-      "fix_flow": {
-        "step": {
-          "init": {
-            "title": "Retry the cloud update",
-            "description": "Send {name}'s current name, validity and code to the vendor cloud again."
-          }
-        },
-        "abort": {
-          "no_mirror": "No lock mirror is loaded.",
-          "retry_failed": "The vendor cloud still refuses the update. The journal has the details."
-        }
-      }
-    },
-    "cloud_sync_failed": {
-      "title": "The guest {name} (slot {slot}) never reached the app",
-      "description": "The code works on the lock, but the vendor cloud did not accept the guest - the app does not show it yet. Submit to send it again; the journal and nimly.audit have the details.",
-      "fix_flow": {
-        "step": {
-          "init": {
-            "title": "Send the guest again",
-            "description": "Replay {name}'s identity and PIN access to the vendor cloud."
-          }
-        },
-        "abort": {
-          "no_mirror": "No lock mirror is loaded.",
-          "retry_failed": "The vendor cloud still refuses the guest. The journal has the details."
-        }
-      }
     },
     "prefix_conflict": {
       "title": "Two mirrors share the MQTT prefix {prefix}",
@@ -346,67 +187,9 @@
     }
   },
   "services": {
-    "refresh": {
-      "name": "Refresh",
-      "description": "Ask the account for new activity right now.",
-      "fields": {
-        "entry_id": {
-          "name": "Config entry",
-          "description": "Which account to refresh. Leave out for all of them."
-        }
-      }
-    },
-    "fetch_history": {
-      "name": "Fetch activity history",
-      "description": "Return the activities Home Assistant has collected, newest first.",
-      "fields": {
-        "device_id": {
-          "name": "Device",
-          "description": "Limit the result to one lock."
-        },
-        "limit": {
-          "name": "Limit",
-          "description": "Maximum number of activities to return."
-        }
-      }
-    },
-    "set_lock": {
-      "name": "Lock or unlock through the cloud",
-      "description": "An optional second control path. The local path is faster and keeps working without internet.",
-      "fields": {
-        "device_id": {
-          "name": "Device",
-          "description": "The lock to act on."
-        },
-        "locked": {
-          "name": "Locked",
-          "description": "True to lock, false to unlock."
-        }
-      }
-    },
-    "gateway_scan": {
-      "name": "Open the bridge pairing window",
-      "description": "Asks the bridge to accept a new device, so a module or an emulator can join from Home Assistant.",
-      "fields": {
-        "start": {
-          "name": "Start",
-          "description": "True to open the window, false to close it."
-        }
-      }
-    },
-    "probe": {
-      "name": "Call the vendor API (diagnostics)",
-      "description": "Calls paths on the vendor API and returns the status and a redacted body. Used to map the API; not needed for normal use.",
-      "fields": {
-        "paths": {
-          "name": "Paths",
-          "description": "Paths relative to the API root, or objects with path, method, json and headers."
-        }
-      }
-    },
     "set_ieee": {
       "name": "Provision IEEE address",
-      "description": "Sends an IEEE address to the emulator, which stores it in NVS and reboots. Defaults to the real lock module's own address, because the vendor cloud only accepts known modules.",
+      "description": "Sends an IEEE address to the emulator, which stores it in NVS and reboots. Defaults to the real lock module's own address, because the bridge only accepts known modules.",
       "fields": {
         "ieee": {
           "name": "IEEE address",
@@ -506,7 +289,7 @@
     },
     "wipe": {
       "name": "Wipe the lock and every guest",
-      "description": "Empties every credential slot above the master slots and removes every guest, in Home Assistant and in the vendor cloud. Masters are never touched. Runs as a dry run first; a real run needs confirm: WIPE.",
+      "description": "Empties every credential slot above the master slots and removes every guest, in Home Assistant and on the lock. Masters are never touched. Runs as a dry run first; a real run needs confirm: WIPE.",
       "fields": {
         "entry_id": {
           "name": "Config entry",
@@ -716,16 +499,6 @@
           "name": "Valid until",
           "description": "New ISO expiry for a simple guest."
         },
-        "entry_id": {
-          "name": "Config entry",
-          "description": "Which mirror to use. Leave out for all."
-        }
-      }
-    },
-    "reset_app_registration": {
-      "name": "Reset the app registration",
-      "description": "Removes this lock's device record from the vendor account, exactly like the app's remove-device does. Needed before re-pairing after an eviction; run the app's add-device search afterwards.",
-      "fields": {
         "entry_id": {
           "name": "Config entry",
           "description": "Which mirror to use. Leave out for all."

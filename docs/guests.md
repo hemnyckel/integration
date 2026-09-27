@@ -115,11 +115,10 @@ it never expires on its own.
 
 ## Fingerprint enrollment from Home Assistant
 
-`nimly.enroll_fingerprint` lights the lock's reader for one slot. With a synced
-guest the enrollment goes through the vendor cloud (`scan-tag`), so the app
-records the access too; otherwise it is sent straight to the lock. Either way
-the lock reports nothing while the enrollment runs — a template exists only
-once that finger has really opened the door, which is why `finger_used` (not
+`nimly.enroll_fingerprint` lights the lock's reader for one slot. It is sent
+straight to the lock, and the lock reports nothing while the enrollment runs — a
+template exists only once that finger has really opened the door, which is why
+`finger_used` (not
 the enrollment) is the evidence the catalog trusts. The guest card's
 fingerprint button calls the same service.
 

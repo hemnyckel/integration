@@ -4,23 +4,7 @@
       "user": {
         "title": "Nimly",
         "menu_options": {
-          "cloud": "Leverantörskonto (moln)",
           "mirror": "Låsspegel (app-sidan)"
-        }
-      },
-      "cloud": {
-        "title": "Nimly-konto",
-        "description": "Logga in med kontot du använder i den officiella appen.",
-        "data": {
-          "email": "E-post",
-          "password": "Lösenord"
-        }
-      },
-      "location": {
-        "title": "Plats",
-        "description": "Välj vilken plats som ska visas i Home Assistant.",
-        "data": {
-          "location_id": "Plats"
         }
       },
       "mirror": {
@@ -61,14 +45,6 @@
           "ssid": "Nätverk (SSID)",
           "password": "Lösenord"
         }
-      },
-      "reauth_confirm": {
-        "title": "Logga in igen",
-        "description": "Moln-sessionen för {email} är inte längre giltig. Ange lösenordet för att återansluta; låset fungerar lokalt under tiden.",
-        "data": {
-          "email": "E-post",
-          "password": "Lösenord"
-        }
       }
     },
     "abort": {
@@ -77,9 +53,6 @@
       "no_address": "Kunde inte läsa enhetens adress."
     },
     "error": {
-      "invalid_auth": "Fel e-post eller lösenord.",
-      "cannot_connect": "Kunde inte nå leverantörens moln.",
-      "no_locations": "Kontot har inga platser.",
       "provision_failed": "Kunde inte provisionera – kontrollera nätverket och försök igen.",
       "invalid_prefix": "Ogiltigt MQTT-prefix (a-z, 0-9, /, _ och -).",
       "prefix_in_use": "Det prefixet används redan av en annan spegel - välj ett annat."
@@ -87,13 +60,6 @@
   },
   "options": {
     "step": {
-      "init": {
-        "title": "Avfrågning",
-        "description": "Hur ofta kontot tillfrågas om ny aktivitet. Kortare intervall ger snabbare svar och belastar leverantörens API mer.",
-        "data": {
-          "scan_interval": "Sekunder mellan avfrågningar"
-        }
-      },
       "mirror_menu": {
         "title": "Nimly-spegeln",
         "menu_options": {
@@ -179,88 +145,8 @@
       "lock_unreachable": "Låset svarade inte. Tryck på en knapp på låset för att väcka det och försök igen."
     },
     "abort": {
-      "no_active_slots": "Inga upptagna slottar att rensa."
-    }
-  },
-  "entity": {
-    "sensor": {
-      "lock_state": {
-        "name": "Molntillstånd"
-      },
-      "last_event": {
-        "name": "Senaste händelse"
-      },
-      "last_person": {
-        "name": "Senaste person"
-      },
-      "last_pin_slot": {
-        "name": "Senaste PIN-plats"
-      },
-      "last_tag": {
-        "name": "Senaste tagg"
-      },
-      "battery": {
-        "name": "Batteri (moln)"
-      },
-      "lqi": {
-        "name": "Länkkvalitet (moln)"
-      },
-      "sound_volume": {
-        "name": "Ljudvolym (moln)"
-      },
-      "volume_name": {
-        "name": "Volymnivå (moln)"
-      },
-      "autorelock_time": {
-        "name": "Återlåsningstid (moln)"
-      },
-      "firmware": {
-        "name": "Firmware (moln)"
-      },
-      "config_progress": {
-        "name": "Konfigurationsförlopp (moln)"
-      },
-      "raw": {
-        "name": "Rådata (moln)"
-      },
-      "remaining_pin_attempts": {
-        "name": "Återstående PIN-försök"
-      },
-      "alarm_state": {
-        "name": "Larmtillstånd"
-      },
-      "device_count": {
-        "name": "Enheter i kontot"
-      },
-      "user_count": {
-        "name": "Personer i kontot"
-      },
-      "user_access": {
-        "name": "Åtkomst för {name}"
-      },
-      "guests": {
-        "name": "Gäster"
-      }
-    },
-    "binary_sensor": {
-      "online": {
-        "name": "Online (moln)"
-      },
-      "autolock": {
-        "name": "Auto-lås (moln)"
-      },
-      "master_pin_mode": {
-        "name": "Master-PIN-läge (moln)"
-      },
-      "pin_required_remote": {
-        "name": "PIN krävs vid fjärrupplåsning (moln)"
-      },
-      "part_of_alarm": {
-        "name": "Del av larm (moln)"
-      },
-      "gateway_online": {
-        "name": "Bryggan online"
-      }
+      "no_active_slots": "Inga upptagna slottar att rensa.",
+      "no_options": "Den här posten har inga inställningar."
     }
   },
   "issues": {
@@ -286,62 +172,14 @@
         "step": {
           "init": {
             "title": "Reparera app-registreringen",
-            "description": "Emulatorn svarar Home Assistant men Nimly-bryggan nekar dess join. Oftast har appen kvar den gamla låsregistreringen som blockerar omparningen; att ta bort den är exakt vad appens ta-bort-enhet gör. Skicka in för att göra det härifrån."
-          },
-          "next": {
-            "title": "Lägg nu till enheten i appen",
-            "description": "Öppna Nimly-appen, lägg till en enhet och starta sökningen. Emulatorn steer:ar själv och hoppar in inom sekunder när bryggans fönster öppnas. Reparationen stängs av sig själv när den gör det."
+            "description": "Emulatorn svarar Home Assistant men Nimly-bryggan nekar dess join. Oftast har appen kvar den gamla låsregistreringen som blockerar omparningen. Öppna Nimly-appen, ta bort det gamla låset och starta sedan appens lägg-till-enhet-sökning. Emulatorn steer:ar själv och hoppar in inom sekunder när bryggans fönster öppnas; reparationen stängs av sig själv när den gör det."
           }
-        },
-        "abort": {
-          "no_mirror": "Ingen låsspegel är laddad.",
-          "reset_failed": "App-registreringen kunde inte tas bort (ingen matchande molnenhet)."
         }
       }
-    },
-    "cloud_feedback_stale": {
-      "title": "Leverantörens moln svarar inte",
-      "description": "En ändring skickades mot Nimly-appen men dök aldrig upp i kontot. Bryggans molnlänk verkar ha fastnat - dra ur och sätt tillbaka Nimly Connect Bridge."
     },
     "slot_conflict": {
       "title": "En app-uppgift för slot {slot} kunde inte sparas",
       "description": "Appen skapade en uppgift för slot {slot}, men den kunde inte sparas i låset: {reason}. Inget skrevs över. Frigör en slot och försök igen i appen."
-    },
-    "cloud_link_ambiguous": {
-      "title": "Moln-credentials behöver länkas för slot {slot}",
-      "description": "Låset har en {type} i slot {slot}, men {count} molnaccesser av den typen saknar slot. Länka dem innan en sync så appen attribuerar rätt person; nimly.link_credential gör det och nimly.audit visar läget."
-    },
-    "cloud_push_failed": {
-      "title": "En ändring för {name} (slot {slot}) nådde inte appen",
-      "description": "Ändringen landade på låset och i Home Assistant, men molnet avvisade uppdateringen - appen visar fortfarande det gamla värdet. Skicka in för att försöka igen.",
-      "fix_flow": {
-        "step": {
-          "init": {
-            "title": "Försök igen med molnuppdateringen",
-            "description": "Skicka {name}s nuvarande namn, giltighet och kod till molnet igen."
-          }
-        },
-        "abort": {
-          "no_mirror": "Ingen låsspegel är laddad.",
-          "retry_failed": "Molnet avvisar fortfarande uppdateringen. Journalen har detaljerna."
-        }
-      }
-    },
-    "cloud_sync_failed": {
-      "title": "Gästen {name} (slot {slot}) nådde aldrig appen",
-      "description": "Koden fungerar på låset, men molnet accepterade inte gästen - appen visar den inte än. Skicka in för att försöka igen; journalen och nimly.audit har detaljerna.",
-      "fix_flow": {
-        "step": {
-          "init": {
-            "title": "Skicka gästen igen",
-            "description": "Spela upp {name}s identitet och PIN-access till molnet igen."
-          }
-        },
-        "abort": {
-          "no_mirror": "Ingen låsspegel är laddad.",
-          "retry_failed": "Molnet avvisar fortfarande gästen. Journalen har detaljerna."
-        }
-      }
     },
     "prefix_conflict": {
       "title": "Två speglar delar MQTT-prefix {prefix}",
@@ -349,67 +187,9 @@
     }
   },
   "services": {
-    "refresh": {
-      "name": "Uppdatera",
-      "description": "Be kontot om ny aktivitet direkt.",
-      "fields": {
-        "entry_id": {
-          "name": "Konfigurationspost",
-          "description": "Vilket konto som ska uppdateras. Utelämna för alla."
-        }
-      }
-    },
-    "fetch_history": {
-      "name": "Hämta aktivitetshistorik",
-      "description": "Returnerar de aktiviteter Home Assistant samlat, nyaste först.",
-      "fields": {
-        "device_id": {
-          "name": "Enhet",
-          "description": "Begränsa resultatet till ett lås."
-        },
-        "limit": {
-          "name": "Gräns",
-          "description": "Högsta antal aktiviteter att returnera."
-        }
-      }
-    },
-    "set_lock": {
-      "name": "Lås eller lås upp via molnet",
-      "description": "En valfri andra styrväg. Den lokala vägen är snabbare och fungerar utan internet.",
-      "fields": {
-        "device_id": {
-          "name": "Enhet",
-          "description": "Låset som åtgärden gäller."
-        },
-        "locked": {
-          "name": "Låst",
-          "description": "Sant för att låsa, falskt för att låsa upp."
-        }
-      }
-    },
-    "gateway_scan": {
-      "name": "Öppna bryggans parningsfönster",
-      "description": "Ber bryggan ta emot en ny enhet, så att en modul eller emulator kan ansluta från Home Assistant.",
-      "fields": {
-        "start": {
-          "name": "Starta",
-          "description": "Sant för att öppna fönstret, falskt för att stänga det."
-        }
-      }
-    },
-    "probe": {
-      "name": "Anropa leverantörens API (diagnostik)",
-      "description": "Anropar sökvägar på leverantörens API och returnerar status och ett maskat svar. Används för att kartlägga API:t, behövs inte i normal drift.",
-      "fields": {
-        "paths": {
-          "name": "Sökvägar",
-          "description": "Sökvägar relativt API-roten, eller objekt med path, method, json och headers."
-        }
-      }
-    },
     "set_ieee": {
       "name": "Provisionera IEEE-adress",
-      "description": "Skickar en IEEE-adress till emulatorn, som sparar den i NVS och startar om. Standard är det riktiga låsets egen adress, eftersom molnet bara accepterar kända moduler.",
+      "description": "Skickar en IEEE-adress till emulatorn, som sparar den i NVS och startar om. Standard är det riktiga låsets egen adress, eftersom bryggan bara accepterar kända moduler.",
       "fields": {
         "ieee": {
           "name": "IEEE-adress",
@@ -521,7 +301,7 @@
     },
     "wipe": {
       "name": "Töm låset och alla gäster",
-      "description": "Tömmer alla credential-slots ovanför master-slotsen och tar bort alla gäster, i Home Assistant och i molnet. Masters rörs aldrig. Kör som torrkörning först; en riktig körning kräver confirm: WIPE.",
+      "description": "Tömmer alla credential-slots ovanför master-slotsen och tar bort alla gäster, i Home Assistant och på låset. Masters rörs aldrig. Kör som torrkörning först; en riktig körning kräver confirm: WIPE.",
       "fields": {
         "entry_id": {
           "name": "Konfigurationspost",
@@ -737,203 +517,9 @@
         }
       }
     },
-    "reset_app_registration": {
-      "name": "Återställ app-registreringen",
-      "description": "Tar bort låsets enhetspost hos leverantören, precis som appens ta-bort-enhet. Behövs före omparning efter en eviction; kör appens sökning efteråt.",
-      "fields": {
-        "entry_id": {
-          "name": "Konfigurationspost",
-          "description": "Vilken spegel som ska användas. Utelämna för alla."
-        }
-      }
-    },
-    "cleanup_cloud": {
-      "name": "Städa molnregistret",
-      "description": "Tar bort entiteter och enheter som blivit kvar när molnkontot inte längre listar deras lås, och flyttar överlevande poster till låsets serienummer. Körs automatiskt vid start; anropa för att köra manuellt.",
-      "fields": {
-        "dry_run": {
-          "name": "Torrkörning",
-          "description": "True för att visa vad som skulle ändras utan att röra registret."
-        }
-      }
-    },
-    "cloud_guests": {
-      "name": "Lista molnets gäster",
-      "description": "Läser leverantörens gästanvändare (appens Guest user list): identitet, giltighetsfönster och vilka credential-typer de har. Molnet lämnar aldrig ut värden.",
-      "fields": {
-        "entry_id": {
-          "name": "Konto-entry",
-          "description": "Valfritt config entry-id när fler än ett konto är konfigurerat."
-        }
-      }
-    },
-    "sync_cloud": {
-      "name": "Synka lokala gäster till molnet",
-      "description": "För varje lokal återkommande gäst med sparad kod: säkerställ molnidentitet och PIN-access. Kör torrt som standard och rapporterar exakt vad som skulle skapas; molnposten lägger bara till attribution och appnotiser — koden fungerar redan i låset.",
-      "fields": {
-        "entry_id": {
-          "name": "Konto-entry",
-          "description": "Valfritt config entry-id när fler än ett konto är konfigurerat."
-        },
-        "dry_run": {
-          "name": "Torrkörning",
-          "description": "Standard true: visa planen utan att skriva till molnet."
-        }
-      }
-    },
-    "audit": {
-      "name": "Granska lås, katalog och moln",
-      "description": "Läs-only avvikelserapport: vilka lokala gäster som saknar molnidentitet eller access, och vilka molngäster katalogen inte känner. Inget ändras.",
-      "fields": {
-        "entry_id": {
-          "name": "Konto-entry",
-          "description": "Valfritt config entry-id när fler än ett konto är konfigurerat."
-        }
-      }
-    },
-    "link_credential": {
-      "name": "Länka en credential till en molnanvändare",
-      "description": "Registrerar vilken molnidentitet som äger en credential i en slot (pin, tag eller finger). Används för att lösa en tvetydig molnlänk som reparationsflödet eller nimly.audit rapporterar.",
-      "fields": {
-        "slot": {
-          "name": "Slot",
-          "description": "Låsets användarslot."
-        },
-        "access_type": {
-          "name": "Credential-typ",
-          "description": "pin, tag eller finger."
-        },
-        "user_id": {
-          "name": "Molnanvändarens id",
-          "description": "Moln-gästens uuid."
-        },
-        "entry_id": {
-          "name": "Spegel-entry",
-          "description": "Valfritt config entry-id när fler än ett lås är konfigurerat."
-        }
-      }
-    },
-    "restore_cloud": {
-      "name": "Återställ molnet från katalogen",
-      "description": "Spelar upp identiteter och accesser till molnet efter en förlust: PIN med känt värde återskapas, länkade fingeravtryck spelas in via simulerad enroll, och det vars värde bara gästen känner rapporteras i stället för att gissas. Torrkörning först.",
-      "fields": {
-        "entry_id": {
-          "name": "Konto-entry",
-          "description": "Valfritt config entry-id när fler än ett konto är konfigurerat."
-        },
-        "dry_run": {
-          "name": "Torrkörning",
-          "description": "Standard true: visa planen utan att skriva till molnet."
-        }
-      }
-    },
-    "update_cloud_guest": {
-      "name": "Redigera appgäst",
-      "description": "Ändra namn, giltighetsfönster eller kontaktuppgifter för en gäst som skapats i leverantörens app (endast identiteten; koderna ägs av appen).",
-      "fields": {
-        "user_id": {
-          "name": "Gäst-id",
-          "description": "Gästens uuid. Rekommenderas när namnet kan vara tvetydigt."
-        },
-        "guest": {
-          "name": "Gästnamn",
-          "description": "Matcha på (unikt) namn i stället för id."
-        },
-        "new_name": {
-          "name": "Nytt namn",
-          "description": "Byt namn på gästen i appen."
-        },
-        "valid_from": {
-          "name": "Giltig från",
-          "description": "Start på giltighetsfönstret (ÅÅÅÅ-MM-DD)."
-        },
-        "valid_to": {
-          "name": "Giltig till",
-          "description": "Slut på giltighetsfönstret (ISO-datumtid)."
-        },
-        "email": {
-          "name": "E-post",
-          "description": "Gästens e-post."
-        },
-        "phone": {
-          "name": "Telefon",
-          "description": "Gästens telefonnummer."
-        },
-        "entry_id": {
-          "name": "Konfigurationspost",
-          "description": "Vilket molnkonto, när flera är konfigurerade."
-        }
-      }
-    },
-    "delete_cloud_guest": {
-      "name": "Ta bort appgäst",
-      "description": "Ta bort en gästidentitet som skapats i appen, efter att först ha tagit bort dess accesser på varje aktivt lås så att ingen kod fortsätter fungera.",
-      "fields": {
-        "user_id": {
-          "name": "Gäst-id",
-          "description": "Gästens uuid. Rekommenderas när namnet kan vara tvetydigt."
-        },
-        "guest": {
-          "name": "Gästnamn",
-          "description": "Matcha på (unikt) namn i stället för id."
-        },
-        "entry_id": {
-          "name": "Konfigurationspost",
-          "description": "Vilket molnkonto, när flera är konfigurerade."
-        }
-      }
-    },
-    "set_cloud_code": {
-      "name": "Sätt appgäst-kod",
-      "description": "Sätt eller byt en PIN eller tag för en gäst som lever i appen, på ett lås. Värdet skrivs via molnet till låset; när gästen är vår egen sparar katalogen också värdet.",
-      "fields": {
-        "user_id": {
-          "name": "Gäst-id",
-          "description": "Gästens uuid. Rekommenderas när namnet kan vara tvetydigt."
-        },
-        "guest": {
-          "name": "Gästnamn",
-          "description": "Matcha på (unikt) namn i stället för id."
-        },
-        "type": {
-          "name": "Kodtyp",
-          "description": "pin (standard) eller tag."
-        },
-        "value": {
-          "name": "Kod",
-          "description": "Den nya koden med 4–10 siffror. Loggas aldrig."
-        },
-        "entry_id": {
-          "name": "Lås",
-          "description": "Vilket lås koden skrivs till; krävs när flera är konfigurerade."
-        }
-      }
-    },
-    "link_cloud_guest": {
-      "name": "Länka appgäst till slot",
-      "description": "Registrera vilken leverantörsidentitet en av våra slottar tillhör — människans svar på en adoptionskonflikt. Kör sync_cloud efteråt för att få accessen i linje.",
-      "fields": {
-        "entry_id": {
-          "name": "Lås",
-          "description": "Låset vars slot avses."
-        },
-        "slot": {
-          "name": "Slot",
-          "description": "Den lokala gästens slot."
-        },
-        "user_id": {
-          "name": "Gäst-id",
-          "description": "Leverantörsidentitetens uuid."
-        },
-        "guest": {
-          "name": "Gästnamn",
-          "description": "Matcha identiteten på (unikt) namn i stället för id."
-        }
-      }
-    },
     "enroll_fingerprint": {
       "name": "Starta finger-enroll",
-      "description": "Tänder låsets fingerläsare för en slot så att personen vid dörren kan registrera ett finger. Via molnet när slotens gäst är synkad (appen registrerar då också accessen), annars lokalt. Låset rapporterar inget under enrolleringen: en mall finns först när fingret faktiskt öppnat dörren.",
+      "description": "Tänder låsets fingerläsare för en slot så att personen vid dörren kan registrera ett finger. Låset rapporterar inget under enrolleringen: en mall finns först när fingret faktiskt öppnat dörren.",
       "fields": {
         "slot": {
           "name": "Slot",
@@ -941,18 +527,8 @@
         },
         "mode": {
           "name": "Väg",
-          "description": "auto (standard), cloud eller local."
+          "description": "auto (standard) eller local."
         },
-        "entry_id": {
-          "name": "Lås",
-          "description": "Vilket lås; krävs när flera är konfigurerade."
-        }
-      }
-    },
-    "repair_join": {
-      "name": "Reparera brygg-parningen",
-      "description": "Få ett lås tillbaka på vendor-bryggan i ett anrop: ta bort modulens kontopost, nollställ emulatorn till ett färskt parningsläge, öppna bryggans join-fönster och vänta in joinen. Bryggan måste vara online.",
-      "fields": {
         "entry_id": {
           "name": "Lås",
           "description": "Vilket lås; krävs när flera är konfigurerade."

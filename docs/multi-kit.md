@@ -69,14 +69,12 @@ per-prefix one.
 3. **Add integration → Nimly → Lock mirror**: pick the ZHA lock, pick the free
    kit (or accept the only one). The wizard prefills the prefix.
 4. `nimly.set_ieee` provisions the emulator with the module's IEEE (the same
-   value arrives from ZHA); `nimly.gateway_scan` opens the vendor bridge's
-   window; the emulator steers in and the vendor cloud creates the record.
-5. The record is **named automatically** (the ZHA name wins) and the catalog is
-   **replayed** — `nimly.repair_join` performs steps 4–5 in one call for
-   existing locks, and the reconcile pass heals the name on every later
+   value arrives from ZHA); open the vendor bridge's pairing window in the app;
+   the emulator steers in and the app creates the record.
+5. The record is **named automatically** (the ZHA name wins) on every later
    re-registration.
 
-No step above needs the vendor app.
+The emulator steers on its own once the app's pairing window is open.
 
 ## OTA at scale
 
@@ -99,9 +97,8 @@ No step above needs the vendor app.
 
 | Detector | Meaning | Action |
 | --- | --- | --- |
-| `emulator_not_joined` | C6 not on the bridge's network | guided re-pair (`repair_join`) |
-| `cloud_feedback_stale` | vendor cloud not answering a push | power-cycle the bridge; re-pair if the device leg stays dead |
-| `app_path_dead` (planned) | repeated 504s on device commands | one-click `repair_join` |
+| `emulator_not_joined` | C6 not on the bridge's network | guided re-pair in the app (remove the old lock, then add the device again) |
+| `app_path_dead` (planned) | repeated 504s on device commands | re-pair the lock in the app |
 | `prefix_conflict` | two mirrors share one prefix | give a kit its own prefix (`set_prefix`) |
 | wrong emulator IEEE (warning + audit) | C6 wears another module's address | `nimly.set_ieee` |
 
@@ -122,7 +119,7 @@ No step above needs the vendor app.
 | Bridge entry learns prefix by MAC; OTA over the learned prefix | built |
 | Name-on-repair / reconcile rename, catalog replay on re-pair | built |
 | BLE provisioning of WiFi **and** MQTT credentials; credential-free bridge image; webflash page for both boards | planned (world-scale flashing) |
-| `nimly.add_lock` one-call onboarding | planned (composes `set_ieee` + `gateway_scan` + replay) |
+| `nimly.add_lock` one-call onboarding | planned (composes `set_ieee` + the app's pairing window + replay) |
 | Both C3s on 0.6.0 (kit A keeps `nimly/proxy`, kit B gets its MAC prefix) | done 2026-09-24 |
 | Two-live-locks bring-up: module #2 to ZHA, the IEEE dance, join, name | next |
 | Two-live-kits validation on the desk | next (needs both locks) |
@@ -130,6 +127,5 @@ No step above needs the vendor app.
 ## Open vendor questions
 
 * Does the Nimly Connect Bridge accept a second paired lock? (The app's UI cap
-  is two; the account and the cloud accept more.) The two-kit test answers it.
-* One vendor bridge per home is assumed; a second bridge on one account is
-  untested.
+  is two.) The two-kit test answers it.
+* One vendor bridge per home is assumed; a second bridge is untested.

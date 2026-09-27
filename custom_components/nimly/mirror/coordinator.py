@@ -23,7 +23,7 @@ from collections.abc import Callable
 import aiohttp
 
 from homeassistant.components import mqtt
-from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -44,7 +44,6 @@ from ..const import (
     CH_ACTIVITY,
     CH_AUTOLOCK,
     CH_BATTERY,
-    CH_CLOUD,
     CH_FINGERPRINT,
     CH_LOCK,
     CH_PIN,
@@ -72,7 +71,6 @@ from ..const import (
     DOMAIN,
     ECHO_WINDOW,
     EVENT_JOURNAL,
-    EVENT_NIMLY_CLOUD_ACTIVITY,
     EV_ACTION,
     EV_FP_CLEAR,
     EV_FP_ENROLL,
@@ -99,7 +97,6 @@ from ..const import (
     TOPIC_HA_TO_BRIDGE,
     TOPIC_PIN,
     TOPIC_STATE,
-    TYPE_CLOUD,
     TYPE_MIRROR,
     ZCL_CMD_FP_CLEAR,
     ZCL_CMD_FP_ENROLL,
@@ -111,8 +108,6 @@ from .discovery import mac_match
 from .facts import (
     compute_settings_drift,
     placeholder_slot_name,
-    suggest_user_name,
-    vendor_volume,
 )
 from .guests import (
     GUEST_CREATED,
@@ -130,7 +125,6 @@ from .guests import (
     valid_code,
 )
 from .journal import (
-    ORIGIN_CLOUD,
     ORIGIN_HA,
     ORIGIN_LOCK,
     add as journal_add,
@@ -197,8 +191,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.bridge_online = False
         self.emulator_joined: bool | None = None
         self._not_joined_since: float | None = None
-        self._cloud_seen_at: float = 0.0
-        self._cloud_expect_after: float | None = None
         self.firmware: str | None = None
         self.emulator_ieee: str | None = None
         self.emulator_factory_new: bool | None = None
@@ -230,10 +222,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._journal_lock = asyncio.Lock()
         self.guests: dict[str, dict[str, Any]] = {}
-        # The next finger enroll is a cloud-side replay (the vendor picks the
-        # slot, so it is not known in advance); recorded for the catalog, never
-        # mirrored to the lock, whose fingerprint template already exists.
-        self._replay_enroll_until: float = 0.0
         self._guest_unsubs: dict[str, Callable[[], None]] = {}
         self.zha: ZhaLink | None = None
         self.last_error: str | None = None
@@ -345,9 +333,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             async_track_state_change_event(self.hass, watched, self._on_tracked_change)
         )
 
-        self._unsubs.append(
-            self.hass.bus.async_listen(EVENT_NIMLY_CLOUD_ACTIVITY, self._on_cloud_activity)
-        )
         self._unsubs.append(
             self.hass.bus.async_listen(
                 dr.EVENT_DEVICE_REGISTRY_UPDATED, self._on_device_registry_updated
@@ -529,10 +514,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- publishing ---------------------------------------------------------
 
     async def _async_publish(self, payload: dict[str, Any]) -> None:
-        if payload.get("cmd") in (CMD_EVENT, CMD_LOCK, CMD_UNLOCK):
-            # This should show up in the vendor cloud's feed shortly; the health
-            # tick raises a repair when the feedback never arrives.
-            self._cloud_expect_after = time.monotonic()
         try:
             await mqtt.async_publish(
                 self.hass,
@@ -727,23 +708,19 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     def suggest_slot_name(self, slot: int) -> str | None:
-        """A cloud user name for a freshly learned slot, when exactly one fits.
+        """A name for a freshly learned slot, when exactly one fits.
 
-        The cloud maps users to credentials but never exposes slot numbers (the
-        gateway translates internally), so the suggestion is conservative and
-        the user still confirms it in the repair flow.
+        The journal remembers names attached to this slot's events, which
+        covers guests the slot table does not name. The suggestion is
+        conservative and the user still confirms it in the repair flow.
         """
-        wanted = set(self.slots.credentials(slot))
-        if not wanted or self._slot_is_named(slot):
+        if self._slot_is_named(slot):
             return None
         used = {
             str(data.get("name") or "").lower()
             for _slot, data in self.slots.items()
             if data.get("name")
         }
-        # The journal remembers names the cloud attached to this slot's events
-        # (a merged local+cloud pair), which covers guests that the location's
-        # member list does not contain.
         for entry in reversed(self.journal):
             if entry.get("slot") != slot or not entry.get("name"):
                 continue
@@ -751,32 +728,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if name.lower() not in used:
                 return name
             break
-        for coordinator in self.hass.data.get(DOMAIN, {}).values():
-            access = getattr(coordinator, "access", None)
-            users = getattr(coordinator, "users", None)
-            devices = getattr(coordinator, "devices", None)
-            if not access or not users or not devices:
-                continue
-            device_id = self._cloud_device_id(devices)
-            if device_id is None:
-                continue
-            return suggest_user_name(wanted, used, users, access.get(device_id) or [])
-        return None
-
-    def _cloud_device_id(self, devices: list[dict[str, Any]]) -> str | None:
-        """The cloud device whose serial number is this lock's module (IEEE)."""
-        mine = str(self.ieee or "").replace(":", "").replace("-", "").lower()
-        if not mine:
-            return None
-        for device in devices:
-            serial = (
-                str(device.get("serialNumber") or "")
-                .replace(":", "")
-                .replace("-", "")
-                .lower()
-            )
-            if serial and serial == mine:
-                return str(device.get("id") or "") or None
         return None
 
     async def async_set_slot_pin(self, slot: int, code: str) -> None:
@@ -827,7 +778,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "slots": [],
             "guests": [],
             "tags": [],
-            "cloud": {},
             "errors": [],
         }
 
@@ -881,18 +831,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self.async_revoke_guest(int(key))
             except Exception as err:  # noqa: BLE001
                 report["errors"].append(f"guest {key}: {err}")
-
-        from ..cloud.coordinator import NimlyCloudCoordinator
-        from ..cloud.sync import async_wipe_guest_users
-
-        try:
-            for item in self.hass.data.get(DOMAIN, {}).values():
-                if isinstance(item, NimlyCloudCoordinator):
-                    report["cloud"] = await async_wipe_guest_users(
-                        item, dry_run=dry_run
-                    )
-        except Exception as err:  # noqa: BLE001 - report it, keep the summary
-            report["errors"].append(f"cloud: {err}")
 
         if not dry_run:
             await self._async_journal_add(
@@ -956,45 +894,8 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning(
                 "Lock settings differ from the app's record: %s", self.settings_drift
             )
-        # Fresh facts are exactly when a drifted app record can be corrected
-        # (and when a fresh registration's defaults show up).
-        await self._async_heal_app_settings()
         self._publish_snapshot()
         return self.lock_facts
-
-    async def _async_heal_app_settings(self) -> None:
-        """Correct the app's record when it differs from the lock's own settings.
-
-        A fresh cloud registration starts from the app's defaults, so after a
-        (re)pairing the record can disagree with the lock; the lock is the source
-        of truth. The comparison reads the cloud's own view (its settings object
-        and the module values it reports), not the local mirror's copy.
-        """
-        for coordinator in self.hass.data.get(DOMAIN, {}).values():
-            devices = getattr(coordinator, "devices", None)
-            setting = getattr(coordinator, "device_setting", None)
-            state = getattr(coordinator, "device_state", None)
-            if not devices:
-                continue
-            device_id = self._cloud_device_id(devices)
-            if device_id is None:
-                continue
-            payload: dict[str, Any] = {}
-            lock_auto = self.lock_facts.get("auto_relock_time")
-            if lock_auto is not None and setting is not None:
-                if bool(setting(device_id, "autolock")) != bool(lock_auto):
-                    payload["autolock"] = bool(lock_auto)
-            lock_volume = self.lock_facts.get("sound_volume")
-            if lock_volume is not None and state is not None:
-                module_volume = state(device_id, "lock", "soundvolume")
-                if isinstance(module_volume, int) and module_volume != int(lock_volume):
-                    vendor = vendor_volume(int(lock_volume))
-                    if vendor:
-                        payload["volume"] = vendor
-            if payload:
-                _LOGGER.info("Healing the app's settings from the lock: %s", payload)
-                await self._async_push_app_setting(payload)
-            return
 
     def _schedule_facts_refresh(self) -> None:
         """Background facts refresh - the lock is awake right now anyway."""
@@ -1019,7 +920,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise RuntimeError("the lock did not report the setting back")
         if bool(actual) != bool(enabled):
             raise RuntimeError("the lock kept a different auto-lock setting")
-        await self._async_push_app_setting({"autolock": bool(enabled)})
         await self._async_journal_add(
             make_entry(
                 action="setting_changed",
@@ -1041,9 +941,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise RuntimeError("the lock did not report the volume back")
         if int(actual) != int(level):
             raise RuntimeError("the lock kept a different volume")
-        vendor = vendor_volume(int(level))
-        if vendor is not None:
-            await self._async_push_app_setting({"volume": vendor})
         await self._async_journal_add(
             make_entry(
                 action="setting_changed",
@@ -1053,62 +950,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         )
         return facts
-
-    async def _async_push_app_setting(self, payload: dict[str, Any]) -> None:
-        """Best-effort: keep the app's record in step with the lock's own setting.
-
-        The local path never depends on this; a failure is logged and dropped,
-        and the drift sensor keeps showing the difference until it is gone.
-        """
-        for coordinator in self.hass.data.get(DOMAIN, {}).values():
-            push = getattr(coordinator, "async_push_settings", None)
-            devices = getattr(coordinator, "devices", None)
-            if push is None or not devices:
-                continue
-            device_id = self._cloud_device_id(devices)
-            if device_id is None:
-                continue
-            try:
-                await push(device_id, payload)
-            except Exception as err:  # noqa: BLE001 - convenience only
-                _LOGGER.debug("Could not push settings to the cloud: %s", err)
-            return
-
-    async def async_reset_app_registration(self) -> dict[str, Any]:
-        """Remove this lock's device record from the vendor account.
-
-        Exactly what the app's "remove device" does, so a recovery does not
-        depend on finding that menu: the cloud refuses to (re)pair a module
-        whose serial is still registered. Run the app's add-device search
-        afterwards; the emulator steers on its own.
-        """
-        for coordinator in self.hass.data.get(DOMAIN, {}).values():
-            devices = getattr(coordinator, "devices", None)
-            api = getattr(coordinator, "api", None)
-            if not devices or api is None:
-                continue
-            device_id = self._cloud_device_id(devices)
-            if device_id is None:
-                continue
-            # SAFETY: only ever delete the record whose serial is this lock's.
-            meta = (getattr(coordinator, "device_meta", {}) or {}).get(device_id) or {}
-            serial = str(meta.get("serialNumber") or "").replace(":", "").lower()
-            mine = str(self.ieee or "").replace(":", "").lower()
-            if not mine or serial != mine:
-                return {"reset": False, "reason": "serial mismatch, refusing"}
-            await api.async_delete_device(device_id)
-            await coordinator.async_request_refresh()
-            await self._async_journal_add(
-                make_entry(
-                    action="app_registration_reset",
-                    time=dt_util.utcnow().isoformat(),
-                    origin=ORIGIN_HA,
-                    detail="the app's device record was removed; run add-device",
-                )
-            )
-            _LOGGER.warning("Removed the app's device record for %s", self.ieee)
-            return {"device_id": device_id, "reset": True}
-        return {"reset": False, "reason": "no cloud device matches this lock"}
 
     # -- journal -------------------------------------------------------------
 
@@ -1214,63 +1055,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             },
         )
 
-    def cloud_user(self, slot: int) -> str | None:
-        """The vendor uuid a local guest was synced to, if it has one."""
-        stored = self.entry.options.get("cloud_users")
-        if isinstance(stored, dict):
-            value = stored.get(str(slot))
-            if isinstance(value, str) and value:
-                return value
-        return None
-
-    async def async_set_cloud_user(self, slot: int, user_id: str) -> None:
-        """Remember which vendor identity a local guest maps to."""
-        stored = dict(self.entry.options.get("cloud_users") or {})
-        stored[str(slot)] = str(user_id)
-        self.hass.config_entries.async_update_entry(
-            self.entry, options={**self.entry.options, "cloud_users": stored}
-        )
-
-    async def async_forget_cloud_identity(self, user_id: str) -> list[dict[str, Any]]:
-        """Drop every catalog link to a vendor identity that no longer exists.
-
-        Returns the links that were removed so the caller can report them; the
-        local guests themselves stay, they simply lose their cloud mapping.
-        """
-        wanted = str(user_id)
-        removed: list[dict[str, Any]] = []
-        stored = dict(self.entry.options.get("cloud_users") or {})
-        changed = False
-        for slot, value in list(stored.items()):
-            if value == wanted:
-                stored.pop(slot, None)
-                removed.append(
-                    {"slot": int(slot) if str(slot).isdigit() else slot, "type": "pin"}
-                )
-                changed = True
-        links = dict(self.cloud_links())
-        for key, value in list(links.items()):
-            if value == wanted:
-                links.pop(key, None)
-                slot, _, access_type = key.partition(":")
-                removed.append(
-                    {
-                        "slot": int(slot) if slot.isdigit() else slot,
-                        "type": access_type,
-                    }
-                )
-                changed = True
-        if changed:
-            self.hass.config_entries.async_update_entry(
-                self.entry,
-                options={
-                    **self.entry.options,
-                    "cloud_users": stored,
-                    "cloud_links": links,
-                },
-            )
-        return removed
-
     async def async_apply_guest_code(self, slot: int, code: str) -> None:
         """Write a new value for a guest's code into the lock and the catalog.
 
@@ -1289,411 +1073,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         guest["code"] = str(code)
         await self._async_save_guests()
         self._publish_snapshot()
-
-    def slot_for_cloud_user(self, user_id: str) -> int | None:
-        """The slot of the local guest a vendor identity belongs to, if any."""
-        for slot_key, guest in self.guests.items():
-            if isinstance(guest, dict) and slot_key.isdigit():
-                if self.cloud_user(int(slot_key)) == str(user_id):
-                    return int(slot_key)
-        return None
-
-    def cloud_sync_candidates(self) -> list[dict[str, Any]]:
-        """Local guests the cloud can be told about: a stored code, any kind.
-
-        Recurring and permanent guests keep their code, so both are replayed
-        after a loss and both may be told to the cloud; a temporary guest's
-        value dies with the response that carried it.
-        """
-        rows: list[dict[str, Any]] = []
-        for key, guest in self.guests.items():
-            if not isinstance(guest, dict) or guest.get("kind") not in (
-                "recurring",
-                "permanent",
-            ):
-                continue
-            name = str(guest.get("name") or "").strip()
-            code = str(guest.get("code") or "")
-            if not name or not code:
-                continue
-            try:
-                slot = int(key)
-            except (TypeError, ValueError):
-                continue
-            rows.append(
-                {
-                    "slot": slot,
-                    "name": name,
-                    "code": code,
-                    "user_id": self.cloud_user(slot),
-                }
-            )
-        return rows
-
-    async def async_journal_note(self, action: str, *, detail: str = "") -> None:
-        """A public journal write for the other layers (the cloud sync)."""
-        await self._async_journal_add(
-            make_entry(
-                action=action,
-                time=dt_util.utcnow().isoformat(),
-                origin=ORIGIN_HA,
-                detail=detail,
-            )
-        )
-
-    async def _async_cloud_sync_guest(
-        self, slot: int, code: str | None
-    ) -> bool | None:
-        """Tell the vendor cloud about a guest we just created, when enabled.
-
-        A code that exists only in the service response (a temporary guest) is
-        passed in; a recurring or permanent guest keeps it in the entry options.
-        Failure here must never fail the local creation - but it must not pass
-        silently either: it is journaled and, when the code is held, a fixable
-        repair offers the same sync again. True means the cloud accepted
-        everything, False a failure, None that there was nothing to do.
-        """
-        if not self.active(CH_CLOUD):
-            return
-        from ..cloud.coordinator import NimlyCloudCoordinator
-        from ..cloud.sync import async_sync_guest
-
-        clouds = [
-            item
-            for item in self.hass.data.get(DOMAIN, {}).values()
-            if isinstance(item, NimlyCloudCoordinator)
-        ]
-        if not clouds:
-            return
-        guest = dict(self.guests.get(str(slot)) or {})
-        candidate = {
-            "slot": slot,
-            "name": str(guest.get("name") or "").strip(),
-            "code": str(code or guest.get("code") or ""),
-            "user_id": self.cloud_user(slot),
-        }
-        if not candidate["name"] or not candidate["code"]:
-            return None
-        issue_id = self._issue_id(f"cloud_sync_{slot}")
-        try:
-            actions = await async_sync_guest(clouds[0], self, candidate, dry_run=False)
-        except Exception:  # noqa: BLE001
-            _LOGGER.exception("Cloud sync of slot %s failed", slot)
-            await self.async_journal_note("cloud_sync_failed", detail=f"slot {slot}")
-            if guest.get("code"):
-                # We hold the value, so the guest can be sent again; surface
-                # it where a human will see it, not only in the log.
-                ir.async_create_issue(
-                    self.hass,
-                    DOMAIN,
-                    issue_id,
-                    is_fixable=True,
-                    is_persistent=False,
-                    data={"slot": slot, "entry_id": self.entry.entry_id},
-                    severity=ir.IssueSeverity.WARNING,
-                    translation_key="cloud_sync_failed",
-                    translation_placeholders={
-                        "slot": str(slot),
-                        "name": str(guest.get("name") or ""),
-                    },
-                )
-            return False
-        ir.async_delete_issue(self.hass, DOMAIN, issue_id)
-        if any(
-            action["action"] in ("create_guest", "adopt_guest", "create_access")
-            for action in actions
-        ):
-            await self.async_journal_note(
-                "cloud_synced",
-                detail=f"slot {slot}",
-            )
-        return True
-
-    async def async_retry_cloud_sync(self, slot: int) -> bool:
-        """Send a guest that failed at creation to the cloud again (repair fix).
-
-        Only a guest whose code we hold can be sent again - for anyone else
-        there is nothing to replay, which is why the repair is only offered
-        then. True means the cloud accepted everything.
-        """
-        guest = dict(self.guests.get(str(slot)) or {})
-        code = str(guest.get("code") or "")
-        if not code:
-            return False
-        return await self._async_cloud_sync_guest(slot, code) is True
-
-    async def _async_cloud_push_guest_update(
-        self, slot: int, changes: dict[str, Any]
-    ) -> bool:
-        """Tell the vendor cloud about a rename, expiry or code we just made.
-
-        Best effort by design: a slow or angry vendor must never fail the local
-        edit. The journal records what happened and a repair says so when the
-        app would otherwise keep showing the old value. Only guests the cloud
-        already knows are pushed — creation goes through
-        ``_async_cloud_sync_guest``.
-        """
-        if not self.active(CH_CLOUD):
-            return True
-        from ..cloud.coordinator import NimlyCloudCoordinator
-        from ..cloud.sync import async_push_guest_update
-
-        clouds = [
-            item
-            for item in self.hass.data.get(DOMAIN, {}).values()
-            if isinstance(item, NimlyCloudCoordinator)
-        ]
-        if not clouds:
-            return True
-        issue_id = self._issue_id(f"cloud_push_{slot}")
-        try:
-            actions = await async_push_guest_update(clouds[0], self, slot, changes)
-        except Exception:  # noqa: BLE001 - never fail the local edit
-            _LOGGER.exception("Cloud push of slot %s failed", slot)
-            await self.async_journal_note("cloud_update_failed", detail=f"slot {slot}")
-            ir.async_create_issue(
-                self.hass,
-                DOMAIN,
-                issue_id,
-                is_fixable=True,
-                is_persistent=False,
-                data={"slot": slot, "entry_id": self.entry.entry_id},
-                severity=ir.IssueSeverity.WARNING,
-                translation_key="cloud_push_failed",
-                translation_placeholders={
-                    "slot": str(slot),
-                    "name": str((self.guests.get(str(slot)) or {}).get("name") or ""),
-                },
-            )
-            return False
-        if not actions:
-            return True
-        ir.async_delete_issue(self.hass, DOMAIN, issue_id)
-        changed = sorted(
-            {
-                str(field)
-                for action in actions
-                for field in (action.get("changed") or [])
-            }
-            | {str(action.get("type")) for action in actions if action.get("type")}
-        )
-        await self.async_journal_note(
-            "cloud_updated",
-            detail=f"slot {slot}" + (f": {', '.join(changed)}" if changed else ""),
-        )
-        return True
-
-    async def async_retry_cloud_push(self, slot: int) -> bool:
-        """Re-send a guest's local state to the cloud (the repair's action).
-
-        The values are the ones we already hold: name and validity are
-        idempotent, and a stored code goes through the access replace. True
-        means the cloud accepted everything.
-        """
-        guest = dict(self.guests.get(str(slot)) or {})
-        if not guest:
-            return False
-        changes: dict[str, Any] = {}
-        name = str(guest.get("name") or "").strip()
-        if name:
-            changes["name"] = name
-        if "until" in guest:
-            changes["until"] = str(guest.get("until") or "")
-        code = str(guest.get("code") or "")
-        if code:
-            changes["code"] = code
-        if not changes:
-            return False
-        return await self._async_cloud_push_guest_update(slot, changes)
-
-    async def _async_cloud_remove_guest(self, slot: int, user_id: str) -> None:
-        """After a revoke: take the guest's cloud accesses away, and its identity
-        when no lock or other guest still needs it.
-
-        Best effort — the audit reports whatever this could not do — and it
-        runs as its own task so a slow vendor never delays the revoke.
-        """
-        if not self.active(CH_CLOUD):
-            return
-        from ..cloud.coordinator import NimlyCloudCoordinator
-        from ..cloud.sync import cloud_device_for
-
-        clouds = [
-            item
-            for item in self.hass.data.get(DOMAIN, {}).values()
-            if isinstance(item, NimlyCloudCoordinator)
-        ]
-        if not clouds:
-            return
-        cloud = clouds[0]
-        try:
-            device_id = cloud_device_for(cloud, self)
-            for device in cloud.home.get("devices") or []:
-                device_key = str(device.get("id") or "")
-                if not device_key or device_key != device_id:
-                    continue
-                for access in list(cloud.access.get(device_key, [])):
-                    if str(access.get("userId")) != user_id:
-                        continue
-                    try:
-                        await cloud.api.async_delete_access(
-                            device_key, user_id, str(access.get("type"))
-                        )
-                    except Exception as err:  # noqa: BLE001
-                        _LOGGER.warning(
-                            "Cloud access removal for %s on %s failed: %s",
-                            user_id,
-                            device_key,
-                            err,
-                        )
-            keeps = False
-            for device in cloud.home.get("devices") or []:
-                device_key = str(device.get("id") or "")
-                if not device_key or device_key == device_id:
-                    continue
-                if any(
-                    str(access.get("userId")) == user_id
-                    for access in cloud.access.get(device_key, [])
-                ):
-                    keeps = True
-            others = [
-                item
-                for item in self.hass.data.get(DOMAIN, {}).values()
-                if isinstance(item, MirrorCoordinator) and item is not self
-            ]
-            for other in others:
-                if user_id in set(other.cloud_links().values()):
-                    keeps = True
-                for key in other.guests:
-                    if key.isdigit() and other.cloud_user(int(key)) == user_id:
-                        keeps = True
-            if not keeps:
-                await cloud.api.async_delete_guest(cloud.location_id, user_id)
-            await self._async_journal_add(
-                make_entry(
-                    action="cloud_removed",
-                    time=dt_util.utcnow().isoformat(),
-                    origin=ORIGIN_HA,
-                    slot=slot,
-                    detail="identity kept (used elsewhere)" if keeps else "identity removed",
-                )
-            )
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Cloud cleanup of a revoked guest failed: %s", err)
-
-    def cloud_links(self) -> dict[str, str]:
-        """The catalog's credential links: ``"<slot>:<type>" -> vendor uuid``."""
-        stored = self.entry.options.get("cloud_links")
-        if not isinstance(stored, dict):
-            return {}
-        return {
-            str(key): str(value)
-            for key, value in stored.items()
-            if isinstance(value, str) and value
-        }
-
-    def cloud_link(self, slot: int, access_type: str) -> str | None:
-        """The vendor uuid linked to this slot's credential, if any.
-
-        For a PIN the guest record is the canonical link; the flat store covers
-        the credential types that have no guest record (finger, tag).
-        """
-        if access_type == "pin" and (user_id := self.cloud_user(slot)):
-            return user_id
-        return self.cloud_links().get(f"{slot}:{access_type}")
-
-    async def async_set_cloud_link(
-        self, slot: int, access_type: str, user_id: str
-    ) -> None:
-        """Record which vendor identity owns a credential in a slot."""
-        links = dict(self.cloud_links())
-        links[f"{slot}:{access_type}"] = str(user_id)
-        self.hass.config_entries.async_update_entry(
-            self.entry, options={**self.entry.options, "cloud_links": links}
-        )
-
-    def _cloud_account(self):
-        """The cloud coordinator and the vendor device id for this lock."""
-        from ..cloud.coordinator import NimlyCloudCoordinator
-
-        mine = str(self.ieee or "").replace(":", "").replace("-", "").lower()
-        if len(mine) != 16:
-            return None, None
-        for item in self.hass.data.get(DOMAIN, {}).values():
-            if not isinstance(item, NimlyCloudCoordinator):
-                continue
-            for device in item.devices:
-                if item.device_serial(device.get("id")) == mine:
-                    return item, str(device.get("id"))
-        return None, None
-
-    def _linked_user_ids(self, access_type: str) -> set[str]:
-        """Vendor uuids this lock's catalog already ties to a credential."""
-        linked = set(self.cloud_links().values())
-        if access_type == "pin":
-            # A synced guest's uuid lives on the guest record, not in the flat store.
-            for key, guest in self.guests.items():
-                if not isinstance(guest, dict) or not key.isdigit():
-                    continue
-                if user_id := self.cloud_user(int(key)):
-                    linked.add(user_id)
-        return linked
-
-    def note_simulated_enroll(self) -> None:
-        """Mark the next fingerprint enroll as a cloud-side replay."""
-        self._replay_enroll_until = time.monotonic() + 120
-
-    async def async_link_cloud_credential(self, slot: int, access_type: str) -> None:
-        """Pair a fresh local credential with the cloud access it came from.
-
-        The app creates the access around the push we just handled, so at event
-        time exactly one vendor access of that type is usually unlinked. The
-        access list is read live — the polled copy can be a minute old. Anything
-        ambiguous becomes a repair instead of a guess (docs/cloud-sync.md).
-        """
-        if self.cloud_link(slot, access_type):
-            return
-        cloud, device_id = self._cloud_account()
-        if cloud is None or device_id is None:
-            return
-        try:
-            accesses = await cloud.api.async_device_access(device_id)
-        except Exception:  # noqa: BLE001
-            return
-        linked = self._linked_user_ids(access_type)
-        unlinked = sorted(
-            {
-                str(access.get("userId"))
-                for access in accesses
-                if str(access.get("type")) == access_type
-                and str(access.get("userId")) not in linked
-            }
-        )
-        if len(unlinked) == 1:
-            await self.async_set_cloud_link(slot, access_type, unlinked[0])
-            await self.async_journal_note(
-                "cloud_linked",
-                detail=f"slot {slot} {access_type}",
-            )
-            ir.async_delete_issue(
-                self.hass, DOMAIN, self._issue_id(f"cloud_link_{access_type}")
-            )
-            return
-        if len(unlinked) > 1:
-            ir.async_create_issue(
-                self.hass,
-                DOMAIN,
-                self._issue_id(f"cloud_link_{access_type}"),
-                is_fixable=False,
-                is_persistent=True,
-                severity=ir.IssueSeverity.WARNING,
-                translation_key="cloud_link_ambiguous",
-                translation_placeholders={
-                    "slot": str(slot),
-                    "type": access_type,
-                    "count": str(len(unlinked)),
-                },
-            )
 
     async def async_create_guest(
         self,
@@ -1774,7 +1153,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_save_guests()
         if normalized_until:
             self._schedule_guest_expiry(slot, normalized_until)
-        await self._async_cloud_sync_guest(slot, code_text)
         self._publish_snapshot()
         _LOGGER.info(
             "Guest code created on slot %s (%s)",
@@ -1839,7 +1217,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_save_guests()
         await self._apply_guest_state(slot)
         self._schedule_guest_boundary(slot)
-        await self._async_cloud_sync_guest(slot, code_text)
         self._publish_snapshot()
         row = self.guest_rows().get(str(slot), {})
         _LOGGER.info(
@@ -1903,10 +1280,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._apply_guest_state(slot)
         self._schedule_guest_boundary(slot)
         self._publish_snapshot()
-        if {"name", "until", "code"} & set(changes):
-            # The cloud follows a rename, an expiry or a code change; creation
-            # and revocation have their own paths.
-            await self._async_cloud_push_guest_update(slot, changes)
         return {"slot": slot, "guest": dict(guest)}
 
     def _guest_boundary_active(self, guest: dict[str, Any]) -> bool:
@@ -1988,38 +1361,17 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
             kind = guest.get("kind", "simple")
             windows = guest.get("schedule") or []
-            cloud_users: list[str] = []
-            has_finger = False
-            finger_restorable = False
-            if key.isdigit():
-                slot = int(key)
-                if pin_user := self.cloud_user(slot):
-                    cloud_users.append(pin_user)
-                linked = self.cloud_links()
-                cloud_users.extend(
-                    user
-                    for link_key, user in linked.items()
-                    if link_key.startswith(f"{slot}:")
-                )
-                # A finger can be replayed by reusing the slot, but only when
-                # one has really opened the door: an enrollment alone proves
-                # nothing about the template the lock holds.
-                has_finger = f"{slot}:finger" in linked
-                finger_restorable = has_finger and self.slots.finger_confirmed(slot)
             row: dict[str, Any] = {
                 "slot": int(key) if key.isdigit() else None,
                 "name": guest.get("name"),
                 "kind": kind,
                 "created": guest.get("created"),
                 "has_code": key.isdigit() and "pin" in self.slots.credentials(int(key)),
-                "cloud_users": sorted(set(cloud_users)),
                 "group": guest.get("group"),
                 # True when the catalog holds the PIN value itself, so the code
                 # can be replayed after a loss; a temporary guest's code is
                 # shown once and never stored.
                 "restorable": bool(guest.get("code")),
-                "has_finger": has_finger,
-                "finger_restorable": finger_restorable,
             }
             if kind == "recurring":
                 row["schedule"] = windows
@@ -2064,38 +1416,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._cancel_guest_timer(slot)
         await self._async_save_guests()
         self.slots.clear(slot)
-        # A dead guest's identity links must not outlive it: a future guest in
-        # this slot would inherit them and the sync would trust that mapping.
-        users = dict(self.entry.options.get("cloud_users") or {})
-        links = dict(self.cloud_links())
-        dropped = users.pop(str(slot), None)
-        linked_users = {
-            value
-            for key, value in links.items()
-            if key.startswith(f"{slot}:")
-        }
-        if dropped:
-            linked_users.add(dropped)
-        had_finger = any(
-            key.startswith(f"{slot}:finger") for key in links
-        )
-        for key in [key for key in links if key.startswith(f"{slot}:")]:
-            links.pop(key, None)
-        if dropped is not None or len(links) != len(self.cloud_links()):
-            self.hass.config_entries.async_update_entry(
-                self.entry,
-                options={**self.entry.options, "cloud_users": users, "cloud_links": links},
-            )
-        # The person is losing access everywhere: take the fingerprint out of
-        # the lock, and have the cloud forget what is now nobody's.
-        if had_finger:
-            try:
-                await self._async_zcl(ZCL_CMD_FP_CLEAR, slot)
-                self.slots.mark_fingerprint(slot, False)
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.warning("Clearing the fingerprint of slot %s failed: %s", slot, err)
-        for user_id in sorted(linked_users):
-            self.hass.async_create_task(self._async_cloud_remove_guest(slot, user_id))
         stale = [virtual for virtual, real in self.bound.items() if real == slot]
         if stale:
             for virtual in stale:
@@ -2491,7 +1811,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         bound = code_owner(self.guests, code)
         if bound is not None:
-            # The cloud pushed a code we already hold (a synced local guest): bind
+            # The app pushed a code we already hold (a synced local guest): bind
             # the vendor slot to the slot the guest already lives in instead of
             # writing a second copy of the same code. A bind is not ownership:
             # the real slot stays ours, so the guest's window and revoke keep
@@ -2519,7 +1839,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._async_set_pin(rebind, code, virtual_slot=virtual)
                 guest["code"] = code
                 await self._async_save_guests()
-                await self.async_link_cloud_credential(rebind, "pin")
                 await self._async_journal_add(
                     make_entry(
                         action="slot_rebound",
@@ -2565,7 +1884,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     detail=f"stored in local slot {real}",
                 )
             )
-        await self.async_link_cloud_credential(real, "pin")
         ir.async_delete_issue(self.hass, DOMAIN, self._issue_id(f"slot_conflict_{virtual}"))
 
     async def _async_app_pin_clear(self, virtual: int) -> None:
@@ -2592,22 +1910,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not isinstance(slot, int):
             return
         if enroll:
-            replay = self._replay_enroll_until > time.monotonic()
-            self._replay_enroll_until = 0.0
-            if replay:
-                # A cloud replay of an enroll the lock already holds: record the
-                # catalog link, but do not light the reader for it.
-                _LOGGER.info(
-                    "Fingerprint enroll (slot %s) is a cloud replay; not mirrored",
-                    slot,
-                )
-                await self.async_link_cloud_credential(slot, "finger")
-                self._publish_snapshot()
-                return
             self._flag_new_slot(slot, "fingerprint")
-            # The catalog link does not depend on the physical mirroring below,
-            # which can fail on its own; link first so nothing is lost.
-            await self.async_link_cloud_credential(slot, "finger")
         command = ZCL_CMD_FP_ENROLL if enroll else ZCL_CMD_FP_CLEAR
         try:
             await self._async_zcl(command, slot)
@@ -2771,87 +2074,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         )
 
-    @callback
-    def _on_cloud_activity(self, event: Event) -> None:
-        """Cloud context for this lock: who and how, when Zigbee cannot say.
-
-        Only attributed activities are used — an unnamed event would overwrite better
-        local data with the vendor's narration. Nothing is published to the bridge:
-        the cloud event originated from this lock's own side, so echoing it back
-        would make a cloud -> emulator -> cloud loop.
-        """
-        data = event.data
-        serial = str(data.get("serial") or "").replace(":", "").replace("-", "").lower()
-        if not self.ieee or serial != self.ieee.replace(":", "").replace("-", "").lower():
-            return
-        # Any activity for this lock proves the cloud feedback path is alive,
-        # named or not, and even when this channel is off - the watchdog that
-        # clears a stale-feedback repair depends on it.
-        self._cloud_seen_at = time.monotonic()
-        if not self.active(CH_ACTIVITY):
-            return
-        name = data.get("user_name")
-        if not name:
-            return
-
-        slot = data.get("slot")
-        if not isinstance(slot, int):
-            slot = self._slot_from_name(name)
-        self.last_event = {
-            "action": data.get("action"),
-            "source": data.get("source"),
-            "slot": slot,
-            "name": name,
-            "user_id": data.get("user_id"),
-            "time": dt_util.utcnow().isoformat(),
-            "vendor_time": data.get("time") or data.get("vendor_time"),
-            "direction": "cloud",
-        }
-        self.counters["events"] += 1
-        self._publish_snapshot()
-        self.hass.async_create_task(
-            self._async_journal_add(
-                make_entry(
-                    action=str(data.get("action") or "unknown"),
-                    time=str(
-                        data.get("time")
-                        or data.get("vendor_time")
-                        or dt_util.utcnow().isoformat()
-                    ),
-                    origin=ORIGIN_CLOUD,
-                    source=str(data.get("source")) if data.get("source") else None,
-                    slot=slot,
-                    name=name,
-                )
-            )
-        )
-
-    def _slot_from_name(self, name: Any) -> int | None:
-        """The local slot whose name matches a cloud user name, when unambiguous.
-
-        The cloud reports full names while a lock slot holds exactly what the user
-        typed, so a unique first-name prefix also counts. Anything ambiguous yields
-        None rather than a guess.
-        """
-        if not isinstance(name, str) or not name.strip():
-            return None
-        target = name.strip().casefold()
-        exact: list[int] = []
-        partial: list[int] = []
-        for slot, data in self.slots.items():
-            local = str(data.get("name") or "").strip().casefold()
-            if not local:
-                continue
-            if local == target:
-                exact.append(slot)
-            elif target.startswith(local) and target[len(local)] in (" ", "-", "_"):
-                partial.append(slot)
-        if len(exact) == 1:
-            return exact[0]
-        if not exact and len(partial) == 1:
-            return partial[0]
-        return None
-
     # -- commands to the lock ---------------------------------------------------
 
     async def async_command_lock(self, locked: bool) -> None:
@@ -2893,8 +2115,8 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_provision_ieee(self, ieee: str | None = None) -> None:
         """Provisions the emulator with an IEEE address (that device reboots).
 
-        The default is the lock's own IEEE (the real module's), because the Nimly cloud
-        only accepts the addresses of known modules.
+        The default is the lock's own IEEE (the real module's), because the
+        bridge only accepts the addresses of known modules.
         """
         target = (ieee or self.ieee or "").lower()
         if not target:
@@ -2924,7 +2146,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.config_entries.async_update_entry(self.entry, options=options)
 
     async def _async_sync_to_app(self) -> None:
-        await self._async_heal_app_settings()
         if not self.active(CH_SYNC):
             return
         if self.active(CH_VOLUME) and (
@@ -3050,8 +2271,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         The lock reports nothing while an enrollment runs — a template exists
         only once someone has really opened the door with that finger — so this
         lights the reader and leaves the touch to the person at the door.
-        ``mode`` is ``auto`` (through the cloud when the slot's guest is synced,
-        so the app records the access too), ``cloud`` or ``local``.
+        ``mode`` is ``auto`` or ``local``; both enroll locally.
         """
         if not self.active(CH_FINGERPRINT):
             raise RuntimeError("fingerprint mirroring is off")
@@ -3059,31 +2279,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise RuntimeError("the ZHA link is not ready")
         guest = self.guests.get(str(slot))
         name = (guest or {}).get("name") or self.slots.name(slot, fallback=False)
-
-        user_id = self.cloud_user(slot)
-        use_cloud = False
-        if mode in ("auto", "cloud") and user_id and self.active(CH_CLOUD):
-            use_cloud = True
-        if mode == "cloud" and not user_id:
-            raise RuntimeError(f"slot {slot} has no cloud identity to enroll through")
-
-        if use_cloud:
-            enrolled = await self._async_cloud_enroll_finger(user_id)
-            if enrolled:
-                await self._async_journal_add(
-                    make_entry(
-                        action="finger_enroll_started",
-                        time=dt_util.utcnow().isoformat(),
-                        origin=ORIGIN_HA,
-                        slot=slot,
-                        name=name,
-                        detail="via the cloud",
-                    )
-                )
-                self._publish_snapshot()
-                return {"slot": slot, "name": name, "via": "cloud"}
-            if mode == "cloud":
-                raise RuntimeError("the cloud did not accept the enrollment")
 
         await self._async_zcl(ZCL_CMD_FP_ENROLL, slot)
         await self._async_journal_add(
@@ -3105,8 +2300,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         Command 0x70 is new (found 2026-09-23): the reader is lit on the real
         lock, and the whole reply is journaled — its shape is what the module
-        must eventually ferry back to the vendor so the cloud can record the
-        tag's value.
+        must eventually ferry back to the app so it can record the tag's value.
         """
         if self.zha is None:
             return
@@ -3149,34 +2343,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._publish_snapshot()
 
-    async def _async_cloud_enroll_finger(self, user_id: str) -> bool:
-        """Ask the cloud to enroll one of its users' fingers.
-
-        The vendor pushes the enrollment to the module (us); the push lights the
-        lock's reader through the ordinary fingerprint path, so a person still
-        has to touch it for a template to exist.
-        """
-        from ..cloud.coordinator import NimlyCloudCoordinator
-        from ..cloud.sync import cloud_device_for
-
-        clouds = [
-            item
-            for item in self.hass.data.get(DOMAIN, {}).values()
-            if isinstance(item, NimlyCloudCoordinator)
-        ]
-        if not clouds:
-            return False
-        cloud = clouds[0]
-        device_id = cloud_device_for(cloud, self)
-        if device_id is None:
-            return False
-        try:
-            await cloud.api.async_enroll_finger(device_id, user_id)
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Cloud finger enrollment failed: %s", err)
-            return False
-        return True
-
     async def _async_zcl(self, command: int, arg: int) -> None:
         if self.zha is None:
             raise RuntimeError("the ZHA link is not ready")
@@ -3198,10 +2364,10 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @callback
     def _check_health_issues(self) -> None:
-        """Surface the two silent failure modes as repairs."""
+        """Surface the silent failure mode as a repair."""
         now = time.monotonic()
 
-        # 1) The emulator answers on the UART but is not on a Zigbee network.
+        # The emulator answers on the UART but is not on a Zigbee network.
         if self.emulator_joined is False:
             if self._not_joined_since is None:
                 self._not_joined_since = now
@@ -3219,33 +2385,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elif self.emulator_joined is True:
             self._not_joined_since = None
             ir.async_delete_issue(self.hass, DOMAIN, self._issue_id("emulator_not_joined"))
-
-        # 2) We sent the vendor cloud something that should come back in its feed;
-        #    if it never does, the bridge's cloud link is likely wedged.
-        if self._cloud_expect_after is not None:
-            if self._cloud_seen_at >= self._cloud_expect_after:
-                self._cloud_expect_after = None
-                ir.async_delete_issue(self.hass, DOMAIN, self._issue_id("cloud_feedback_stale"))
-            elif (
-                now - self._cloud_expect_after > 180
-                and self._cloud_entry_loaded()
-            ):
-                ir.async_create_issue(
-                    self.hass,
-                    DOMAIN,
-                    self._issue_id("cloud_feedback_stale"),
-                    is_fixable=False,
-                    is_persistent=True,
-                    severity=ir.IssueSeverity.WARNING,
-                    translation_key="cloud_feedback_stale",
-                )
-
-    def _cloud_entry_loaded(self) -> bool:
-        return any(
-            entry.data.get(CONF_TYPE) == TYPE_CLOUD
-            and entry.state is ConfigEntryState.LOADED
-            for entry in self.hass.config_entries.async_entries(DOMAIN)
-        )
 
 
 def _as_int(value: Any, default: int) -> int:

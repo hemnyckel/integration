@@ -14,10 +14,9 @@ Project: https://github.com/c14ym0re/nimly
 They are used in this project only to describe compatibility. This project is unofficial
 and is not affiliated with, endorsed by, or supported by Onesti Products AS.
 
-The cloud integration communicates with the vendor's own API using the account owner's own
-credentials and hardware. It contains no vendor source code. Request and response shapes were
-determined for interoperability by observing the API that serves the account owner's own
-devices.
+The integration is local-only: it holds no vendor account and communicates with no cloud
+service. It contains no vendor source code. Protocol details were determined for
+interoperability by observing the account owner's own hardware.
 
 All product names, logos and trademarks are the property of their respective owners; this
 project claims no rights in them.

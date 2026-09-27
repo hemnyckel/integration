@@ -28,7 +28,7 @@ the local path solid, which is exactly what the bridge needs.
    lock appears as a normal door lock in the other app.
 
 The command path is local: ecosystem → Matter Server → Home Assistant → ZHA →
-lock. The vendor cloud is not involved, so unlock keeps working during a vendor
+lock. No vendor service is involved, so unlock keeps working during a vendor
 outage.
 
 ### HomeKit Bridge (HomeKit-only homes)
@@ -47,9 +47,8 @@ end-to-end:
 - Home Assistant's `lock` entity has no concept of credentials, so its bridge
   has nothing to map the cluster to.
 - The big ecosystems' user interfaces barely surface those clusters yet.
-- Codes and fingerprints are deeply tied to *our* slot model, the emulator and
-  the vendor cloud (see [cloud-sync.md](cloud-sync.md)); a partial Matter
-  mapping would diverge from the catalog we treat as the truth.
+- Codes and fingerprints are deeply tied to *our* slot model and the emulator;
+  a partial Matter mapping would diverge from the catalog we treat as the truth.
 
 The plan is to revisit this when Home Assistant's bridge grows credential
 support: the catalog already knows every credential, its slot and its owner, so
@@ -60,5 +59,4 @@ a future mapping would be a presentation layer, not a new source of truth.
 - Bridge the lock (and battery/connectivity) for everyday control from Apple
   Home and friends.
 - Keep guest management in Home Assistant: the guest card and
-  [dashboard.md](dashboard.md) mirror the vendor app's list, including the
-  guests that only exist in the cloud.
+  [dashboard.md](dashboard.md) show the lock's own guests.

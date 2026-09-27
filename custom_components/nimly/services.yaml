@@ -1,10 +1,5 @@
 # Descriptions live in translations/*.json; the keys are listed here so Home Assistant
 # can load the file for every registered service.
-refresh:
-fetch_history:
-set_lock:
-gateway_scan:
-probe:
 set_ieee:
 ota_install:
 provision_wifi:
@@ -21,17 +16,5 @@ create_guest_code:
 create_recurring_guest:
 enroll_fingerprint:
 update_guest:
-reset_app_registration:
 revoke_guest_code:
 list_guests:
-cleanup_cloud:
-cloud_guests:
-sync_cloud:
-audit:
-restore_cloud:
-link_credential:
-update_cloud_guest:
-delete_cloud_guest:
-set_cloud_code:
-link_cloud_guest:
-repair_join:

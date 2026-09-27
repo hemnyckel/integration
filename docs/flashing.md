@@ -69,9 +69,9 @@ Three wires (see [hardware.md](hardware.md)): C6 `GPIO6 →` C3 `GPIO5`, C6
 ## 5. Pairing the emulator with the vendor bridge
 
 The emulator must join the Nimly Connect Bridge's Zigbee network wearing the
-lock module's own IEEE address: the account keys every device record on that
-serial, so the app and the cloud treat the emulator as *this* lock. (Measured
-2026-09-23: the cloud itself has no serial whitelist — a fabricated sibling
+lock module's own IEEE address: the app keys every device record on that
+serial, so the app treats the emulator as *this* lock. (Measured
+2026-09-23: there is no serial whitelist — a fabricated sibling
 address joined and was accepted — but the identity is what makes the emulator
 this lock and nothing else.) The sequence that works, learned on hardware:
 
@@ -82,16 +82,14 @@ this lock and nothing else.) The sequence that works, learned on hardware:
    before will not start a fresh join. The `nimly` firmware accepts a
    `factory_reset` command over the bridge (it wipes the Zigbee stack, not the
    IEEE).
-3. **Open the bridge's pairing window from Home Assistant** —
-   `nimly.gateway_scan` uses the same action the vendor app's search does, so
-   the app is not needed. The emulator steers continuously and joins within
+3. **Open the bridge's pairing window from the app** — the Nimly app's
+   add-device search opens it. The emulator steers continuously and joins within
    seconds when the window is open.
 4. **A stale device registration does not block a rejoin** — the emulator
    rejoining an existing network is enough. If the app path is stranded
-   entirely (commands time out, no reports reach the cloud), run
-   `nimly.repair_join`: it removes the record, resets the emulator, waits for a
-   fresh join, then re-applies the remembered name and replays the catalog.
-   Factory-resetting the vendor bridge is never part of the flow.
+   entirely (commands time out, no reports reach the app), remove the old lock
+   in the Nimly app and start the app's add-device flow; the emulator steers on
+   its own. Factory-resetting the vendor bridge is never part of the flow.
 5. When the lock appears in the app, its name is applied automatically (the
    ZHA device's name wins). The mirror re-applies the lock's settings to the
    app's record automatically.

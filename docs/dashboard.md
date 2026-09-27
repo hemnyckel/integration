@@ -41,14 +41,8 @@ variables, so it follows light and dark themes without configuration.
   around.
 
 
-## The app's guests, in the same card
+## The guest list
 
-The guest card shows two lists. The top one is this integration's own guests —
-create, edit, pause, revoke. The **"I appen"** section below it is the vendor
-account's guest users (from `nimly.cloud_guests` / `sensor.nimly_cloud_guests`):
-read-only identities the app created, with their credential badges (PIN, finger,
-tag), their validity window, and a warning badge when the cloud reports a sync
-error (`ERROR_UPDATING_DOORLOCK_ACCESS` — the app's "(!)").
+The guest card shows this integration's own guests — create, edit, pause,
+revoke — with their credential badges (PIN, finger, tag) and validity window.
 
-Names already managed locally are left out of the cloud list, so a guest never
-appears twice. The refresh button re-reads the account.

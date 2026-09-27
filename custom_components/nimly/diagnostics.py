@@ -7,19 +7,13 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_TYPE, DOMAIN, TYPE_BRIDGE, TYPE_CLOUD, TYPE_MIRROR
+from .const import CONF_TYPE, DOMAIN, TYPE_BRIDGE, TYPE_MIRROR
 
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
     entry_type = entry.data.get(CONF_TYPE)
-    if entry_type == TYPE_CLOUD:
-        from .cloud.diagnostics import (
-            async_get_config_entry_diagnostics as cloud_diagnostics,
-        )
-
-        return await cloud_diagnostics(hass, entry)
     if entry_type == TYPE_MIRROR:
         from .mirror.diagnostics import (
             async_get_config_entry_diagnostics as mirror_diagnostics,

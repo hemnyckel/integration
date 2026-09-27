@@ -29,10 +29,9 @@ installation. Anything that imports `homeassistant` is verified on hardware thro
 
 ## Layout
 
-- `custom_components/nimly/` — the integration. `cloud/` and `mirror/` (which also hosts
-  the bridge provisioning and the ZHA link in `zha_link.py`). Platform files
-  (`sensor.py`, `binary_sensor.py`, …) are thin routers that dispatch each config entry to
-  its layer.
+- `custom_components/nimly/` — the integration. `mirror/` hosts the local layer, the bridge
+  provisioning and the ZHA link in `zha_link.py`. Platform files (`sensor.py`,
+  `binary_sensor.py`, …) are thin routers that dispatch each config entry to its layer.
 - `firmware/` — the two ESP-IDF projects (ESP32-C6 emulator, ESP32-C3 bridge) and the
   browser-flashing assets under `firmware/webflash/`.
 - `www/nimly-guests-card.js` — the bundled Lovelace card (copy it to the Home Assistant

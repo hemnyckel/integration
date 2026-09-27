@@ -1,8 +1,8 @@
 # Hardware
 
 The mirror needs two small boards next to the lock's original Nimly Connect
-Bridge. The integration itself needs none of this — the `cloud` entry alone
-works with just a Home Assistant instance.
+Bridge. The integration itself needs none of this: the lock mirror alone works
+with just a Home Assistant instance and the lock on ZHA.
 
 ## Bill of materials
 
@@ -43,7 +43,7 @@ regulator.
                 │ Zigbee                               │ Wi-Fi/MQTT
                 ▼                                      ▼
         Nimly Connect Bridge                   Home Assistant
-        (vendor app + cloud)                   (Mosquitto)
+        (the vendor app)                       (Mosquitto)
 ```
 
 ## Placement

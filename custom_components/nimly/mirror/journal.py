@@ -2,13 +2,10 @@
 
 Pure logic with no Home Assistant imports (the unit tests load it by path).
 
-Events arrive from three places: the lock itself (0x0100 operation events),
-the vendor cloud's attributed feed (which carries the person's name), and the
-integration's own admin actions (PIN set/cleared, renaming, settings). One
-physical unlock can show up both locally and in the cloud, so an entry is
-merged with a same-event candidate instead of being stored twice: the lock's
-own report keeps the time, source and slot, and a name from the cloud is
-folded in.
+Events arrive from two places: the lock itself (0x0100 operation events) and
+the integration's own admin actions (PIN set/cleared, renaming, settings). An
+entry is merged with a same-event candidate from the other source instead of
+being stored twice.
 """
 
 from __future__ import annotations
@@ -17,10 +14,9 @@ from datetime import datetime
 from typing import Any
 
 ORIGIN_LOCK = "lock"
-ORIGIN_CLOUD = "cloud"
 ORIGIN_HA = "ha"
 
-MERGE_WINDOW_SECONDS = 240.0  # covers the cloud feed's poll lag after skew correction
+MERGE_WINDOW_SECONDS = 240.0  # tolerates clock skew between the two sources
 DEFAULT_MAX_ENTRIES = 5000
 DEFAULT_MAX_AGE_DAYS = 365
 

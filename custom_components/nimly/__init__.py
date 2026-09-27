@@ -1,7 +1,7 @@
 """nimly — the Nimly lock product as a Home Assistant integration.
 
-Entry types: ``cloud`` (the vendor account), ``mirror`` (the emulator mirror against the
-real lock) and ``bridge`` (the ESP32 bridge provisioning).
+Entry types: ``mirror`` (the emulator mirror against the real lock) and ``bridge``
+(the ESP32 bridge provisioning).
 """
 
 from __future__ import annotations
@@ -13,42 +13,28 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntry
 
-from .cloud.services import async_setup_services
 from .const import (
     CHANNELS,
-    CONF_ACCESS_TOKEN,
     CONF_CHANNELS,
     CONF_ENABLED,
-    CONF_LOCATION_ID,
     CONF_LOCK_ENTITY,
     CONF_PREFIX,
-    CONF_REFRESH_TOKEN,
     CONF_TYPE,
     DEFAULT_CHANNELS,
     DEFAULT_PREFIX,
     DOMAIN,
     TYPE_BRIDGE,
-    TYPE_CLOUD,
     TYPE_MIRROR,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS_CLOUD = ["sensor", "binary_sensor"]
 PLATFORMS_MIRROR = ["lock", "sensor", "binary_sensor", "switch", "number", "update"]
 PLATFORMS_BRIDGE = ["binary_sensor", "sensor", "update"]
 
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Register the cloud services once, at integration setup."""
-    await async_setup_services(hass)
-    return True
-
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry_type = entry.data.get(CONF_TYPE)
-    if entry_type == TYPE_CLOUD:
-        return await _async_setup_cloud(hass, entry)
     if entry_type == TYPE_MIRROR:
         return await _async_setup_mirror(hass, entry)
     if entry_type == TYPE_BRIDGE:
@@ -56,54 +42,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.error("nimly: unknown entry type %s", entry_type)
     return False
 
-
-async def _async_setup_cloud(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    from .cloud.api import NimlyCloudApi
-    from .cloud.coordinator import NimlyCloudCoordinator
-
-    def _save_tokens(access: str, refresh: str) -> None:
-        hass.config_entries.async_update_entry(
-            entry,
-            data={**entry.data, CONF_ACCESS_TOKEN: access, CONF_REFRESH_TOKEN: refresh},
-        )
-
-    api = NimlyCloudApi(
-        hass,
-        access_token=entry.data.get(CONF_ACCESS_TOKEN),
-        refresh_token=entry.data.get(CONF_REFRESH_TOKEN),
-        on_tokens=_save_tokens,
-    )
-    coordinator = NimlyCloudCoordinator(hass, entry, api, entry.data[CONF_LOCATION_ID])
-    await coordinator.async_config_entry_first_refresh()
-
-    # Keep the registry aligned with the account before entities are created:
-    # migrate vendor-id keyed entries onto the module serial and remember the
-    # lock's real name. Upkeep must never block setup, so a failure is logged and
-    # setup continues.
-    await _async_cloud_upkeep(hass, entry, coordinator)
-
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS_CLOUD)
-    # A second pass now that the platforms own their entities: the first one
-    # migrated identities before they were assembled, this one prunes whatever
-    # the (re)assignments left behind.
-    await _async_cloud_upkeep(hass, entry, coordinator)
-    entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
-    return True
-
-
-async def _async_cloud_upkeep(
-    hass: HomeAssistant, entry: ConfigEntry, coordinator: Any
-) -> None:
-    from .cloud.maintenance import async_reconcile
-
-    try:
-        await async_reconcile(hass, entry, coordinator)
-    except Exception:  # noqa: BLE001
-        _LOGGER.exception("nimly: cloud registry upkeep failed")
-
-
-async def _async_setup_mirror(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .mirror.coordinator import MirrorCoordinator
     from .mirror.services import async_setup_services as async_setup_mirror_services
 
@@ -147,14 +85,6 @@ async def _async_setup_bridge(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry_type = entry.data.get(CONF_TYPE)
-    if entry_type == TYPE_CLOUD:
-        unload_ok = await hass.config_entries.async_unload_platforms(
-            entry, PLATFORMS_CLOUD
-        )
-        if unload_ok:
-            hass.data[DOMAIN].pop(entry.entry_id, None)
-        return unload_ok
-
     if entry_type == TYPE_MIRROR:
         unload_ok = await hass.config_entries.async_unload_platforms(
             entry, PLATFORMS_MIRROR
@@ -196,23 +126,6 @@ async def async_remove_config_entry_device(
     stay protected, since they would only be recreated.
     """
     return DOMAIN not in {domain for domain, _value in device_entry.identifiers}
-
-
-async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Apply a cloud options change (for example a new scan interval).
-
-    The session tokens are saved into the entry's data whenever they refresh;
-    that update must not restart the entities. A full reload every half hour
-    would flash every cloud sensor unavailable for a moment — and anything
-    watching a state edge (a missed-code alert, say) fires on the recovery.
-    Reload only when the options the coordinator runs with have really changed.
-    """
-    coordinator: Any = hass.data.get(DOMAIN, {}).get(entry.entry_id)
-    if coordinator is not None and getattr(coordinator, "applied_options", None) == dict(
-        entry.options
-    ):
-        return
-    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

@@ -16,7 +16,6 @@ from ..const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 SERVICE_SET_IEEE = "set_ieee"
-SERVICE_LINK_CREDENTIAL = "link_credential"
 SERVICE_OTA_INSTALL = "ota_install"
 SERVICE_PROVISION = "provision_wifi"
 SERVICE_SET_SLOT_NAME = "set_slot_name"
@@ -34,7 +33,6 @@ SERVICE_ENROLL_FINGERPRINT = "enroll_fingerprint"
 SERVICE_UPDATE_GUEST = "update_guest"
 SERVICE_REVOKE_GUEST = "revoke_guest_code"
 SERVICE_LIST_GUESTS = "list_guests"
-SERVICE_RESET_APP = "reset_app_registration"
 
 PROVISION_SCHEMA = vol.Schema(
     {
@@ -50,15 +48,6 @@ PROVISION_SCHEMA = vol.Schema(
 SET_IEEE_SCHEMA = vol.Schema(
     {
         vol.Optional("ieee"): cv.string,
-        vol.Optional("entry_id"): cv.string,
-    }
-)
-
-LINK_CREDENTIAL_SCHEMA = vol.Schema(
-    {
-        vol.Required("slot"): vol.Coerce(int),
-        vol.Required("access_type"): vol.In(["pin", "tag", "finger"]),
-        vol.Required("user_id"): cv.string,
         vol.Optional("entry_id"): cv.string,
     }
 )
@@ -145,7 +134,7 @@ FETCH_JOURNAL_SCHEMA = vol.Schema(
 ENROLL_FINGER_SCHEMA = vol.Schema(
     {
         vol.Required("slot"): vol.Coerce(int),
-        vol.Optional("mode", default="auto"): vol.In(["auto", "cloud", "local"]),
+        vol.Optional("mode", default="auto"): vol.In(["auto", "local"]),
         vol.Optional("entry_id"): cv.string,
     }
 )
@@ -208,8 +197,8 @@ LIST_GUESTS_SCHEMA = vol.Schema({vol.Optional("entry_id"): cv.string})
 def _coordinators(hass: HomeAssistant, entry_id: str | None, capability: str):
     """The entries that can serve a call, filtered by entry and by capability.
 
-    The data store also holds cloud coordinators, so a capability check keeps a
-    service from being handed the wrong layer's object.
+    A capability check keeps a service from being handed a coordinator that
+    does not implement it.
     """
     return [
         coord
@@ -462,16 +451,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             results[coord.entry.entry_id] = await coord.async_revoke_guest(slot)
         return results
 
-    async def _async_handle_reset_app(call: ServiceCall) -> dict[str, Any]:
-        entry_id = call.data.get("entry_id")
-        coordinators = _coordinators(hass, entry_id, "async_reset_app_registration")
-        if not coordinators:
-            return {"error": "no matching mirror"}
-        results: dict[str, Any] = {}
-        for coord in coordinators:
-            results[coord.entry.entry_id] = await coord.async_reset_app_registration()
-        return results
-
     async def _async_handle_list_guests(call: ServiceCall) -> dict[str, Any]:
         entry_id = call.data.get("entry_id")
         coordinators = _coordinators(hass, entry_id, "list_guests")
@@ -481,23 +460,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         for coord in coordinators:
             results[coord.entry.entry_id] = coord.list_guests()
         return results
-
-    async def _async_handle_link_credential(call: ServiceCall) -> dict[str, Any]:
-        entry_id = call.data.get("entry_id")
-        slot = int(call.data["slot"])
-        access_type = str(call.data["access_type"])
-        user_id = str(call.data["user_id"])
-        coordinators = _coordinators(hass, entry_id, "async_set_cloud_link")
-        if not coordinators:
-            return {"error": "no matching mirror"}
-        linked = []
-        for coord in coordinators:
-            await coord.async_set_cloud_link(slot, access_type, user_id)
-            await coord.async_journal_note(
-                "cloud_linked", detail=f"slot {slot} {access_type} (manual)"
-            )
-            linked.append(coord.entry.entry_id)
-        return {"linked": linked}
 
     hass.services.async_register(
         DOMAIN, SERVICE_SET_IEEE, _validated(_async_handle_set_ieee), schema=SET_IEEE_SCHEMA
@@ -599,23 +561,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN,
-        SERVICE_RESET_APP,
-        _validated(_async_handle_reset_app),
-        schema=vol.Schema({vol.Optional("entry_id"): cv.string}),
-        supports_response=SupportsResponse.ONLY,
-    )
-    hass.services.async_register(
-        DOMAIN,
         SERVICE_LIST_GUESTS,
         _validated(_async_handle_list_guests),
         schema=LIST_GUESTS_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
-    )
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_LINK_CREDENTIAL,
-        _validated(_async_handle_link_credential),
-        schema=LINK_CREDENTIAL_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
 
@@ -637,5 +585,4 @@ async def async_unload_services(hass: HomeAssistant) -> None:
     hass.services.async_remove(DOMAIN, SERVICE_CREATE_RECURRING_GUEST)
     hass.services.async_remove(DOMAIN, SERVICE_UPDATE_GUEST)
     hass.services.async_remove(DOMAIN, SERVICE_REVOKE_GUEST)
-    hass.services.async_remove(DOMAIN, SERVICE_RESET_APP)
     hass.services.async_remove(DOMAIN, SERVICE_LIST_GUESTS)

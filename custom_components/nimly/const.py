@@ -1,4 +1,4 @@
-"""Constants for nimly — the vendor account and the emulator mirror in one integration.
+"""Constants for nimly — the local lock mirror and the ESP32 bridge.
 
 The protocol towards the firmware (the bridge) is frozen; see the repository docs.
 """
@@ -11,7 +11,6 @@ DOMAIN = "nimly"
 
 # --- Entry types -------------------------------------------------------------
 CONF_TYPE = "type"
-TYPE_CLOUD = "cloud"
 TYPE_MIRROR = "mirror"
 TYPE_BRIDGE = "bridge"
 
@@ -47,7 +46,6 @@ CH_BATTERY = "battery"
 CH_SYNC = "sync"
 CH_RECONCILE = "slot_reconcile"
 CH_NAMES = "names"
-CH_CLOUD = "cloud"
 
 CHANNELS: list[str] = [
     CH_LOCK,
@@ -60,7 +58,6 @@ CHANNELS: list[str] = [
     CH_SYNC,
     CH_RECONCILE,
     CH_NAMES,
-    CH_CLOUD,
 ]
 
 DEFAULT_CHANNELS: dict[str, bool] = {
@@ -74,7 +71,6 @@ DEFAULT_CHANNELS: dict[str, bool] = {
     CH_SYNC: True,
     CH_RECONCILE: False,
     CH_NAMES: False,
-    CH_CLOUD: True,
 }
 
 # Display names for the channel switches (the user's "sliders")
@@ -89,7 +85,6 @@ CHANNEL_LABELS: dict[str, str] = {
     CH_SYNC: "Sync on start",
     CH_RECONCILE: "Slot sync (lock → app)",
     CH_NAMES: "Mirror user names",
-    CH_CLOUD: "Cloud sync",
 }
 
 CHANNEL_ICONS: dict[str, str] = {
@@ -103,7 +98,6 @@ CHANNEL_ICONS: dict[str, str] = {
     CH_SYNC: "mdi:sync",
     CH_RECONCILE: "mdi:format-list-sync",
     CH_NAMES: "mdi:account-edit",
-    CH_CLOUD: "mdi:cloud-sync",
 }
 
 PRESET_FULL = "full"
@@ -281,179 +275,7 @@ ECHO_WINDOW = 8.0  # seconds a mirrored command suppresses its echo
 # --- Shared events ----------------------------------------------------------
 # Fired when the lock itself reports an activity (button, keypad, app command).
 EVENT_NIMLY_LOCK_ACTIVITY = "nimly_lock_activity"
-# Fired by the cloud layer for every activity the vendor attributes. The mirror listens so
-# the local view gains who/how when the lock itself cannot report it over Zigbee.
-EVENT_NIMLY_CLOUD_ACTIVITY = "nimly_cloud_activity"
 # Fired for every new journal entry (access and admin events), so automations can
 # react to "who opened the door" without polling the journal.
 EVENT_JOURNAL = "nimly_journal_entry"
 
-# --- The vendor account (cloud) ---------------------------------------------
-CONF_EMAIL = "email"
-CONF_PASSWORD = "password"
-CONF_ACCESS_TOKEN = "access_token"
-CONF_REFRESH_TOKEN = "refresh_token"
-CONF_LOCATION_ID = "location_id"
-CONF_COMPANY_ID = "company_id"
-CONF_SCAN_INTERVAL = "scan_interval"
-
-# Public constants from the vendor app: the same values the official app uses.
-API_URL = "https://api-neutralclone.iotiliti.cloud"
-API_CLIENT_ID = "account"
-API_CLIENT_SECRET = "55c78905-7601-48fa-b589-2d15c4ad60e7"
-
-DEFAULT_SCAN_INTERVAL = 30  # seconds between polls
-TOKEN_REFRESH_MARGIN = 120  # refresh this many seconds before expiry
-
-# --- Endpoints --------------------------------------------------------------
-# Everything the integration calls. The history endpoint needs the location's
-# company identifier in a request header, which the vendor's own app also does.
-PATH_TOKEN = "/oauth/v2/token"
-PATH_REFRESH = "/oauth/v2/refresh-token"
-PATH_ME = "/users/me"
-PATH_LOCATIONS = "/locations"
-PATH_LOCATION_USERS = "/locations/{location_id}/users"
-PATH_LOCATION_USER = "/locations/{location_id}/users/{user_id}"
-PATH_HOME = "/home/{location_id}"
-PATH_DEVICE = "/devices/{device_id}"
-PATH_DEVICE_ACCESS = "/devices/{device_id}/access"
-PATH_DEVICE_HISTORY = "/devices/{device_id}/features-history"
-PATH_DEVICE_LOCK = "/devices/{device_id}/lock"
-PATH_DEVICE_SETTINGS = "/devices/{device_id}/settings"
-PATH_DEVICE_ACTION = "/devices/{device_id}/action"
-PATH_GATEWAY_ACTION = "/gateways/{gateway_id}/action"
-PATH_GATEWAY_SCAN = "/gateways/{gateway_id}/scan"
-PATH_GUEST_USERS = "/guest-users"
-PATH_GUEST_USER = "/guest-users/{user_id}"
-PATH_DEVICE_SCAN = "/devices/{device_id}/access/scan-tag"
-
-HEADER_COMPANY_ID = "companyId"
-
-# --- The cloud's feature state ----------------------------------------------
-# A device state is addressed as <feature>_<key>, for example report_event.
-FEATURE_LOCK = "lock"
-FEATURE_REPORT = "report"
-FEATURE_BATTERY = "battery"
-FEATURE_PINS = "pins"
-FEATURE_TAGS = "tags"
-FEATURE_DIAGNOSTIC = "diagnostic"
-
-STATE_LOCK_STATE = "state"
-STATE_AUTORELOCK = "autorelocktime"
-STATE_VOLUME = "soundvolume"
-
-# Feature states that can appear in the history feed, with how they are read.
-HISTORY_REPORT_EVENT = "report_event"
-HISTORY_LOCK_STATE = "lock_state"
-
-# --- The vendor's device settings -------------------------------------------
-SETTING_AUTOLOCK = "autolock"
-SETTING_VOLUME = "volume"
-SETTING_MASTER_PIN_MODE = "masterpinmode"
-SETTING_PIN_REQUIRED_REMOTE = "pinRequiredUnlockRemote"
-SETTING_PART_OF_ALARM = "partofalarm"
-SETTING_DEVICE_TYPE = "deviceType"
-
-# The vendor stores volume as a number 0-100 and as a name.
-VOLUME_NAMES = {0: "silent", 36: "low", 72: "medium", 100: "high"}
-
-# --- Event vocabulary (report.event.value) ----------------------------------
-# Sources use the same names as the mirror layer, so an activity can travel between the
-# layers without a translation table.
-#
-# Values marked "confirmed" have been observed from a real lock whose module sits on the
-# vendor bridge; the rest come from the vendor app's own vocabulary. parse_event() reads an
-# unfamiliar value structurally, so a firmware addition never becomes a silent None.
-EVENT_UNLOCKED_BY_PIN = "DOORLOCK_UNLOCKED_BY_PIN"  # confirmed
-EVENT_UNLOCKED_BY_FINGER = "DOORLOCK_UNLOCKED_BY_FINGER"  # confirmed
-EVENT_LOCKED_FROM_APP = "DOORLOCK_LOCKED_FROM_APP"  # confirmed
-EVENT_UNLOCK_WITH_PIN = "DOORLOCK_UNLOCK_WITH_PIN"
-EVENT_UNLOCK_WITH_FINGERPRINT = "DOORLOCK_UNLOCK_WITH_FINGERPRINT"
-EVENT_LOCK_WITH_TAG = "DOORLOCK_LOCK_WITH_TAG"
-EVENT_UNLOCKED_FROM_APP = "DOORLOCK_UNLOCKED_FROM_APP"
-EVENT_LOCKED_MANUALLY = "DOORLOCK_LOCKED_MANUALLY"
-EVENT_AUTO_LOCKED = "DOORLOCK_AUTO_LOCKED"
-
-CONFIRMED_EVENTS = frozenset(
-    {EVENT_UNLOCKED_BY_PIN, EVENT_UNLOCKED_BY_FINGER, EVENT_LOCKED_FROM_APP}
-)
-
-EVENT_MAP: dict[str, tuple[str, str]] = {
-    EVENT_UNLOCKED_BY_PIN: ("unlock", "keypad"),
-    EVENT_UNLOCKED_BY_FINGER: ("unlock", "fingerprint"),
-    EVENT_LOCKED_FROM_APP: ("lock", "zigbee"),
-    EVENT_UNLOCK_WITH_PIN: ("unlock", "keypad"),
-    EVENT_UNLOCK_WITH_FINGERPRINT: ("unlock", "fingerprint"),
-    EVENT_LOCK_WITH_TAG: ("lock", "rfid"),
-    EVENT_UNLOCKED_FROM_APP: ("unlock", "zigbee"),
-    EVENT_LOCKED_MANUALLY: ("lock", "unattributed"),
-    EVENT_AUTO_LOCKED: ("lock", "auto"),
-}
-
-EVENT_PREFIX = "DOORLOCK_"
-
-# Token -> source, checked in order. App commands reach the module over Zigbee, so "from
-# app" is source zigbee — the source code the lock itself reports.
-_TOKEN_SOURCES: tuple[tuple[str, str], ...] = (
-    ("FINGER", "fingerprint"),
-    ("PIN", "keypad"),
-    ("CODE", "keypad"),
-    ("TAG", "rfid"),
-    ("RFID", "rfid"),
-    ("APP", "zigbee"),
-    ("AUTO", "auto"),
-    ("MANUAL", "unattributed"),
-    ("ZIGBEE", "zigbee"),
-)
-
-
-def parse_event(value: str | None) -> tuple[str | None, str | None]:
-    """Turn a cloud event value into (action, source).
-
-    Known values come from EVENT_MAP. Anything else with the DOORLOCK_ prefix is read
-    structurally so a firmware addition still produces a usable action and a best-effort
-    source rather than a silent None.
-    """
-    if not value:
-        return None, None
-    if value in EVENT_MAP:
-        return EVENT_MAP[value]
-
-    text = value.upper()
-    if not text.startswith(EVENT_PREFIX):
-        return None, None
-
-    # Strip the prefix first: "DOORLOCK_" itself contains LOCK and would otherwise make
-    # every unrecognised event look like a lock.
-    body = text[len(EVENT_PREFIX) :]
-    if "UNLOCK" in body:
-        action = "unlock"
-    elif "LOCK" in body:
-        action = "lock"
-    else:
-        action = None
-
-    source = "unattributed"
-    for token, name in _TOKEN_SOURCES:
-        if token in body:
-            source = name
-            break
-    return action, source
-
-
-# --- Services ---------------------------------------------------------------
-SERVICE_PROBE = "probe"
-SERVICE_REFRESH = "refresh"
-SERVICE_FETCH_HISTORY = "fetch_history"
-SERVICE_SET_LOCK = "set_lock"
-SERVICE_GATEWAY_SCAN = "gateway_scan"
-SERVICE_CLEANUP_CLOUD = "cleanup_cloud"
-SERVICE_CLOUD_GUESTS = "cloud_guests"
-SERVICE_SYNC_CLOUD = "sync_cloud"
-SERVICE_AUDIT = "audit"
-SERVICE_RESTORE_CLOUD = "restore_cloud"
-SERVICE_UPDATE_CLOUD_GUEST = "update_cloud_guest"
-SERVICE_DELETE_CLOUD_GUEST = "delete_cloud_guest"
-SERVICE_SET_CLOUD_CODE = "set_cloud_code"
-SERVICE_LINK_CLOUD_GUEST = "link_cloud_guest"
-SERVICE_REPAIR_JOIN = "repair_join"

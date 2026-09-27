@@ -42,10 +42,10 @@ class MakeEntryTest(unittest.TestCase):
 
 
 class MergeTest(unittest.TestCase):
-    def test_cloud_name_is_folded_into_the_local_event(self) -> None:
+    def test_name_is_folded_into_the_local_event(self) -> None:
         entries = [entry("unlock", T0, journal.ORIGIN_LOCK, slot=11, source="keypad")]
         stored, merged, _ = journal.add(
-            entries, entry("unlock", T1, journal.ORIGIN_CLOUD, slot=11, name="Carro")
+            entries, entry("unlock", T1, journal.ORIGIN_HA, slot=11, name="Carro")
         )
         self.assertTrue(merged)
         self.assertEqual(len(entries), 1)
@@ -55,28 +55,28 @@ class MergeTest(unittest.TestCase):
 
     def test_different_actions_do_not_merge(self) -> None:
         entries = [entry("unlock", T0, journal.ORIGIN_LOCK, slot=11)]
-        _, merged, _ = journal.add(entries, entry("lock", T1, journal.ORIGIN_CLOUD, slot=11))
+        _, merged, _ = journal.add(entries, entry("lock", T1, journal.ORIGIN_HA, slot=11))
         self.assertFalse(merged)
         self.assertEqual(len(entries), 2)
 
     def test_same_origin_does_not_merge(self) -> None:
-        entries = [entry("unlock", T0, journal.ORIGIN_CLOUD, slot=11, name="A")]
-        _, merged, _ = journal.add(entries, entry("unlock", T1, journal.ORIGIN_CLOUD, name="B"))
+        entries = [entry("unlock", T0, journal.ORIGIN_HA, slot=11, name="A")]
+        _, merged, _ = journal.add(entries, entry("unlock", T1, journal.ORIGIN_HA, name="B"))
         self.assertFalse(merged)
         self.assertEqual(len(entries), 2)
 
     def test_outside_the_window_does_not_merge(self) -> None:
         entries = [entry("unlock", T0, journal.ORIGIN_LOCK, slot=11)]
-        _, merged, _ = journal.add(entries, entry("unlock", T2, journal.ORIGIN_CLOUD, name="Carro"))
+        _, merged, _ = journal.add(entries, entry("unlock", T2, journal.ORIGIN_HA, name="Carro"))
         self.assertFalse(merged)
 
     def test_conflicting_slots_do_not_merge(self) -> None:
         entries = [entry("unlock", T0, journal.ORIGIN_LOCK, slot=11)]
-        _, merged, _ = journal.add(entries, entry("unlock", T1, journal.ORIGIN_CLOUD, slot=12))
+        _, merged, _ = journal.add(entries, entry("unlock", T1, journal.ORIGIN_HA, slot=12))
         self.assertFalse(merged)
 
     def test_a_missing_slot_still_merges_and_fills_in(self) -> None:
-        entries = [entry("unlock", T0, journal.ORIGIN_CLOUD, name="Carro")]
+        entries = [entry("unlock", T0, journal.ORIGIN_HA, name="Carro")]
         stored, merged, _ = journal.add(
             entries, entry("unlock", T1, journal.ORIGIN_LOCK, slot=11, source="keypad")
         )
