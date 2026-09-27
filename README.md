@@ -18,12 +18,11 @@ codes with schedules, a journal of who opened the door, and the local services t
 manage it all. It is **local-only**; it holds no vendor account and talks to no
 cloud service.
 
-This integration is the engine. The household reads it through **Hemnyckel's own iOS app**
-([`hemnyckel/ios`](https://github.com/hemnyckel/ios), private, heading for TestFlight): rich
-notifications with *who opened the door, when and how*, the history, the guests and lock
-control — with no Home Assistant app and no vendor app. The relay in
-[`hemnyckel/addon`](https://github.com/hemnyckel/addon) turns this journal into those
-notifications. The integration works fully on its own without either of them.
+This integration is the engine. The household reads it through **the Hemnyckel app** for
+iPhone — heading for TestFlight, then the App Store: rich notifications with *who opened the
+door, when and how*, the history, the guests and lock control, with no Home Assistant app and
+no vendor app. The relay in [`hemnyckel/addon`](https://github.com/hemnyckel/addon) turns this
+journal into those notifications. The integration works fully on its own without either.
 
 ```
         Zigbee
