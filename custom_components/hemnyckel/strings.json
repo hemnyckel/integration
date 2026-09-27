@@ -68,7 +68,6 @@
   "issues": {
     "new_slot": {
       "title": "Slot {slot} needs a name",
-      "description": "A {kind} is registered in slot {slot}. Give the user a name so Home Assistant notifications show the right person.",
       "fix_flow": {
         "step": {
           "init": {

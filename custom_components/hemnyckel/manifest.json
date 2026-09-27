@@ -1,17 +1,16 @@
 {
   "domain": "hemnyckel",
   "name": "Hemnyckel",
+  "after_dependencies": [
+    "zha"
+  ],
   "codeowners": [
     "@c14ym0re"
   ],
   "config_flow": true,
-  "after_dependencies": [
-    "zha"
-  ],
   "documentation": "https://github.com/hemnyckel/integration",
-  "issue_tracker": "https://github.com/hemnyckel/integration/issues",
   "integration_type": "hub",
   "iot_class": "local_push",
-  "homeassistant": "2025.1.0",
-  "version": "2.0.1"
+  "issue_tracker": "https://github.com/hemnyckel/integration/issues",
+  "version": "2.0.2"
 }

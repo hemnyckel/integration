@@ -68,7 +68,6 @@
   "issues": {
     "new_slot": {
       "title": "Slot {slot} behöver ett namn",
-      "description": "En {kind} finns på slot {slot}. Ge användaren ett namn så att Home Assistants notiser visar rätt person.",
       "fix_flow": {
         "step": {
           "init": {
