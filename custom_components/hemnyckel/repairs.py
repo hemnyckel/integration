@@ -63,33 +63,10 @@ class NewSlotRepairFlow(RepairsFlow):
         )
 
 
-class EmulatorNotJoinedRepairFlow(RepairsFlow):
-    """Guided recovery when the emulator cannot join the bridge's network.
-
-    The bridge accepts a join only when no stale device record blocks it:
-    remove the old lock in the Nimly app, then start the app's add-device
-    flow. The emulator steers on its own and the repair closes itself once it
-    is back on the network.
-    """
-
-    def __init__(self, entry_id: str | None = None) -> None:
-        self._entry_id = entry_id
-
-    async def async_step_init(
-        self, user_input: dict | None = None
-    ) -> RepairsFlowResult:
-        if user_input is not None:
-            return self.async_create_entry(data={})
-        return self.async_show_form(step_id="init", data_schema=vol.Schema({}))
-
-
 async def async_create_fix_flow(
     hass: HomeAssistant, issue_id: str, data: dict | None
 ) -> RepairsFlow:
     """Dispatch on the issue; the data carries the slot or the entry id."""
-    if issue_id.startswith("emulator_not_joined"):
-        entry_id = data.get("entry_id") if isinstance(data, dict) else None
-        return EmulatorNotJoinedRepairFlow(entry_id if isinstance(entry_id, str) else None)
     slot = data.get("slot") if isinstance(data, dict) else None
     if not isinstance(slot, int):
         try:

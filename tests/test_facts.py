@@ -19,27 +19,6 @@ facts = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(facts)
 
 
-class SettingsDriftTest(unittest.TestCase):
-    def test_no_drift(self) -> None:
-        self.assertEqual(
-            facts.compute_settings_drift(
-                {"auto_relock_time": 1, "sound_volume": 2}, True, 2
-            ),
-            {},
-        )
-
-    def test_auto_lock_drift(self) -> None:
-        drift = facts.compute_settings_drift({"auto_relock_time": 0}, True, None)
-        self.assertEqual(drift["auto_lock"], {"lock": False, "app": True})
-
-    def test_volume_drift(self) -> None:
-        drift = facts.compute_settings_drift({"sound_volume": 1}, None, 2)
-        self.assertEqual(drift["sound_volume"], {"lock": 1, "app": 2})
-
-    def test_unknown_values_are_skipped(self) -> None:
-        self.assertEqual(facts.compute_settings_drift({}, True, 2), {})
-
-
 class CapabilitySummaryTest(unittest.TestCase):
     def test_summary(self) -> None:
         self.assertEqual(

@@ -1,4 +1,4 @@
-"""Diagnostics for hemnyckel — routes each config entry to its layer."""
+"""Diagnostics for hemnyckel."""
 
 from __future__ import annotations
 
@@ -7,21 +7,16 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_TYPE, DOMAIN, TYPE_BRIDGE, TYPE_MIRROR
+from .const import CONF_TYPE, TYPE_MIRROR
 
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
-    entry_type = entry.data.get(CONF_TYPE)
-    if entry_type == TYPE_MIRROR:
+    if entry.data.get(CONF_TYPE) == TYPE_MIRROR:
         from .mirror.diagnostics import (
             async_get_config_entry_diagnostics as mirror_diagnostics,
         )
 
         return await mirror_diagnostics(hass, entry)
-    if entry_type == TYPE_BRIDGE:
-        coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
-        info = dict(getattr(coordinator, "info", {}) or {})
-        return {"entry_type": TYPE_BRIDGE, "info": info}
     return {}

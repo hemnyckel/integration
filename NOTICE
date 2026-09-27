@@ -4,9 +4,8 @@ Copyright 2026 Claes Häll
 The Home Assistant integration (custom_components/hemnyckel) is licensed under the
 Apache License, Version 2.0 (see LICENSE).
 
-The firmware (firmware/) is licensed under the MIT License; each source file
-carries its SPDX header. The bundled Lovelace card (www/hemnyckel-guests-card.js)
-is provided under the same MIT terms.
+The bundled Lovelace card (www/hemnyckel-guests-card.js) is provided under the
+project's MIT terms.
 
 Project: https://github.com/hemnyckel/integration
 
@@ -23,6 +22,5 @@ project claims no rights in them.
 
 This project is unofficial and independent. There is no connection to Nimly, EasyAccess or
 Onesti Products AS, and they neither sponsor nor support it. Use it entirely at your own risk:
-it drives a physical door lock and requires reflashing ESP32 boards. The authors accept no
-liability for any loss, damage or injury. If you believe this project infringes a right,
-contact the project before taking other action.
+it drives a physical door lock. The authors accept no liability for any loss, damage or injury.
+If you believe this project infringes a right, contact the project before taking other action.

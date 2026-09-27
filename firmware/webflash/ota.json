@@ -1,7 +1,0 @@
-{
-  "emulator": {
-    "version": "0.5.2",
-    "file": "emulator/nimly-emulator-0.5.2.bin",
-    "sha256": "6ac00ca777375735a405d67efe9c842f978be57c6bb65ea38ff11d67138b0e90"
-  }
-}

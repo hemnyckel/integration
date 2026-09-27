@@ -1,6 +1,7 @@
-"""Constants for hemnyckel — the local lock mirror and the ESP32 bridge.
+"""Constants for hemnyckel — a local-only integration for Nimly locks.
 
-The protocol towards the firmware (the bridge) is frozen; see the repository docs.
+The lock lives on ZHA; everything here supports that local path. The vendor
+app side (the bridge and the emulator) has been removed.
 """
 
 from __future__ import annotations
@@ -12,189 +13,18 @@ DOMAIN = "hemnyckel"
 # --- Entry types -------------------------------------------------------------
 CONF_TYPE = "type"
 TYPE_MIRROR = "mirror"
-TYPE_BRIDGE = "bridge"
 
-# --- Configuration (the lock mirror) -----------------------------------------
+# --- Configuration (the lock) ------------------------------------------------
 CONF_LOCK_ENTITY = "lock_entity_id"
-CONF_LOCK_NAME = "lock_name"
-CONF_PREFIX = "topic_prefix"
-
-# The bridge (kit) a mirror entry is bound to, as 12 hex characters: the MAC the
-# wizard matched from the bridge's retained <prefix>/info identity.
-CONF_BRIDGE = "bridge"
-CONF_CHANNELS = "channels"
-CONF_ENABLED = "enabled"
-CONF_ADDRESS = "address"
-CONF_IEEE = "ieee"
 
 # A name (and area) the user gave the lock's module in Home Assistant; re-applied
 # when the same serial joins again, so a re-pair comes back named correctly.
 CONF_DEVICE_IDENTITY = "device_identity"
-CONF_ENDPOINT = "endpoint_id"
 
-DEFAULT_PREFIX = "nimly/proxy"
 DEFAULT_ENDPOINT = 11
-
-# --- Channels (toggles in the UI) ------------------------------------------
-CH_LOCK = "lock"
-CH_ACTIVITY = "activity"
-CH_PIN = "pin"
-CH_FINGERPRINT = "fingerprint"
-CH_VOLUME = "volume"
-CH_AUTOLOCK = "autolock"
-CH_BATTERY = "battery"
-CH_SYNC = "sync"
-CH_RECONCILE = "slot_reconcile"
-CH_NAMES = "names"
-
-CHANNELS: list[str] = [
-    CH_LOCK,
-    CH_ACTIVITY,
-    CH_PIN,
-    CH_FINGERPRINT,
-    CH_VOLUME,
-    CH_AUTOLOCK,
-    CH_BATTERY,
-    CH_SYNC,
-    CH_RECONCILE,
-    CH_NAMES,
-]
-
-DEFAULT_CHANNELS: dict[str, bool] = {
-    CH_LOCK: True,
-    CH_ACTIVITY: True,
-    CH_PIN: True,
-    CH_FINGERPRINT: True,
-    CH_VOLUME: True,
-    CH_AUTOLOCK: True,
-    CH_BATTERY: True,
-    CH_SYNC: True,
-    CH_RECONCILE: False,
-    CH_NAMES: False,
-}
-
-# Display names for the channel switches (the user's "sliders")
-CHANNEL_LABELS: dict[str, str] = {
-    CH_LOCK: "Mirror lock/unlock",
-    CH_ACTIVITY: "Mirror notifications",
-    CH_PIN: "Mirror PIN codes",
-    CH_FINGERPRINT: "Mirror fingerprints",
-    CH_VOLUME: "Mirror sound volume",
-    CH_AUTOLOCK: "Mirror auto-lock",
-    CH_BATTERY: "Mirror battery",
-    CH_SYNC: "Sync on start",
-    CH_RECONCILE: "Slot sync (lock → app)",
-    CH_NAMES: "Mirror user names",
-}
-
-CHANNEL_ICONS: dict[str, str] = {
-    CH_LOCK: "mdi:lock-sync",
-    CH_ACTIVITY: "mdi:bell-ring-outline",
-    CH_PIN: "mdi:dialpad",
-    CH_FINGERPRINT: "mdi:fingerprint",
-    CH_VOLUME: "mdi:volume-high",
-    CH_AUTOLOCK: "mdi:timer-lock-outline",
-    CH_BATTERY: "mdi:battery-sync",
-    CH_SYNC: "mdi:sync",
-    CH_RECONCILE: "mdi:format-list-sync",
-    CH_NAMES: "mdi:account-edit",
-}
-
-PRESET_FULL = "full"
-PRESET_NOTIFICATIONS = "notifications"
-PRESET_HA_ONLY = "ha_only"
-PRESET_CUSTOM = "custom"
-
-PRESETS: dict[str, dict[str, bool]] = {
-    PRESET_FULL: {
-        CH_LOCK: True,
-        CH_ACTIVITY: True,
-        CH_PIN: True,
-        CH_FINGERPRINT: True,
-        CH_VOLUME: True,
-        CH_AUTOLOCK: True,
-        CH_BATTERY: True,
-        CH_SYNC: True,
-        CH_RECONCILE: False,
-        CH_NAMES: False,
-    },
-    PRESET_NOTIFICATIONS: {
-        CH_LOCK: False,
-        CH_ACTIVITY: True,
-        CH_PIN: False,
-        CH_FINGERPRINT: False,
-        CH_VOLUME: False,
-        CH_AUTOLOCK: False,
-        CH_BATTERY: True,
-        CH_SYNC: False,
-        CH_RECONCILE: False,
-        CH_NAMES: False,
-    },
-    PRESET_HA_ONLY: {
-        CH_LOCK: True,
-        CH_ACTIVITY: False,
-        CH_PIN: False,
-        CH_FINGERPRINT: False,
-        CH_VOLUME: False,
-        CH_AUTOLOCK: False,
-        CH_BATTERY: False,
-        CH_SYNC: False,
-        CH_RECONCILE: False,
-        CH_NAMES: False,
-    },
-}
-
-# --- MQTT topics (relative to the prefix) ----------------------------------
-TOPIC_HA_TO_BRIDGE = "ha_to_bridge"
-TOPIC_BRIDGE_TO_HA = "bridge_to_ha"
-TOPIC_STATE = "state"
-TOPIC_BATTERY = "battery"
-TOPIC_PIN = "pin"
-TOPIC_OTA = "ota"
-TOPIC_INFO = "info"
-
-# The legacy shared identity topic (firmware 0.5.x). Firmware 0.6.0 and later
-# announces on its own "<prefix>/info"; discovery listens on the wildcard
-# nimly/+/info plus this topic for the transition.
-TOPIC_BRIDGE_INFO = "nimly/info"
-
-# --- Event names used in the protocol ---------------------------------------
-EV_STATE = "state"
-EV_BATTERY = "battery"
-EV_ACTION = "action"
-EV_PIN_SET = "pin_set"
-EV_PIN_CLEAR = "pin_clear"
-EV_FP_ENROLL = "fp_enroll"
-EV_TAG_SCAN = "tag_scan"
-EV_TAG_CLEAR = "tag_clear"
-EV_FP_CLEAR = "fp_clear"
-# Settings the vendor app writes straight to the module (ZCL Write Attributes).
-EV_VOLUME = "volume"
-EV_AUTOLOCK = "autolock"
-
-CMD_LOCK = "lock"
-CMD_UNLOCK = "unlock"
-CMD_GET_STATE = "get_state"
-CMD_FACTORY_RESET = "factory_reset"
-CMD_VOLUME = "volume"
-CMD_AUTOLOCK = "autolock"
-CMD_BATTERY = "battery"
-CMD_EVENT = "event"
-CMD_OTA = "ota"
-
-# OTA-manifest: {"version": "…", "builds": {"esp32": "<app-bin>.bin", …}}.
-# Filenames are relative to the manifest URL. The user can repoint them in options.
-CONF_OTA_MANIFEST_URL = "ota_manifest_url"
-DEFAULT_OTA_MANIFEST_URL = (
-    "https://raw.githubusercontent.com/hemnyckel/integration/main/firmware/webflash/ota.json"
-)
-MANIFEST_REFRESH = 1800  # seconds between fetches of the OTA manifest
 
 # --- ZCL -------------------------------------------------------------------
 ZCL_CLUSTER_DOORLOCK = 0x0101
-ZCL_CMD_SET_PIN = 0x05
-ZCL_CMD_GET_PIN = 0x06
-ZCL_CMD_CLEAR_PIN = 0x07
 ZCL_CMD_FP_ENROLL = 0x71
 ZCL_CMD_TAG_SCAN = 0x70
 ZCL_CMD_TAG_CLEAR = 0x18
@@ -225,8 +55,6 @@ SOURCE_NAMES: dict[int, str] = {
     SRC_UNATTRIBUTED: "unattributed",
     SRC_AUTO: "auto",
 }
-ACTION_FROM_NAME: dict[str, int] = {v: k for k, v in ACTION_NAMES.items()}
-SOURCE_FROM_NAME: dict[str, int] = {v: k for k, v in SOURCE_NAMES.items()}
 
 # Sources that count as "a person did something" (for notifications)
 HUMAN_SOURCES = {SRC_KEYPAD, SRC_FINGERPRINT, SRC_RFID, SRC_ZIGBEE, SRC_UNATTRIBUTED}
@@ -267,13 +95,9 @@ def decode_operation_event(value: int) -> dict[str, Any] | None:
     }
 
 # --- Health ----------------------------------------------------------------
-HEALTH_INTERVAL = 60  # seconds between get_state pings
-HEALTH_TIMEOUT = 150  # seconds without state -> offline
-HELLO_GAP = 90  # a longer gap between hellos means the emulator rebooted
-ECHO_WINDOW = 8.0  # seconds a mirrored command suppresses its echo
+HEALTH_INTERVAL = 60  # seconds between ZHA health ticks
 
 # --- Shared events ----------------------------------------------------------
 # Fired for every new journal entry (access and admin events), so automations can
 # react to "who opened the door" without polling the journal.
 EVENT_JOURNAL = "hemnyckel_door_event"
-

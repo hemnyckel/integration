@@ -2,7 +2,8 @@
 
 The repository ships one Lovelace card for guest codes:
 [`www/hemnyckel-guests-card.js`](../www/hemnyckel-guests-card.js). It needs the
-integration's `sensor.nimly_guests` entity and nothing else.
+integration's guests sensor — named after your lock, for example
+`sensor.ytterdorren_guests` — and nothing else.
 
 ## Install
 

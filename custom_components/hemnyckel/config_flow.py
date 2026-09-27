@@ -1,43 +1,25 @@
 """Config and options flow for hemnyckel.
 
-The user step picks the lock mirror (``mirror``); the bridge (``bridge``) is
-discovered over Bluetooth and provisioned with Improv.
+The user picks the lock entity (a lock paired in ZHA) and is done; the options
+then manage that lock's slots and its master-slot reservation.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from typing import Any
 
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.components import mqtt
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
-    CHANNELS,
-    CONF_ADDRESS,
-    CONF_BRIDGE,
-    CONF_CHANNELS,
     CONF_LOCK_ENTITY,
-    CONF_OTA_MANIFEST_URL,
-    CONF_PREFIX,
     CONF_TYPE,
-    DEFAULT_CHANNELS,
-    DEFAULT_OTA_MANIFEST_URL,
-    DEFAULT_PREFIX,
     DOMAIN,
-    PRESET_CUSTOM,
-    PRESET_FULL,
-    PRESET_HA_ONLY,
-    PRESET_NOTIFICATIONS,
-    PRESETS,
-    TOPIC_BRIDGE_INFO,
-    TYPE_BRIDGE,
     TYPE_MIRROR,
 )
 from .mirror.pin_rules import (  # noqa: E402 - after the const imports
@@ -46,302 +28,49 @@ from .mirror.pin_rules import (  # noqa: E402 - after the const imports
     RESERVED_SLOTS_MIN,
     first_user_slot,
 )
-from .mirror.discovery import (  # noqa: E402 - after the const imports
-    LEGACY_TOPIC,
-    WILDCARD_TOPIC,
-    collect_bridges,
-    valid_prefix,
-)
 
 _LOGGER = logging.getLogger(__name__)
 
-PRESET_CHOICES = [
-    selector.SelectOptionDict(value=PRESET_FULL, label="Full mirror"),
-    selector.SelectOptionDict(value=PRESET_NOTIFICATIONS, label="Notifications only"),
-    selector.SelectOptionDict(value=PRESET_HA_ONLY, label="HA control only"),
-    selector.SelectOptionDict(value=PRESET_CUSTOM, label="Custom"),
-]
-
-
-def _preset_schema() -> vol.Schema:
-    return vol.Schema(
-        {
-            vol.Required("preset", default=PRESET_FULL): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=PRESET_CHOICES,
-                    mode=selector.SelectSelectorMode.LIST,
-                )
-            )
-        }
-    )
-
-
-def _channels_schema(defaults: dict[str, bool]) -> vol.Schema:
-    return vol.Schema(
-        {
-            vol.Optional(
-                f"ch_{key}", default=defaults.get(key, DEFAULT_CHANNELS.get(key, False))
-            ): bool
-            for key in CHANNELS
-        }
-    )
-
-
-def _extract_channels(user_input: dict[str, Any]) -> dict[str, bool]:
-    return {key: bool(user_input.get(f"ch_{key}")) for key in CHANNELS}
-
-
-async def _detect_bridges(hass: Any) -> list[dict[str, Any]]:
-    """Every kit's retained identity, for the wizard's bridge picker.
-
-    Listens briefly to the wildcard nimly/+/info (firmware 0.6.0+, one topic per
-    kit) plus the legacy shared nimly/info (0.5.x). Each kit is returned with a
-    ``free`` flag: a prefix another mirror entry already bound is taken, so the
-    wizard only offers kits nobody owns.
-    """
-    payloads: list[dict[str, Any]] = []
-
-    @callback
-    def _cb(msg: mqtt.ReceiveMessage) -> None:
-        try:
-            data = json.loads(msg.payload)
-        except (ValueError, TypeError):
-            return
-        if isinstance(data, dict):
-            payloads.append(data)
-
-    unsubs = [
-        await mqtt.async_subscribe(hass, topic, _cb, qos=1)
-        for topic in (WILDCARD_TOPIC, LEGACY_TOPIC)
-    ]
-    try:
-        await asyncio.sleep(3)
-    finally:
-        for unsub in unsubs:
-            unsub()
-    used = {
-        entry.options.get(CONF_PREFIX) or entry.data.get(CONF_PREFIX) or DEFAULT_PREFIX
-        for entry in hass.config_entries.async_entries(DOMAIN)
-        if entry.data.get(CONF_TYPE) == TYPE_MIRROR
-    }
-    return collect_bridges(payloads, used)
-
 
 class HemnyckelConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Set up a Hemnyckel entry: the lock mirror or the bridge."""
+    """Set up a Hemnyckel entry: the lock to manage."""
 
     VERSION = 1
 
-    def __init__(self) -> None:
-        self._lock_entity: str | None = None
-        self._prefix: str = DEFAULT_PREFIX
-        self._bridge: str | None = None
-        self._bridges: list[dict[str, Any]] = []
-        self._channels: dict[str, bool] = dict(DEFAULT_CHANNELS)
-        self._ble_address: str | None = None
-        self._ble_name: str = ""
-
     async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        return self.async_show_menu(
-            step_id="user", menu_options=[TYPE_MIRROR]
-        )
-
-    # --- Mirror ----------------------------------------------------------------
-
-    async def async_step_mirror(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
             lock_entity: str = user_input[CONF_LOCK_ENTITY]
-            chosen = str(user_input.get(CONF_BRIDGE) or "")
-            bridge = next(
-                (item for item in self._bridges if item["mac"] == chosen), None
+            await self.async_set_unique_id(lock_entity.lower())
+            self._abort_if_unique_id_configured()
+            # The title is what the entry list shows and what the device name
+            # falls back to, so it is the lock's human name ("Ytterdörren"),
+            # not the Zigbee module's serial. A lock that has no state yet
+            # still gets a recognisable title from its entity id.
+            lock_state = self.hass.states.get(lock_entity)
+            title = (lock_state.name if lock_state is not None else None) or (
+                lock_entity.split(".")[-1]
             )
-            prefix = (
-                bridge["prefix"] if bridge else str(user_input.get(CONF_PREFIX) or "")
-            ).rstrip("/") or DEFAULT_PREFIX
-            if not valid_prefix(prefix):
-                errors["base"] = "invalid_prefix"
-            elif any(
-                (
-                    entry.options.get(CONF_PREFIX)
-                    or entry.data.get(CONF_PREFIX)
-                    or DEFAULT_PREFIX
-                )
-                == prefix
-                for entry in self.hass.config_entries.async_entries(DOMAIN)
-                if entry.data.get(CONF_TYPE) == TYPE_MIRROR
-            ):
-                errors["base"] = "prefix_in_use"
-            if not errors:
-                self._lock_entity = lock_entity
-                self._prefix = prefix
-                self._bridge = bridge["mac"] if bridge else None
-                await self.async_set_unique_id(lock_entity.lower())
-                self._abort_if_unique_id_configured()
-                return await self.async_step_channels()
-
-        if not self._bridges:
-            self._bridges = await _detect_bridges(self.hass)
-        free = [item for item in self._bridges if item["free"]]
-        prefix_default = free[0]["prefix"] if free else DEFAULT_PREFIX
-        if self._bridges:
-            listed = ", ".join(
-                f"{item['prefix']} ({item['mac']}, fw {item['fw'] or '?'})"
-                + ("" if item["free"] else " - in use")
-                for item in self._bridges
+            return self.async_create_entry(
+                title=title,
+                data={
+                    CONF_TYPE: TYPE_MIRROR,
+                    CONF_LOCK_ENTITY: lock_entity,
+                },
             )
-            text = (
-                f"Found {len(self._bridges)} bridge(s): {listed}. "
-                "Pick one, or enter a prefix manually."
-            )
-        else:
-            text = (
-                "No bridge was found automatically (nimly/+/info is empty) - "
-                "enter the MQTT prefix manually."
-            )
-
-        fields: dict[Any, Any] = {
-            vol.Required(CONF_LOCK_ENTITY): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="lock")
-            )
-        }
-        if self._bridges:
-            fields[
-                vol.Optional(
-                    CONF_BRIDGE,
-                    default=(free[0]["mac"] if free else self._bridges[0]["mac"]),
-                )
-            ] = selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=[
-                        selector.SelectOptionDict(
-                            value=item["mac"],
-                            label=f"{item['prefix']} · fw {item['fw'] or '?'}"
-                            + ("" if item["free"] else " (in use)"),
-                        )
-                        for item in self._bridges
-                    ],
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            )
-        fields[vol.Optional(CONF_PREFIX, default=prefix_default)] = (
-            selector.TextSelector()
-        )
-        return self.async_show_form(
-            step_id="mirror",
-            data_schema=vol.Schema(fields),
-            errors=errors,
-            description_placeholders={"detected": text},
-        )
-
-    async def async_step_channels(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        if user_input is not None:
-            preset = user_input.get("preset", PRESET_FULL)
-            if preset == PRESET_CUSTOM:
-                return self.async_show_form(
-                    step_id="custom",
-                    data_schema=_channels_schema(self._channels),
-                )
-            self._channels = dict(PRESETS.get(preset, DEFAULT_CHANNELS))
-            return self._create_mirror()
 
         return self.async_show_form(
-            step_id="channels",
-            data_schema=_preset_schema(),
-            description_placeholders={"lock": self._lock_entity or ""},
-        )
-
-    async def async_step_custom(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        if user_input is not None:
-            self._channels = _extract_channels(user_input)
-            return self._create_mirror()
-        return self.async_show_form(
-            step_id="custom", data_schema=_channels_schema(self._channels)
-        )
-
-    def _create_mirror(self) -> config_entries.ConfigFlowResult:
-        assert self._lock_entity is not None
-        # The title is what the entry list shows and the device falls back to,
-        # so it is the lock's human name - the one the household already uses
-        # ("Ytterdörren") - not the Zigbee module's serial. A lock that has no
-        # state yet still gets a recognisable title from its entity id.
-        lock_state = self.hass.states.get(self._lock_entity)
-        title = (lock_state.name if lock_state is not None else None) or (
-            self._lock_entity.split(".")[-1]
-        )
-        return self.async_create_entry(
-            title=title,
-            data={
-                CONF_TYPE: TYPE_MIRROR,
-                CONF_LOCK_ENTITY: self._lock_entity,
-                CONF_PREFIX: self._prefix,
-                **({CONF_BRIDGE: self._bridge} if self._bridge else {}),
-            },
-            options={CONF_CHANNELS: self._channels},
-        )
-
-    # --- Bridge ----------------------------------------------------------------
-
-    async def async_step_bluetooth(
-        self, discovery_info: Any
-    ) -> config_entries.ConfigFlowResult:
-        """The bridge was discovered over Bluetooth (the Improv advertisement)."""
-        address = getattr(discovery_info, "address", None)
-        if not address:
-            return self.async_abort(reason="no_address")
-        await self.async_set_unique_id(address, raise_on_progress=False)
-        self._abort_if_unique_id_configured()
-        self._ble_address = address
-        self._ble_name = getattr(discovery_info, "name", None) or address
-        return await self.async_step_wifi()
-
-    async def async_step_wifi(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        """Provide Wi-Fi for the bridge and provision over BLE."""
-        errors: dict[str, str] = {}
-        if user_input is not None and self._ble_address:
-            from .mirror.improv_ble import async_provision
-
-            try:
-                await async_provision(
-                    self.hass,
-                    self._ble_address,
-                    user_input["ssid"],
-                    user_input.get("password") or "",
-                )
-            except Exception as err:  # noqa: BLE001 - surface the error in the form
-                errors["base"] = "provision_failed"
-                _LOGGER.warning("Improv provisioning failed: %s", err)
-            else:
-                return self.async_create_entry(
-                    title=f"Nimly Bridge ({self._ble_name or 'bridge'})",
-                    data={CONF_TYPE: TYPE_BRIDGE, CONF_ADDRESS: self._ble_address},
-                )
-
-        schema = vol.Schema(
-            {
-                vol.Required("ssid"): selector.TextSelector(),
-                vol.Optional("password", default=""): selector.TextSelector(
-                    selector.TextSelectorConfig(
-                        type=selector.TextSelectorType.PASSWORD
+            step_id="user",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_LOCK_ENTITY): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="lock")
                     )
-                ),
-            }
-        )
-        return self.async_show_form(
-            step_id="wifi",
-            data_schema=schema,
+                }
+            ),
             errors=errors,
-            description_placeholders={"device": self._ble_name or "the bridge"},
         )
 
     @staticmethod
@@ -353,7 +82,7 @@ class HemnyckelConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class HemnyckelOptionsFlow(config_entries.OptionsFlow):
-    """Options for the mirror: channels, slots and the firmware source."""
+    """Options for the lock: slots and the master-slot reservation."""
 
     _pin_task: asyncio.Task | None = None
     _pin_input: dict[str, Any] | None = None
@@ -369,7 +98,7 @@ class HemnyckelOptionsFlow(config_entries.OptionsFlow):
             return await self.async_step_mirror_menu()
         return self.async_abort(reason="no_options")
 
-    # -- mirror: menu -------------------------------------------------------
+    # -- lock: menu ---------------------------------------------------------
 
     async def async_step_mirror_menu(
         self, user_input: dict[str, Any] | None = None
@@ -381,41 +110,12 @@ class HemnyckelOptionsFlow(config_entries.OptionsFlow):
                 "slot_set_pin",
                 "slot_name",
                 "slot_clear",
-                "channels",
-                "firmware",
                 "reserved",
             ],
         )
 
     def _mirror(self) -> Any:
         return self.hass.data[DOMAIN][self.config_entry.entry_id]
-
-    async def async_step_firmware(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        if user_input is not None:
-            url = str(user_input.get(CONF_OTA_MANIFEST_URL) or "").strip()
-            options = dict(self.config_entry.options)
-            if url:
-                options[CONF_OTA_MANIFEST_URL] = url
-            else:
-                options.pop(CONF_OTA_MANIFEST_URL, None)
-            return self.async_create_entry(data=options)
-        current = self.config_entry.options.get(
-            CONF_OTA_MANIFEST_URL, DEFAULT_OTA_MANIFEST_URL
-        )
-        return self.async_show_form(
-            step_id="firmware",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(
-                        CONF_OTA_MANIFEST_URL, default=current
-                    ): selector.TextSelector()
-                }
-            ),
-        )
-
-    # -- mirror: channels ---------------------------------------------------
 
     async def async_step_reserved(
         self, user_input: dict[str, Any] | None = None
@@ -438,41 +138,7 @@ class HemnyckelOptionsFlow(config_entries.OptionsFlow):
             ),
         )
 
-    def _current_channels(self) -> dict[str, bool]:
-        entry = self.config_entry
-        return dict(
-            entry.options.get(CONF_CHANNELS)
-            or entry.data.get(CONF_CHANNELS)
-            or DEFAULT_CHANNELS
-        )
-
-    async def async_step_channels(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        if user_input is not None:
-            preset = user_input.get("preset", PRESET_CUSTOM)
-            if preset == PRESET_CUSTOM:
-                return self.async_show_form(
-                    step_id="custom",
-                    data_schema=_channels_schema(self._current_channels()),
-                )
-            return self.async_create_entry(
-                data={CONF_CHANNELS: dict(PRESETS.get(preset, DEFAULT_CHANNELS))}
-            )
-        return self.async_show_form(step_id="channels", data_schema=_preset_schema())
-
-    async def async_step_custom(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        if user_input is not None:
-            return self.async_create_entry(
-                data={CONF_CHANNELS: _extract_channels(user_input)}
-            )
-        return self.async_show_form(
-            step_id="custom", data_schema=_channels_schema(self._current_channels())
-        )
-
-    # -- mirror: slots ------------------------------------------------------
+    # -- lock: slots --------------------------------------------------------
 
     def _slot_rows(self) -> list[str]:
         coordinator = self._mirror()

@@ -1,6 +1,6 @@
 # Agent instructions — hemnyckel
 
-This repository is the Hemnyckel Home Assistant integration and its firmware. It controls
+This repository is the Hemnyckel Home Assistant integration. It controls
 physical access to a home; treat everything here as security relevant.
 
 ## Rules
@@ -8,7 +8,7 @@ physical access to a home; treat everything here as security relevant.
 - Everything committed is **English**: code, comments, docstrings, docs, commit messages.
   Translation files under `translations/` are the only exception.
 - **Never commit real device or account data**: no IEEE addresses, serial numbers, MACs,
-  account or location identifiers, tokens, PIN codes or device-specific firmware. Run
+  account or location identifiers, tokens or PIN codes. Run
   `python3 tools/check_pii.py` before you finish.
 - **No PIN codes in Home Assistant**: never read, forward, log or store ZCL attribute
   `0x0101`. Codes are write-only.
@@ -29,12 +29,10 @@ installation. Anything that imports `homeassistant` is verified on hardware thro
 
 ## Layout
 
-- `custom_components/hemnyckel/` — the integration. `mirror/` hosts the local layer, the bridge
-  provisioning and the ZHA link in `zha_link.py`. Platform files (`sensor.py`,
-  `binary_sensor.py`, …) are thin routers that dispatch each config entry to its layer.
-- `firmware/` — the two ESP-IDF projects (ESP32-C6 emulator, ESP32-C3 bridge) and the
-  browser-flashing assets under `firmware/webflash/`.
+- `custom_components/hemnyckel/` — the integration. `mirror/` hosts the local layer and the
+  ZHA link in `zha_link.py`. Platform files (`sensor.py`, `binary_sensor.py`, …) are thin
+  routers that dispatch each config entry to its layer.
 - `www/hemnyckel-guests-card.js` — the bundled Lovelace card (copy it to the Home Assistant
   configuration's `www/` to use it); the sources live here.
-- `docs/` — architecture, hardware, flashing, protocol, guests, privacy, dashboard.
+- `docs/` — architecture, guests, privacy, dashboard, known issues.
 - `tools/` — the sync-to-HA helper and the PII check.

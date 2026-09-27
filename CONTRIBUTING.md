@@ -11,8 +11,8 @@ under `translations/` are the only exception.
 ## Ground rules
 
 - **Never commit real device or account data.** That includes IEEE addresses, serial numbers,
-  MAC addresses, account and location identifiers, tokens, PIN codes and firmware binaries
-  built for a specific device. Use the placeholders already present in the code.
+  MAC addresses, account and location identifiers, tokens and PIN codes. Use the placeholders
+  already present in the code.
 - **No PIN codes in Home Assistant.** ZCL attribute `0x0101` is write-only; never read,
   forward, log or store it.
 - **Keep it local.** The mirror layer has to keep working with no internet access; nothing may
@@ -47,4 +47,4 @@ integration is published.
 ## Commit messages
 
 Short imperative subject, then a body explaining *why* when it is not obvious. Prefix with the
-layer when it helps: `mirror: ...`, `bridge: ...`, `firmware: ...`, `docs: ...`.
+layer when it helps: `mirror: ...`, `docs: ...`.

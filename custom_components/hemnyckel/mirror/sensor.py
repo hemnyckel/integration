@@ -1,22 +1,17 @@
-"""Sensors for the mirror layer: last event, battery and diagnostics."""
+"""Sensors for the mirror layer: last event, journal, slots, guests and facts."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.sensor import (
-    SensorDeviceClass,
-    SensorEntity,
-    SensorStateClass,
-)
+from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, EntityCategory
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from ..const import CONF_TYPE, DOMAIN, TYPE_BRIDGE
-from .bridge import BridgeEntity
+from ..const import DOMAIN
 from .coordinator import MirrorCoordinator
 from .entity import MirrorEntity
 from .facts import capability_summary
@@ -28,16 +23,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    if entry.data.get(CONF_TYPE) == TYPE_BRIDGE:
-        async_add_entities([BridgeFirmware(coordinator)])
-        return
     async_add_entities(
         [
             MirrorSlots(coordinator),
             MirrorLastEvent(coordinator),
-            MirrorBattery(coordinator),
-            MirrorFirmware(coordinator),
-            MirrorBridgeFirmware(coordinator),
             MirrorLastError(coordinator),
             MirrorLockFacts(coordinator),
             MirrorJournal(coordinator),
@@ -152,7 +141,7 @@ class SlotSensor(MirrorEntity, SensorEntity):
 
 
 class MirrorLastEvent(MirrorEntity, SensorEntity):
-    """The most recent event on the app side (action, source, slot)."""
+    """The most recent event on the lock (action, source, slot)."""
 
     _attr_name = "Last event"
     _attr_icon = "mdi:lock-clock"
@@ -171,66 +160,8 @@ class MirrorLastEvent(MirrorEntity, SensorEntity):
         return dict(self.coordinator.last_event or {})
 
 
-class MirrorBattery(MirrorEntity, SensorEntity):
-    """The app side battery level (mirrored from the real lock)."""
-
-    _attr_name = "Battery (app)"
-    _attr_device_class = SensorDeviceClass.BATTERY
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = PERCENTAGE
-
-    def __init__(self, coordinator: MirrorCoordinator) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{coordinator.entry.entry_id}_battery"
-
-    @property
-    def native_value(self) -> int | None:
-        return self.coordinator.app_battery
-
-
-class MirrorFirmware(MirrorEntity, SensorEntity):
-    """The emulator's firmware version, when it reports one."""
-
-    _attr_name = "Emulator firmware"
-    _attr_icon = "mdi:chip"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    def __init__(self, coordinator: MirrorCoordinator) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{coordinator.entry.entry_id}_firmware"
-
-    @property
-    def native_value(self) -> str | None:
-        return self.coordinator.firmware
-
-    @property
-    def extra_state_attributes(self) -> dict[str, object]:
-        return {
-            "factory_new": self.coordinator.emulator_factory_new,
-            "ieee": self.coordinator.emulator_ieee,
-        }
-
-
-class MirrorBridgeFirmware(MirrorEntity, SensorEntity):
-    """The bridge (Wi-Fi/MQTT) firmware version, from the retained nimly/info."""
-
-    _attr_name = "Bridge firmware"
-    _attr_icon = "mdi:chip"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    def __init__(self, coordinator: MirrorCoordinator) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{coordinator.entry.entry_id}_bridge_firmware"
-
-    @property
-    def native_value(self) -> str | None:
-        info = self.coordinator.bridge_info
-        value = info.get("fw")
-        return value if isinstance(value, str) else None
-
-
 class MirrorLastError(MirrorEntity, SensorEntity):
-    """The most recent mirroring error (for troubleshooting)."""
+    """The most recent error the integration recorded (for troubleshooting)."""
 
     _attr_name = "Last error"
     _attr_icon = "mdi:alert-circle-outline"
@@ -243,23 +174,6 @@ class MirrorLastError(MirrorEntity, SensorEntity):
     @property
     def native_value(self) -> str | None:
         return self.coordinator.last_error
-
-
-class BridgeFirmware(BridgeEntity, SensorEntity):
-    """The bridge firmware version (from nimly/info)."""
-
-    _attr_name = "Bridge firmware"
-    _attr_icon = "mdi:chip"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    def __init__(self, coordinator) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"bridge_{coordinator.address}_firmware"
-
-    @property
-    def native_value(self) -> str | None:
-        value = ((self.coordinator.data or {}).get("info") or {}).get("fw")
-        return value if isinstance(value, str) else None
 
 
 class MirrorLockFacts(MirrorEntity, SensorEntity):
@@ -289,9 +203,6 @@ class MirrorLockFacts(MirrorEntity, SensorEntity):
             "auto_lock": None if auto is None else bool(auto),
             "sound_volume": facts.get("sound_volume"),
             "door_state": facts.get("door_state"),
-            "app_auto_lock": self.coordinator.app_autolock,
-            "app_volume": self.coordinator.app_volume,
-            "settings_drift": dict(self.coordinator.settings_drift),
             "updated": self.coordinator.lock_facts_at,
         }
 

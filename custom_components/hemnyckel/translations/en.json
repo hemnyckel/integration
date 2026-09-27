@@ -3,80 +3,26 @@
     "step": {
       "user": {
         "title": "Hemnyckel",
-        "menu_options": {
-          "mirror": "Lock mirror (the app side)"
-        }
-      },
-      "mirror": {
-        "title": "Hemnyckel mirror",
-        "description": "Pick the real lock (paired in ZHA) and the MQTT prefix the emulator uses.\n\n{detected}",
+        "description": "Pick the lock to manage. Its module must be paired in ZHA.",
         "data": {
-          "lock_entity_id": "Lock",
-          "topic_prefix": "MQTT prefix"
-        }
-      },
-      "channels": {
-        "title": "Mirror channels",
-        "description": "Choose what should be mirrored between the Nimly app side and the real lock.",
-        "data": {
-          "preset": "Preset"
-        }
-      },
-      "custom": {
-        "title": "Custom channels",
-        "description": "Enable one channel at a time.",
-        "data": {
-          "ch_lock": "Mirror lock/unlock",
-          "ch_activity": "Mirror notifications",
-          "ch_pin": "Mirror PIN codes",
-          "ch_fingerprint": "Mirror fingerprints",
-          "ch_volume": "Mirror sound volume",
-          "ch_autolock": "Mirror auto-lock",
-          "ch_battery": "Mirror battery",
-          "ch_sync": "Sync on start",
-          "ch_slot_reconcile": "Slot reconcile (lock to app)",
-          "ch_names": "Mirror user names"
-        }
-      },
-      "wifi": {
-        "title": "WiFi for the bridge",
-        "description": "Enter the network {device} should join.",
-        "data": {
-          "ssid": "Network (SSID)",
-          "password": "Password"
+          "lock_entity_id": "Lock"
         }
       }
     },
     "abort": {
-      "already_configured": "This account or lock is already configured.",
-      "provisioned": "The bridge is provisioned and connected.",
-      "no_address": "Could not read the device address."
-    },
-    "error": {
-      "provision_failed": "Provisioning failed – check the network and try again.",
-      "invalid_prefix": "Invalid MQTT prefix (a-z, 0-9, /, _ and -).",
-      "prefix_in_use": "That prefix is already used by another mirror - pick another one."
+      "already_configured": "This lock is already configured."
     }
   },
   "options": {
     "step": {
       "mirror_menu": {
-        "title": "Hemnyckel mirror",
+        "title": "Hemnyckel",
         "menu_options": {
           "slots": "Slots",
           "slot_set_pin": "Set a PIN",
           "slot_name": "Name a slot",
           "slot_clear": "Clear a slot",
-          "channels": "Mirror channels",
-          "firmware": "Firmware source",
           "reserved": "Master slots"
-        }
-      },
-      "firmware": {
-        "title": "Firmware source",
-        "description": "The OTA manifest URL the update entities read. Keep the default unless you host your own builds.",
-        "data": {
-          "ota_manifest_url": "Manifest URL"
         }
       },
       "reserved": {
@@ -84,13 +30,6 @@
         "description": "How many slots the lock reserves for master credentials. The manuals say 0-2 on every model but the Code Pro, which reserves only slot 0. Slot 0 is never written.",
         "data": {
           "reserved_slots": "Reserved slots"
-        }
-      },
-      "channels": {
-        "title": "Mirror channels",
-        "description": "Change what is mirrored. Each channel also has a switch you can toggle later.",
-        "data": {
-          "preset": "Preset"
         }
       },
       "slots": {
@@ -118,21 +57,6 @@
         "description": "Clears the credential on the lock and forgets the slot's local data.",
         "data": {
           "slot": "Slot"
-        }
-      },
-      "custom": {
-        "title": "Custom channels",
-        "data": {
-          "ch_lock": "Mirror lock/unlock",
-          "ch_activity": "Mirror notifications",
-          "ch_pin": "Mirror PIN codes",
-          "ch_fingerprint": "Mirror fingerprints",
-          "ch_volume": "Mirror sound volume",
-          "ch_autolock": "Mirror auto-lock",
-          "ch_battery": "Mirror battery",
-          "ch_sync": "Sync on start",
-          "ch_slot_reconcile": "Slot reconcile (lock to app)",
-          "ch_names": "Mirror user names"
         }
       }
     },
@@ -164,87 +88,9 @@
           }
         }
       }
-    },
-    "emulator_not_joined": {
-      "title": "The emulator is not on the Zigbee network",
-      "description": "The emulator answers Home Assistant but is not joined to the Nimly bridge. Open the Nimly app's add-device flow so the bridge allows the join; the emulator retries by itself.",
-      "fix_flow": {
-        "step": {
-          "init": {
-            "title": "Repair the app registration",
-            "description": "The emulator answers Home Assistant but the Nimly bridge refuses its join. Usually the app still has the old lock registered, which blocks the re-pairing. Open the Nimly app, remove the old lock, then start the app's add-device search. The emulator is steering on its own and joins within seconds of the bridge's window opening; this repair closes by itself when it does."
-          }
-        }
-      }
-    },
-    "slot_conflict": {
-      "title": "An app credential for slot {slot} could not be stored",
-      "description": "The app provisioned a credential for slot {slot}, but it could not be stored on the lock: {reason}. Nothing was overwritten. Free a slot and try again in the app."
-    },
-    "prefix_conflict": {
-      "title": "Two mirrors share the MQTT prefix {prefix}",
-      "description": "Another mirror entry uses the same prefix - commands would reach both kits. Give each kit its own prefix (a new kit defaults to nimly/<mac>)."
     }
   },
   "services": {
-    "set_ieee": {
-      "name": "Provision IEEE address",
-      "description": "Sends an IEEE address to the emulator, which stores it in NVS and reboots. Defaults to the real lock module's own address, because the bridge only accepts known modules.",
-      "fields": {
-        "ieee": {
-          "name": "IEEE address",
-          "description": "Address in the form 00:11:22:33:44:55:66:77. Empty uses the lock's own."
-        },
-        "entry_id": {
-          "name": "Config entry",
-          "description": "Which mirror to provision. Leave out to target all of them."
-        }
-      }
-    },
-    "ota_install": {
-      "name": "Install bridge firmware (OTA)",
-      "description": "Sends a firmware URL to the bridge, which downloads it, writes the next application partition and reboots. Used by the update entity, but can also be run manually.",
-      "fields": {
-        "url": {
-          "name": "URL",
-          "description": "Absolute http(s) URL to the application binary."
-        },
-        "entry_id": {
-          "name": "Config entry",
-          "description": "Which bridge to update. Leave out to target all of them."
-        }
-      }
-    },
-    "provision_wifi": {
-      "name": "Provision Wi-Fi (BLE/Improv)",
-      "description": "Connects to the bridge over Bluetooth and sends Wi-Fi credentials using Improv. Used by the discovery flow, but can also be run manually.",
-      "fields": {
-        "address": {
-          "name": "Bluetooth address",
-          "description": "The device's BLE address, for example from nRF Connect or from discovery."
-        },
-        "ssid": {
-          "name": "Network (SSID)",
-          "description": "The Wi-Fi network the bridge should join."
-        },
-        "password": {
-          "name": "Password",
-          "description": "The Wi-Fi password, if any."
-        },
-        "mqtt_uri": {
-          "name": "MQTT broker URI",
-          "description": "Optional: the broker URL, for example mqtt://homeassistant.local:1883. Sent over an encrypted link and stored in NVS, so the bridge image itself carries no credentials."
-        },
-        "mqtt_user": {
-          "name": "MQTT username",
-          "description": "Optional: the MQTT user name."
-        },
-        "mqtt_password": {
-          "name": "MQTT password",
-          "description": "Optional: the MQTT password."
-        }
-      }
-    },
     "set_slot_name": {
       "name": "Name a lock slot",
       "description": "Stores a person's name for a lock slot so events and notifications say who did what.",

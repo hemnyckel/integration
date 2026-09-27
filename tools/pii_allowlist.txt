@@ -1,20 +1,2 @@
 # Exact values that are safe to ship. One per line, everything else is rejected by
 # tools/check_pii.py. Add a value only when it is provably public and intentional.
-
-# The vendor mobile app's public OAuth client constant. It ships inside every copy of the
-# app and is required for the password grant to work. It is not a user secret and grants
-# nothing without an account's own email and password.
-55c78905-7601-48fa-b589-2d15c4ad60e7
-
-# Improv Wi-Fi standard BLE service and characteristic UUIDs, from the public specification.
-00467768-6228-2272-4663-277478268000
-00467768-6228-2272-4663-277478268001
-00467768-6228-2272-4663-277478268002
-00467768-6228-2272-4663-277478268003
-00467768-6228-2272-4663-277478268004
-00467768-6228-2272-4663-277478268005
-# Our own extension: the MQTT-config characteristic, assigned within the same Improv base UUID.
-00467768-6228-2272-4663-277478268006
-
-# The vendor's model id for the Touch Pro; the app sends it with every device scan.
-0a888888-8381-45d4-bfee-96a4fddaa743

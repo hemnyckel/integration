@@ -6,9 +6,9 @@ a lock as a self-contained entry and what that means when there is more than one
 ## One entry per lock
 
 A **mirror config entry per lock** owns everything local: slots, guests with
-their schedules, the journal, events, channel switches and the credential links,
-all in that entry's options. There is no shared account and no cross-lock state
-to keep in step, so a second lock is just a second entry.
+their schedules, the journal and events, all in that entry's options. There is no
+shared account and no cross-lock state to keep in step, so a second lock is just
+a second entry.
 
 The guest card discovers every lock from the guests sensors and, when there is
 more than one, offers a lock picker: create a guest once, choose the doors, and
@@ -24,14 +24,10 @@ unaffected.
 
 ## Hardware
 
-One Nimly Connect Bridge accepts **two** modules. Locks one and two can run the
-full stack (ZHA + emulator); a third lock is local-only — it keeps every Home
-Assistant feature and loses only the app-side convenience. The integration
-itself has no such limit: add as many mirror entries as there are locks on ZHA.
+The integration has no hardware limit of its own: add as many mirror entries as
+there are locks on ZHA.
 
 ## Open questions
 
-- Does the bridge firmware accept a second/third paired module, or is its own
-  limit lower than the app's? The two-module limit is measured; a third is not.
 - Should a person's code be the same on every lock? Today each mirror creates
   its own code; reuse would need the value written per lock.

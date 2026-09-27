@@ -13,25 +13,23 @@ This project controls physical access to a home. Treat every part of it as secur
 
 In scope for this repository:
 
-- The local mirror: the ZHA ownership, the lock control path, and the emulator's MQTT contract.
-- The firmware (ESP32-C6 emulator, ESP32-C3 bridge) in [`firmware/`](firmware/).
+- The local layer: the ZHA ownership, the lock control path, the slot table, the journal and
+  guest codes.
 
 ## Design commitments
 
 - **Fail locked.** A loss of connectivity, a crash or a malformed message must never result in
   an open door.
-- **Secrets never leave their store.** Wi-Fi and MQTT credentials live only on the bridge,
-  are never logged, and are never written to the repository. Diagnostics redact them.
+- **Secrets never leave their store.** A stored guest code lives only in the config entry's
+  options, is never logged, and is never written to the repository. Diagnostics redact it.
 - **No PIN codes in Home Assistant.** ZCL attribute `0x0101` is write-only for us.
 - **Convenience is opt-in.** Automatic unlocking, schedules and any other convenience feature
   must be explicitly enabled, auditable afterwards, and never a single factor.
-- **The app path cannot bypass the local layer.** The vendor bridge talks to an emulator we
-  control, never directly to the module inside the door. Every app-originated command passes
-  through the local mirror, which can be audited and can refuse.
+- **The lock is driven locally.** Everything runs over the Zigbee link Home Assistant already
+  owns; no external account, service or extra hardware is in the path.
 
 ## What is *not* a vulnerability
 
 - A vendor-side change making an entity unavailable. The integration relies only on the local
   Zigbee link, so report it as a bug.
-- The vendor app having access to the owner's own data. That is the account owner's own
-  data, on their own hardware.
+- The owner's own data on their own hardware.

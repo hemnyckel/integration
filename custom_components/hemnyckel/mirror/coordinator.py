@@ -1,8 +1,12 @@
-"""The mirror engine — the emulator (app side) against the real lock.
+"""The local engine — the real lock, its slots, guests and journal.
 
-Owns the app side (the emulator on the Nimly bridge) and mirrors it against the real
-- app -> lock:  lock/unlock, PIN, fingerprint
-- lock -> app:  lock/unlock, volume, auto-lock, battery, notifications (action/source/slot)
+Everything here is the local path:
+
+- lock -> journal:  the lock's own operation events (ZhaLink, attribute 0x0100)
+- HA -> lock:       PIN, fingerprint, settings, slots and guests
+
+The app side (the emulator and its bridge) has been removed, so the real slot
+number is the truth and nothing is mirrored anywhere.
 
 Everything happens in code: the user writes no automations and no YAML.
 """
@@ -15,20 +19,15 @@ import logging
 import pathlib
 import re
 import time
-from collections import deque
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
-from collections.abc import Callable
 
-import aiohttp
-
-from homeassistant.components import mqtt
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_state_change_event,
@@ -38,77 +37,23 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from ..const import (
-    ACTION_LOCK,
     ACTION_NAMES,
-    ACTION_UNLOCK,
-    CH_ACTIVITY,
-    CH_AUTOLOCK,
-    CH_BATTERY,
-    CH_FINGERPRINT,
-    CH_LOCK,
-    CH_PIN,
-    CH_SYNC,
-    CH_VOLUME,
-    CMD_AUTOLOCK,
-    CMD_BATTERY,
-    CMD_EVENT,
-    CMD_GET_STATE,
-    CMD_FACTORY_RESET,
-    CMD_LOCK,
-    CMD_OTA,
-    CMD_UNLOCK,
-    CMD_VOLUME,
-    CONF_BRIDGE,
-    CONF_CHANNELS,
     CONF_DEVICE_IDENTITY,
-    CONF_ENABLED,
-    CONF_OTA_MANIFEST_URL,
-    CONF_PREFIX,
-    CONF_TYPE,
     DEFAULT_ENDPOINT,
-    DEFAULT_OTA_MANIFEST_URL,
-    DEFAULT_PREFIX,
     DOMAIN,
-    ECHO_WINDOW,
     EVENT_JOURNAL,
-    EV_ACTION,
-    EV_FP_CLEAR,
-    EV_FP_ENROLL,
-    EV_TAG_SCAN,
-    EV_TAG_CLEAR,
-    EV_PIN_CLEAR,
-    EV_PIN_SET,
-    EV_VOLUME,
-    EV_AUTOLOCK,
     HEALTH_INTERVAL,
-    HEALTH_TIMEOUT,
-    HELLO_GAP,
     HUMAN_SOURCES,
-    MANIFEST_REFRESH,
     SOURCE_NAMES,
     SRC_FINGERPRINT,
     SRC_KEYPAD,
     SRC_RFID,
-    TOPIC_BATTERY,
-    TOPIC_BRIDGE_INFO,
-    TOPIC_BRIDGE_TO_HA,
-    TOPIC_INFO,
-    TOPIC_OTA,
-    TOPIC_HA_TO_BRIDGE,
-    TOPIC_PIN,
-    TOPIC_STATE,
-    TYPE_MIRROR,
     ZCL_CMD_FP_CLEAR,
     ZCL_CMD_FP_ENROLL,
-    ZCL_CMD_TAG_SCAN,
     ZCL_CMD_TAG_CLEAR,
 )
 
-from .discovery import mac_match
-from .facts import (
-    compute_settings_drift,
-    placeholder_slot_name,
-)
+from .facts import placeholder_slot_name
 from .guests import (
     GUEST_CREATED,
     GUEST_EXPIRED,
@@ -116,7 +61,6 @@ from .guests import (
     GUEST_USED,
     GUEST_WINDOW_CLOSE,
     GUEST_WINDOW_OPEN,
-    code_owner,
     expired_slots,
     generate_code,
     is_expired,
@@ -136,20 +80,6 @@ from .journal import (
 from .pin_rules import check_credential_slot, first_user_slot, pin_capacity
 from .schedule import describe as schedule_describe
 from .schedule import in_window, next_boundary, normalize_windows
-from .slot_virtual import (
-    BLOCKED,
-    CLEAR,
-    IGNORE,
-    MOVE,
-    OPTION_SLOT_MAP,
-    OPTION_SLOT_BINDS,
-    PASS,
-    dump_map,
-    load_map,
-    resolve_clear,
-    resolve_write,
-    virtual_of,
-)
 from .slots import SlotTable
 from .zha_link import FACTS_ATTRIBUTES, ZhaLink
 
@@ -160,7 +90,7 @@ FACTS_MIN_INTERVAL = 300
 
 
 class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Holds the app side state and runs the mirroring in both directions."""
+    """Holds the local lock state and runs everything that needs the lock."""
 
     def __init__(
         self,
@@ -168,52 +98,20 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         entry: ConfigEntry,
         *,
         lock_entity_id: str,
-        prefix: str,
-        channels: dict[str, bool],
     ) -> None:
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=MANIFEST_REFRESH),
+            update_interval=None,
         )
         self.entry = entry
         self.lock_entity_id = lock_entity_id
-        self.prefix = prefix.rstrip("/")
-        self.channels = channels
-        self.master_enabled = True
 
-        # App-side state (mirrored in the entities)
-        self.app_locked: bool | None = None
-        self.app_battery: int | None = None
-        self.app_volume: int | None = None
-        self.app_autolock: bool | None = None
-        self.bridge_online = False
-        self.emulator_joined: bool | None = None
-        self._not_joined_since: float | None = None
-        self.firmware: str | None = None
-        self.emulator_ieee: str | None = None
-        self.emulator_factory_new: bool | None = None
-        self.bridge_info: dict[str, Any] = {}
-        self.ota_status: dict[str, Any] | None = None
-        self.firmware_manifest: dict[str, Any] | None = None
-        self.ota_manifest_url = (
-            entry.options.get(CONF_OTA_MANIFEST_URL)
-            or entry.data.get(CONF_OTA_MANIFEST_URL)
-            or DEFAULT_OTA_MANIFEST_URL
-        )
         self.last_event: dict[str, Any] | None = None
         self.slots = SlotTable(hass, entry)
-        # Virtual app slots: the vendor app's slot number -> the real slot that
-        # holds the credential. Empty while the app's numbers pass through.
-        self.slot_map: dict[int, int] = load_map(entry.options.get(OPTION_SLOT_MAP))
-        # Binds are the app's copy of a code we already hold: the vendor slot is
-        # tied to the guest's real slot, but the slot stays ours — only a
-        # relocation or a passthrough makes the app the slot's owner.
-        self.bound: dict[int, int] = load_map(entry.options.get(OPTION_SLOT_BINDS))
         self.lock_facts: dict[str, Any] = {}
         self.lock_facts_at: str | None = None
-        self.settings_drift: dict[str, dict[str, Any]] = {}
         self._facts_refresh_monotonic: float = 0.0
         self._facts_task: asyncio.Task[Any] | None = None
         self.journal: list[dict[str, Any]] = []
@@ -226,8 +124,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.zha: ZhaLink | None = None
         self.last_error: str | None = None
         self.counters: dict[str, int] = {
-            "app_to_lock": 0,
-            "lock_to_app": 0,
             "events": 0,
             "errors": 0,
         }
@@ -237,37 +133,13 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.ieee: str | None = None
         self.endpoint_id: int = DEFAULT_ENDPOINT
 
-        # Echo suppression: states we ordered ourselves (so they do not bounce back)
-        self._commanded: deque[tuple[bool, float]] = deque(maxlen=8)
-        self._last_state_rx: float = 0.0
-        self._last_hello: float = 0.0
         self._unsubs: list[Callable[[], None]] = []
         self._started = False
-
-    # -- public helpers -----------------------------------------------------
-
-    def channel(self, key: str) -> bool:
-        """The channel's configured mode, regardless of the master switch."""
-        return bool(self.channels.get(key, False))
-
-    def active(self, key: str) -> bool:
-        """The channel is on and the master mirror is on."""
-        return self.master_enabled and self.channel(key)
-
-    @property
-    def mirror_enabled(self) -> bool:
-        return any(
-            self.channel(key)
-            for key in (CH_LOCK, CH_ACTIVITY, CH_PIN, CH_FINGERPRINT, CH_VOLUME, CH_AUTOLOCK, CH_BATTERY)
-        )
-
-    def _topic(self, suffix: str) -> str:
-        return f"{self.prefix}/{suffix}"
 
     # -- lifecycle ----------------------------------------------------------
 
     async def async_setup(self) -> None:
-        """Subscribe to MQTT and to the real lock. Idempotent."""
+        """Attach to the real lock. Idempotent."""
         if self._started:
             return
         self._started = True
@@ -290,41 +162,8 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     corrected,
                 )
 
-        self._unsubs.append(
-            await mqtt.async_subscribe(
-                self.hass, self._topic(TOPIC_BRIDGE_TO_HA), self._on_bridge_to_ha, qos=1
-            )
-        )
-        self._unsubs.append(
-            await mqtt.async_subscribe(
-                self.hass, self._topic(TOPIC_STATE), self._on_state, qos=1
-            )
-        )
-        self._unsubs.append(
-            await mqtt.async_subscribe(
-                self.hass, self._topic(TOPIC_BATTERY), self._on_battery, qos=1
-            )
-        )
-        self._unsubs.append(
-            await mqtt.async_subscribe(
-                self.hass, self._topic(TOPIC_PIN), self._on_pin, qos=1
-            )
-        )
-        # The bridge identity: ours arrives on <prefix>/info (0.6.0+); the shared
-        # legacy topic is filtered inside the handler.
-        for topic in (self._topic(TOPIC_INFO), TOPIC_BRIDGE_INFO):
-            self._unsubs.append(
-                await mqtt.async_subscribe(
-                    self.hass, topic, self._on_bridge_info, qos=1
-                )
-            )
-        self._check_prefix_conflict()
-        self._unsubs.append(
-            await mqtt.async_subscribe(
-                self.hass, self._topic(TOPIC_OTA), self._on_ota, qos=1
-            )
-        )
-
+        # Track the lock entity and the companions on its device (volume,
+        # auto-lock, battery) so the coordinator stays aware of them.
         watched = [self.lock_entity_id]
         for key in ("volume", "autolock", "battery"):
             if ent := self.related.get(key):
@@ -339,10 +178,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         )
 
-        # HA -> app: the slot table's occupancy goes to the app, so a slot freed
-        # in HA frees in the app too.
-        if self.active(CH_PIN):
-            self.hass.async_create_task(self._async_sync_slots())
         if self.zha is not None:
             self.zha.ensure_listener()
             # Prime the facts best-effort. No wake-up: a sleeping lock is simply
@@ -357,9 +192,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_load_journal()
         self._load_guests()
         self._sync_device_identity()
-        self._migrate_slot_binds()
         await self._async_resume_guests()
-        await self._async_sync_to_app()
         self._publish_snapshot()
         await self._async_health()
 
@@ -513,131 +346,19 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- publishing ---------------------------------------------------------
 
-    async def _async_publish(self, payload: dict[str, Any]) -> None:
-        try:
-            await mqtt.async_publish(
-                self.hass,
-                self._topic(TOPIC_HA_TO_BRIDGE),
-                json.dumps(payload, separators=(",", ":")),
-                qos=1,
-                retain=False,
-            )
-        except Exception as err:  # noqa: BLE001 - never crash an entity
-            self.counters["errors"] += 1
-            self.last_error = str(err)
-            _LOGGER.error("Could not publish %s: %s", payload, err)
-
     @callback
     def _snapshot(self) -> dict[str, Any]:
         return {
-            "app_locked": self.app_locked,
-            "bridge_online": self.bridge_online,
-            "emulator_joined": self.emulator_joined,
-            "battery": self.app_battery,
-            "volume": self.app_volume,
-            "autolock": self.app_autolock,
             "last_event": self.last_event,
-            "firmware": self.firmware,
-            "emulator_ieee": self.emulator_ieee,
-            "emulator_factory_new": self.emulator_factory_new,
-            "bridge_info": dict(self.bridge_info),
-            "ota_status": dict(self.ota_status or {}),
-            "firmware_manifest": self.firmware_manifest,
-            "ota_manifest_url": self.ota_manifest_url,
-            "counters": dict(self.counters),
             "last_error": self.last_error,
-            "channels": dict(self.channels),
-            "master_enabled": self.master_enabled,
-            "slot_map": dump_map(self.slot_map),
-            "bound_slots": dump_map(self.bound),
+            "counters": dict(self.counters),
         }
 
     @callback
     def _publish_snapshot(self) -> None:
         self.async_set_updated_data(self._snapshot())
 
-    async def _async_sync_slots(self) -> None:
-        # The app may only ever see its own slot numbers: a relocated credential
-        # is published under its virtual number, never under the real one.
-        published: set[int] = set()
-        for slot, _data in self.slots.items():
-            shown = self._virtual_slot(slot)
-            if shown is None:
-                shown = slot
-            if shown in published:
-                continue
-            published.add(shown)
-            await self._async_publish_slot(shown, self.slots.occupied(slot))
-        for virtual, real in self.slot_map.items():
-            if virtual not in published:
-                published.add(virtual)
-                await self._async_publish_slot(virtual, self.slots.occupied(real))
-
-    async def _async_publish_slot(self, slot: int, occupied: bool) -> None:
-        await self._async_publish({"cmd": "pin_status", "slot": slot, "set": occupied})
-
-    # -- app slot virtualization --------------------------------------------
-
-    def _local_pin_slots(self) -> set[int]:
-        """Slots the local side owns and the app must never overwrite.
-
-        That is every slot a guest calls home — also outside its window, when
-        the code is cleared but the slot is reserved for the next opening — and
-        every slot that currently holds a local PIN. App-owned slots are
-        excluded: a passthrough write is remembered as an identity mapping, so
-        the app always owns what it wrote, whichever real slot it ended up in.
-        """
-        app_owned = set(self.slot_map.values())
-        owned = {
-            slot
-            for slot, data in self.slots.items()
-            if data.get("has_pin") and slot not in app_owned
-        }
-        owned |= {
-            int(key)
-            for key in self.guests
-            if key.isdigit() and int(key) not in app_owned
-        }
-        return owned
-
-    def _slot_bounds(self) -> tuple[int, int]:
-        return first_user_slot(self.entry.options), pin_capacity(self.lock_facts)
-
-    def _virtual_slot(self, real: int) -> int | None:
-        """The app's slot number for a real slot, when it owns it."""
-        return virtual_of(real, self.slot_map)
-
-    def _save_slot_map(self) -> None:
-        self.hass.config_entries.async_update_entry(
-            self.entry,
-            options={**self.entry.options, OPTION_SLOT_MAP: dump_map(self.slot_map)},
-        )
-
-    def _save_bound_map(self) -> None:
-        self.hass.config_entries.async_update_entry(
-            self.entry,
-            options={**self.entry.options, OPTION_SLOT_BINDS: dump_map(self.bound)},
-        )
-
-    def _migrate_slot_binds(self) -> None:
-        """Move binds that older versions recorded as app ownership.
-
-        A slot_map entry whose real slot holds a local PIN is a bind (the app's
-        copy of our own code), not ownership: left in place it would block every
-        local clear of that slot and hide the slot from the local side.
-        """
-        local = {slot for slot, data in self.slots.items() if data.get("has_pin")}
-        local |= {int(key) for key in self.guests if key.isdigit()}
-        moved: dict[int, int] = {}
-        for virtual, real in list(self.slot_map.items()):
-            if real in local:
-                self.slot_map.pop(virtual, None)
-                moved[virtual] = real
-        if moved:
-            for virtual, real in moved.items():
-                self.bound.setdefault(virtual, real)
-            self._save_slot_map()
-            self._save_bound_map()
+    # -- local slots --------------------------------------------------------
 
     def _issue_id(self, key: str) -> str:
         """A repair issue id that is unique to this entry.
@@ -647,36 +368,14 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         return f"{key}_{self.entry.entry_id[:8]}"
 
-    async def _async_slot_conflict(self, virtual: int, reason: str) -> None:
-        """Journal and surface an app provisioning we could not place."""
-        await self._async_journal_add(
-            make_entry(
-                action="slot_conflict",
-                time=dt_util.utcnow().isoformat(),
-                origin=ORIGIN_HA,
-                slot=virtual,
-                detail=reason,
-            )
-        )
-        ir.async_create_issue(
-            self.hass,
-            DOMAIN,
-            self._issue_id(f"slot_conflict_{virtual}"),
-            is_fixable=False,
-            is_persistent=True,
-            severity=ir.IssueSeverity.WARNING,
-            translation_key="slot_conflict",
-            translation_placeholders={"slot": str(virtual), "reason": reason},
-        )
-
     def _slot_is_named(self, slot: int) -> bool:
         """A real name, not the import's placeholder (which may be replaced)."""
         return not placeholder_slot_name(self.slots.get(slot).get("name"))
 
     @callback
     def _flag_new_slot(self, slot: int, kind: str) -> None:
-        """Raise a fixable repair when the app creates a slot we have no name for."""
-        if slot < 3 or not self.active(CH_PIN) or self._slot_is_named(slot):
+        """Raise a fixable repair when the lock used a slot we have no name for."""
+        if slot < 3 or self._slot_is_named(slot):
             return
         ir.async_create_issue(
             self.hass,
@@ -694,7 +393,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Write a slot name into the table and clear the repair."""
         self.slots.set_name(slot, name)
         ir.async_delete_issue(self.hass, DOMAIN, self._issue_id(f"new_slot_{slot}"))
-        await self._async_publish_slot(slot, self.slots.occupied(slot))
         self._publish_snapshot()
         _LOGGER.info("Named slot %s as %s", slot, name)
         await self._async_journal_add(
@@ -735,24 +433,12 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_set_pin(slot, code)
 
     async def async_clear_slot(self, slot: int) -> None:
-        """Clear a slot's credential on the real lock and forget it locally.
-
-        A slot the app owns is cleared the way the app's own clear would be —
-        the local side takes the slot back — because this is the tool for the
-        stale leftovers (a guest deleted in the app whose code never left the
-        lock); refusing to touch them would leave codes nobody can account for.
-        """
-        owner = self._virtual_slot(slot)
-        await self._async_clear_pin(slot, virtual_slot=slot)
-        if owner is not None:
-            self.slot_map.pop(owner, None)
-            self._save_slot_map()
+        """Clear a slot's credential on the real lock and forget it locally."""
+        await self._async_clear_pin(slot)
         self.slots.clear(slot)
-        # The repairs that asked for a name or reported a conflict point at a
-        # slot that no longer holds anything.
+        # The repairs that asked for a name point at a slot that no longer
+        # holds anything.
         ir.async_delete_issue(self.hass, DOMAIN, self._issue_id(f"new_slot_{slot}"))
-        ir.async_delete_issue(self.hass, DOMAIN, self._issue_id(f"slot_conflict_{slot}"))
-        await self._async_publish_slot(slot, False)
         self._publish_snapshot()
 
     async def async_wipe_credentials(
@@ -769,9 +455,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise ValueError("pass confirm: WIPE to run the wipe for real")
 
         floor = first_user_slot(self.entry.options)
-        slot_numbers = {slot for slot, _data in self.slots.items() if slot >= floor} | {
-            int(real) for real in self.slot_map.values() if int(real) >= floor
-        }
+        slot_numbers = {slot for slot, _data in self.slots.items() if slot >= floor}
         report: dict[str, Any] = {
             "dry_run": dry_run,
             "master_floor": floor,
@@ -887,13 +571,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return self.lock_facts
         self.lock_facts.update(success)
         self.lock_facts_at = dt_util.utcnow().isoformat()
-        self.settings_drift = compute_settings_drift(
-            self.lock_facts, self.app_autolock, self.app_volume
-        )
-        if self.settings_drift:
-            _LOGGER.warning(
-                "Lock settings differ from the app's record: %s", self.settings_drift
-            )
         self._publish_snapshot()
         return self.lock_facts
 
@@ -1058,9 +735,8 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_apply_guest_code(self, slot: int, code: str) -> None:
         """Write a new value for a guest's code into the lock and the catalog.
 
-        The local side owns the value, so it goes into the lock first: the
-        vendor's own write of the same code then binds to this slot instead of
-        adding a second copy, and a later restore replays the new value.
+        The value goes into the lock first so the catalog and the lock cannot
+        drift; a later restore replays the new value.
         """
         guest = self.guests.get(str(slot))
         if not isinstance(guest, dict):
@@ -1108,7 +784,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise RuntimeError("until is not a valid ISO timestamp")
         if slot is None:
             occupied = {s for s, _data in self.slots.items() if self.slots.occupied(s)}
-            occupied |= set(self.slot_map.values())
             occupied |= {int(key) for key in self.guests if str(key).isdigit()}
             slot = pick_slot(
                 occupied,
@@ -1136,7 +811,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             },
         )
         self.slots.set_name(slot, clean_name)
-        await self._async_publish_slot(slot, self.slots.occupied(slot))
         record: dict[str, Any] = {
             "name": clean_name,
             "kind": "permanent" if permanent else "simple",
@@ -1192,7 +866,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise RuntimeError("the schedule needs at least one valid window")
         if slot is None:
             occupied = {s for s, _data in self.slots.items() if self.slots.occupied(s)}
-            occupied |= set(self.slot_map.values())
             occupied |= {int(key) for key in self.guests if str(key).isdigit()}
             slot = pick_slot(
                 occupied,
@@ -1416,12 +1089,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._cancel_guest_timer(slot)
         await self._async_save_guests()
         self.slots.clear(slot)
-        stale = [virtual for virtual, real in self.bound.items() if real == slot]
-        if stale:
-            for virtual in stale:
-                self.bound.pop(virtual, None)
-            self._save_bound_map()
-        await self._async_publish_slot(slot, False)
         self._publish_snapshot()
         return {"slot": slot, "revoked": revoked is not None}
 
@@ -1484,524 +1151,28 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._apply_guest_state(slot)
                 self._schedule_guest_boundary(slot)
 
-    # -- OTA ---------------------------------------------------------------
-
-    async def _async_fetch_manifest(self) -> None:
-        """Fetches the OTA manifest (version and filename per target)."""
-        session = async_get_clientsession(self.hass)
-        try:
-            async with session.get(self.ota_manifest_url, timeout=20) as resp:
-                if resp.status != 200:
-                    _LOGGER.debug("OTA-manifest: HTTP %s", resp.status)
-                    return
-                self.firmware_manifest = await resp.json(content_type=None)
-        except (TimeoutError, ValueError, aiohttp.ClientError) as err:
-            _LOGGER.debug("Could not fetch the OTA manifest: %s", err)
-
-    async def async_ota(self, url: str) -> None:
-        """Sends an OTA command to the bridge, which downloads it and reboots."""
-        if not url:
-            raise ValueError("No firmware URL")
-        await self._async_publish({"cmd": CMD_OTA, "url": url})
-        _LOGGER.info("OTA requested: %s", url)
-
-    async def async_ota_c6(self, url: str, sha256: str, version: str) -> None:
-        """Asks the bridge to ferry a firmware image to the C6 emulator over UART."""
-        if not url:
-            raise ValueError("No firmware URL")
-        await self._async_publish(
-            {"cmd": "ota_c6", "url": url, "sha256": sha256, "version": version}
-        )
-        _LOGGER.info("C6 OTA requested: %s (%s)", url, version)
-
-    async def _async_update_data(self) -> dict[str, Any]:
-        """Periodic update: manifest plus a sync of battery/volume/auto-lock to the app."
-
-        The sync keeps the app side from staying at the emulator start value after a restart.
-        """
-        await self._async_fetch_manifest()
-        await self._async_sync_to_app()
-        return self._snapshot()
-
-    # -- MQTT in (app -> lock) -------------------------------------------------
-
-    @callback
-    def _on_bridge_to_ha(self, msg: mqtt.ReceiveMessage) -> None:
-        self._last_state_rx = time.monotonic()
-        try:
-            data = json.loads(msg.payload)
-        except (ValueError, TypeError):
-            return
-        if not isinstance(data, dict):
-            return
-
-        ev = data.get("ev")
-        if ev == "hello":
-            # The emulator greets: {"ev":"hello","fw":"...","ieee":"00:11:..."}
-            if isinstance(data.get("fw"), str):
-                self.firmware = data["fw"]
-            if isinstance(data.get("ieee"), str):
-                self.emulator_ieee = data["ieee"].lower()
-                if self.ieee and self.emulator_ieee != self.ieee.lower():
-                    _LOGGER.warning(
-                        "The emulator IEEE %s does not match the lock %s - provision with "
-                        "the hemnyckel.set_ieee service",
-                        self.emulator_ieee,
-                        self.ieee,
-                    )
-            if isinstance(data.get("factory_new"), (bool, int)):
-                self.emulator_factory_new = bool(data["factory_new"])
-            # The emulator greets on every health ping. A gap means it was away, so it
-            # has rebooted (firmware update, power cycle) and its RAM-backed mirrored
-            # settings (auto-lock, volume, battery) are back at their defaults. Re-assert
-            # them, or the app loses the auto-lock notifications until the next sync.
-            now = time.monotonic()
-            if self._last_hello and now - self._last_hello > HELLO_GAP:
-                self.hass.async_create_task(self._async_sync_to_app())
-            self._last_hello = now
-            self._publish_snapshot()
-        elif ev == "net" and isinstance(data.get("joined"), bool):
-            self.emulator_joined = data["joined"]
-            if self.emulator_joined:
-                self._not_joined_since = None
-                ir.async_delete_issue(self.hass, DOMAIN, self._issue_id("emulator_not_joined"))
-            self._publish_snapshot()
-        elif ev == EV_ACTION:
-            self.hass.async_create_task(self._async_handle_action(data))
-        elif ev == EV_FP_ENROLL:
-            self.hass.async_create_task(
-                self._async_handle_fingerprint(data.get("slot"), enroll=True)
-            )
-        elif ev == EV_FP_CLEAR:
-            self.hass.async_create_task(
-                self._async_handle_fingerprint(data.get("slot"), enroll=False)
-            )
-        elif ev == EV_TAG_SCAN:
-            self.hass.async_create_task(
-                self._async_handle_tag_scan(int(data.get("arg") or 0))
-            )
-        elif ev == EV_TAG_CLEAR:
-            self.hass.async_create_task(
-                self._async_handle_tag_clear(int(data.get("arg") or 0))
-            )
-        elif ev == EV_VOLUME:
-            self._on_app_volume(data.get("value"))
-        elif ev == EV_AUTOLOCK:
-            self._on_app_autolock(data.get("value"))
-        elif "state" in data:
-            self._apply_state(data.get("state"))
-
-    @callback
-    def _on_state(self, msg: mqtt.ReceiveMessage) -> None:
-        self._last_state_rx = time.monotonic()
-        self._set_online(True)
-        try:
-            data = json.loads(msg.payload)
-        except (ValueError, TypeError):
-            return
-        if isinstance(data, dict):
-            self._apply_state(data.get("lock"))
-
-    @callback
-    def _on_battery(self, msg: mqtt.ReceiveMessage) -> None:
-        self._last_state_rx = time.monotonic()
-        self._set_online(True)
-        try:
-            data = json.loads(msg.payload)
-        except (ValueError, TypeError):
-            return
-        if isinstance(data, dict) and isinstance(data.get("battery"), (int, float)):
-            self.app_battery = int(data["battery"])
-            self._publish_snapshot()
-
-    @callback
-    def _on_bridge_info(self, msg: mqtt.ReceiveMessage) -> None:
-        """The bridge retained identity: prefix, id and firmware.
-
-        Our own kit announces on <prefix>/info; the legacy shared nimly/info is
-        accepted only for the kit that announces this entry's prefix (firmware
-        0.5.x) or by MAC when the entry knows it. Foreign kits are ignored —
-        with per-kit prefixes they can never collide.
-        """
-        try:
-            data = json.loads(msg.payload)
-        except (ValueError, TypeError):
-            return
-        if not isinstance(data, dict):
-            return
-        if msg.topic == TOPIC_BRIDGE_INFO:
-            # The shared 0.5.x topic is a bootstrap source only: once an
-            # identity is known, its stale retained copy must not win over the
-            # live per-prefix one.
-            if self.bridge_info:
-                return
-            known = self.entry.data.get(CONF_BRIDGE)
-            if isinstance(known, str) and known:
-                if not mac_match(data.get("bridge"), known):
-                    return
-            elif str(data.get("prefix") or "").rstrip("/") != self.prefix:
-                return
-        self.bridge_info = data
-        self._last_state_rx = time.monotonic()
-        self._set_online(True)
-        self._publish_snapshot()
-
-    @callback
-    def _check_prefix_conflict(self) -> None:
-        """Two mirrors on one MQTT prefix would cross-talk; surface it as a repair."""
-        others = [
-            entry
-            for entry in self.hass.config_entries.async_entries(DOMAIN)
-            if entry.entry_id != self.entry.entry_id
-            and entry.data.get(CONF_TYPE) == TYPE_MIRROR
-            and (
-                entry.options.get(CONF_PREFIX)
-                or entry.data.get(CONF_PREFIX)
-                or DEFAULT_PREFIX
-            )
-            == self.prefix
-        ]
-        issue_id = self._issue_id("prefix_conflict")
-        if not others:
-            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
-            return
-        ir.async_create_issue(
-            self.hass,
-            DOMAIN,
-            issue_id,
-            is_fixable=False,
-            is_persistent=True,
-            data={"entry_id": self.entry.entry_id},
-            severity=ir.IssueSeverity.WARNING,
-            translation_key="prefix_conflict",
-            translation_placeholders={
-                "prefix": self.prefix,
-                "count": str(len(others)),
-            },
-        )
-
-    @callback
-    def _on_ota(self, msg: mqtt.ReceiveMessage) -> None:
-        """OTA status from the bridge (downloading/done/error)."""
-        try:
-            data = json.loads(msg.payload)
-        except (ValueError, TypeError):
-            return
-        if isinstance(data, dict):
-            self.ota_status = data
-            self._publish_snapshot()
-
-    @callback
-    def _on_pin(self, msg: mqtt.ReceiveMessage) -> None:
-        self._last_state_rx = time.monotonic()
-        self._set_online(True)
-        try:
-            data = json.loads(msg.payload)
-        except (ValueError, TypeError):
-            return
-        if not isinstance(data, dict):
-            return
-        self.hass.async_create_task(self._async_handle_pin(data))
-
-    @callback
-    def _on_app_volume(self, value: Any) -> None:
-        """The vendor app changed the module's sound volume; follow on the real lock."""
-        volume = _as_int(value, -1)
-        if volume < 0:
-            return
-        self.app_volume = volume
-        if self.active(CH_VOLUME) and (entity_id := self.related.get("volume")):
-            self.hass.async_create_task(
-                self.hass.services.async_call(
-                    "number",
-                    "set_value",
-                    {"entity_id": entity_id, "value": volume},
-                    blocking=False,
-                )
-            )
-        self._publish_snapshot()
-
-    @callback
-    def _on_app_autolock(self, value: Any) -> None:
-        """The vendor app changed auto-lock on the module; follow on the real lock."""
-        seconds = _as_int(value, -1)
-        if seconds < 0:
-            return
-        self.app_autolock = seconds > 0
-        if self.active(CH_AUTOLOCK) and (entity_id := self.related.get("autolock")):
-            self.hass.async_create_task(
-                self.hass.services.async_call(
-                    "switch",
-                    "turn_on" if self.app_autolock else "turn_off",
-                    {"entity_id": entity_id},
-                    blocking=False,
-                )
-            )
-        self._publish_snapshot()
-
     # -- state ------------------------------------------------------------------
-
-    def _apply_state(self, value: Any) -> None:
-        if value == "locked":
-            self.app_locked = True
-        elif value == "unlocked":
-            self.app_locked = False
-        elif value == "unknown":
-            self._set_online(False)
-            return
-        else:
-            return
-        self._publish_snapshot()
-
-    def _set_online(self, online: bool) -> None:
-        if self.bridge_online != online:
-            self.bridge_online = online
-            self._publish_snapshot()
-            if online:
-                # Back after an outage: the emulator may have rebooted in the meantime.
-                self.hass.async_create_task(self._async_sync_to_app())
-
-    # -- app -> lock ------------------------------------------------------------
-
-    async def _async_handle_action(self, data: dict[str, Any]) -> None:
-        action = data.get("action")
-        if action not in (ACTION_LOCK, ACTION_UNLOCK):
-            return
-        src = data.get("source")
-        self.last_event = {
-            "action": ACTION_NAMES.get(action),
-            "source": SOURCE_NAMES.get(src) if isinstance(src, int) else None,
-            "slot": data.get("slot"),
-            "time": dt_util.utcnow().isoformat(),
-            "direction": "app->lock",
-        }
-        self.counters["events"] += 1
-        self._publish_snapshot()
-
-        if not self.active(CH_LOCK):
-            return
-        await self._async_command_lock(action == ACTION_LOCK, echo=True)
-
-    async def _async_handle_pin(self, data: dict[str, Any]) -> None:
-        if not self.active(CH_PIN):
-            return
-        ev = data.get("ev")
-        virtual = data.get("slot")
-        if not isinstance(virtual, int):
-            return
-        try:
-            if ev == EV_PIN_SET and data.get("code"):
-                await self._async_app_pin_set(virtual, str(data["code"]))
-            elif ev == EV_PIN_CLEAR:
-                await self._async_app_pin_clear(virtual)
-        except Exception as err:  # noqa: BLE001
-            self.counters["errors"] += 1
-            self.last_error = str(err)
-            _LOGGER.error("PIN mirroring failed (slot %s): %s", virtual, err)
-        self.counters["app_to_lock"] += 1
-        self._publish_snapshot()
-
-    async def _async_app_pin_set(self, virtual: int, code: str) -> None:
-        """Store an app-provisioned PIN, relocating it when it would collide.
-
-        The app is never refused: it reports success to the user before the
-        bridge even answers, so a refusal would only diverge in silence. A
-        collision with a local credential becomes a virtual -> real mapping,
-        and the lock's own events are translated back for attribution.
-        """
-        bound = code_owner(self.guests, code)
-        if bound is not None:
-            # The app pushed a code we already hold (a synced local guest): bind
-            # the vendor slot to the slot the guest already lives in instead of
-            # writing a second copy of the same code. A bind is not ownership:
-            # the real slot stays ours, so the guest's window and revoke keep
-            # working, and an app-side clear cannot delete our credential.
-            self.bound[virtual] = bound
-            self._save_bound_map()
-            await self._async_journal_add(
-                make_entry(
-                    action="slot_bound",
-                    time=dt_util.utcnow().isoformat(),
-                    origin=ORIGIN_HA,
-                    slot=virtual,
-                    detail=f"the code is the local guest in slot {bound}",
-                )
-            )
-            self._publish_snapshot()
-            return
-        rebind = self.bound.get(virtual)
-        if rebind is not None:
-            guest = self.guests.get(str(rebind))
-            if guest is not None:
-                # The app rewrote the access we bound to this guest: keep one
-                # credential per person — write the new value into the guest's
-                # own slot and teach the catalog, instead of growing a twin.
-                await self._async_set_pin(rebind, code, virtual_slot=virtual)
-                guest["code"] = code
-                await self._async_save_guests()
-                await self._async_journal_add(
-                    make_entry(
-                        action="slot_rebound",
-                        time=dt_util.utcnow().isoformat(),
-                        origin=ORIGIN_HA,
-                        slot=virtual,
-                        detail=f"slot {rebind} updated from the app",
-                    )
-                )
-                self._publish_snapshot()
-                return
-            self.bound.pop(virtual, None)
-            self._save_bound_map()
-
-        floor, capacity = self._slot_bounds()
-        outcome, real, reason = resolve_write(
-            virtual,
-            mapping=self.slot_map,
-            local_pins=self._local_pin_slots(),
-            floor=floor,
-            capacity=capacity,
-        )
-        if outcome == BLOCKED or real is None:
-            await self._async_slot_conflict(virtual, reason or "no free slot")
-            return
-        label = f"pin (app slot {virtual})" if real != virtual else "pin"
-        self._flag_new_slot(real, label)
-        await self._async_set_pin(real, code, virtual_slot=virtual)
-        if outcome in (MOVE, PASS):
-            # Remember that the app owns this real slot: the relocation when it
-            # collided, an identity mapping when it passed straight through. The
-            # app's later edits and clears must resolve to the same slot, and the
-            # local side must never touch it.
-            self.slot_map[virtual] = real
-            self._save_slot_map()
-        if outcome == MOVE:
-            await self._async_journal_add(
-                make_entry(
-                    action="slot_relocated",
-                    time=dt_util.utcnow().isoformat(),
-                    origin=ORIGIN_HA,
-                    slot=virtual,
-                    detail=f"stored in local slot {real}",
-                )
-            )
-        ir.async_delete_issue(self.hass, DOMAIN, self._issue_id(f"slot_conflict_{virtual}"))
-
-    async def _async_app_pin_clear(self, virtual: int) -> None:
-        """Apply an app clear to the app's own credential only."""
-        outcome, real = resolve_clear(
-            virtual, mapping=self.slot_map, local_pins=self._local_pin_slots()
-        )
-        if outcome == CLEAR and real is not None:
-            await self._async_clear_pin(real, virtual_slot=virtual)
-            self.slot_map.pop(virtual, None)
-            self._save_slot_map()
-            ir.async_delete_issue(self.hass, DOMAIN, self._issue_id(f"slot_conflict_{virtual}"))
-        elif outcome == IGNORE:
-            await self._async_slot_conflict(virtual, "the slot holds a local credential")
-        else:
-            # Nothing of the app's lives here; repeat the local truth so the
-            # gateway does not allocate around a slot the app has freed.
-            await self._async_publish_slot(virtual, self.slots.occupied(virtual))
-            ir.async_delete_issue(self.hass, DOMAIN, self._issue_id(f"slot_conflict_{virtual}"))
-
-    async def _async_handle_fingerprint(self, slot: Any, *, enroll: bool) -> None:
-        if not self.active(CH_FINGERPRINT):
-            return
-        if not isinstance(slot, int):
-            return
-        if enroll:
-            self._flag_new_slot(slot, "fingerprint")
-        command = ZCL_CMD_FP_ENROLL if enroll else ZCL_CMD_FP_CLEAR
-        try:
-            await self._async_zcl(command, slot)
-            # A clear really removes the template; an enrollment proves nothing —
-            # the lock reports nothing while it runs, so the app's "Done" (and the
-            # slot's own table, or a later usage event) is the only evidence.
-            if not enroll:
-                self.slots.mark_fingerprint(slot, False)
-            await self._async_publish_slot(slot, self.slots.occupied(slot))
-        except Exception as err:  # noqa: BLE001
-            self.counters["errors"] += 1
-            self.last_error = str(err)
-            _LOGGER.error(
-                "Fingerprint mirroring failed (%s slot %s): %s",
-                "enroll" if enroll else "clear",
-                slot,
-                err,
-            )
-        self.counters["app_to_lock"] += 1
-        self._publish_snapshot()
-
-    # -- lock -> app ------------------------------------------------------------
 
     @callback
     def _on_tracked_change(self, event: Event) -> None:
-        entity_id = event.data.get("entity_id")
-        new_state = event.data.get("new_state")
-        if new_state is None or new_state.state in (None, "unknown", "unavailable"):
-            return
-        if entity_id == self.lock_entity_id:
-            self.hass.async_create_task(self._async_lock_to_app(new_state.state))
-        elif entity_id == self.related.get("volume") and self.active(CH_VOLUME):
-            self.hass.async_create_task(
-                self._async_publish({"cmd": CMD_VOLUME, "value": _as_int(new_state.state, 2)})
-            )
-        elif entity_id == self.related.get("autolock") and self.active(CH_AUTOLOCK):
-            self.hass.async_create_task(
-                self._async_publish(
-                    {"cmd": CMD_AUTOLOCK, "value": 1 if new_state.state == "on" else 0}
-                )
-            )
-        elif entity_id == self.related.get("battery") and self.active(CH_BATTERY):
-            self.hass.async_create_task(
-                self._async_publish(
-                    {"cmd": CMD_BATTERY, "value": _as_int(new_state.state, 100)}
-                )
-            )
+        """The lock entity and the companions on its device changed state.
 
-    async def _async_lock_to_app(self, state: str) -> None:
-        if state not in ("locked", "unlocked"):
-            return
-        locked = state == "locked"
-        # Echo: if we ordered this state ourselves recently, do not mirror it back.
-        now = time.monotonic()
-        while self._commanded:
-            commanded, deadline = self._commanded[0]
-            if now > deadline:
-                self._commanded.popleft()
-                continue
-            if commanded == locked:
-                self._commanded.popleft()
-                self.app_locked = locked
-                self._publish_snapshot()
-                return
-            break
-        if not self.active(CH_LOCK):
-            return
-        self.counters["lock_to_app"] += 1
-        await self._async_publish({"cmd": CMD_LOCK if locked else CMD_UNLOCK})
+        The local engine owns everything through ZhaLink, so there is nothing
+        left to mirror; the watch is kept because the lock's companions stay
+        part of the coordinator's view of the device.
+        """
+        return
+
+    # -- lock -> journal --------------------------------------------------------
 
     @callback
     def _on_lock_activity(self, data: dict[str, Any]) -> None:
-        """A decoded operation event from the lock -> app notification."""
-        if not self.active(CH_ACTIVITY):
-            return
+        """A decoded operation event from the lock: learn it and journal it."""
         action = data.get("action_code")
         source = data.get("source_code")
         if not isinstance(action, int):
             return
         slot = data.get("user_slot")
-        # The credential may live in a relocated slot, or in the guest's own
-        # slot as a bind; the app only knows its own number, so events are
-        # translated back before they leave for the bridge.
-        shown = None
-        if isinstance(slot, int):
-            shown = self._virtual_slot(slot)
-            if shown is None:
-                shown = virtual_of(slot, self.bound)
-        if not isinstance(shown, int):
-            shown = slot
-        master = bool(data.get("master"))
         if (
             isinstance(slot, int)
             and slot > 0
@@ -2020,8 +1191,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else:
                 self.slots.mark_credential(slot, "rfid")
             label = SOURCE_NAMES.get(source, "credential")
-            if shown != slot:
-                label = f"{label} (app slot {shown})"
             self._flag_new_slot(slot, label)
             guest = self.guests.get(str(slot))
             if isinstance(guest, dict) and guest.get("one_time"):
@@ -2029,9 +1198,10 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass.async_create_task(
                     self.async_revoke_guest(slot, reason=GUEST_USED)
                 )
-        # System locks (auto) need no notification - mirrored anyway for consistency.
+        # System locks (auto) need no notification, but are journaled anyway.
         if source is not None and source not in HUMAN_SOURCES:
             _LOGGER.debug("Skipping system event source=%s", source)
+        master = bool(data.get("master"))
         if master:
             slot_name = self.slots.name(0, fallback=False) or "Master"
         elif isinstance(slot, int):
@@ -2041,10 +1211,10 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.last_event = {
             "action": ACTION_NAMES.get(action),
             "source": SOURCE_NAMES.get(source) if isinstance(source, int) else None,
-            "slot": shown,
+            "slot": slot,
             "name": slot_name,
             "time": dt_util.utcnow().isoformat(),
-            "direction": "lock->app",
+            "direction": "lock",
         }
         self.counters["events"] += 1
         self._schedule_facts_refresh()
@@ -2058,114 +1228,21 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     source=SOURCE_NAMES.get(source)
                     if isinstance(source, int)
                     else None,
-                    slot=shown,
+                    slot=slot,
                     name=slot_name,
                 )
             )
         )
-        self.hass.async_create_task(
-            self._async_publish(
-                {
-                    "cmd": CMD_EVENT,
-                    "action": int(action),
-                    "source": int(source) if source is not None else 0,
-                    "slot": _as_int(shown, 0),
-                }
-            )
-        )
 
-    # -- commands to the lock ---------------------------------------------------
+    # -- periodic update --------------------------------------------------------
 
-    async def async_command_lock(self, locked: bool) -> None:
-        """Called by the app mirror entity (HA -> both sides)."""
-        await self._async_publish({"cmd": CMD_LOCK if locked else CMD_UNLOCK})
-        self.app_locked = locked
-        self._publish_snapshot()
-        if self.active(CH_LOCK):
-            await self._async_command_lock(locked, echo=True)
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Periodic refresh: publish the current snapshot.
 
-    async def _async_command_lock(self, locked: bool, *, echo: bool) -> None:
-        if echo:
-            self._commanded.append((locked, time.monotonic() + ECHO_WINDOW))
-        await self.hass.services.async_call(
-            "lock",
-            "lock" if locked else "unlock",
-            {"entity_id": self.lock_entity_id},
-            blocking=False,
-        )
-
-    async def async_set_volume(self, value: int) -> None:
-        if self.active(CH_VOLUME) and (ent := self.related.get("volume")):
-            await self.hass.services.async_call(
-                "number", "set_value", {"entity_id": ent, "value": value}, blocking=False
-            )
-
-    async def async_set_autolock(self, enabled: bool) -> None:
-        if self.active(CH_AUTOLOCK) and (ent := self.related.get("autolock")):
-            await self.hass.services.async_call(
-                "switch",
-                "turn_on" if enabled else "turn_off",
-                {"entity_id": ent},
-                blocking=False,
-            )
-
-    async def async_sync(self) -> None:
-        await self._async_sync_to_app()
-
-    async def async_provision_ieee(self, ieee: str | None = None) -> None:
-        """Provisions the emulator with an IEEE address (that device reboots).
-
-        The default is the lock's own IEEE (the real module's), because the
-        bridge only accepts the addresses of known modules.
+        The lock reports its own changes, so there is no polling of the device;
+        the tick only keeps the coordinator's data fresh.
         """
-        target = (ieee or self.ieee or "").lower()
-        if not target:
-            raise ValueError("No IEEE given and none found on the lock")
-        await self._async_publish({"cmd": "set_ieee", "value": target})
-        _LOGGER.info("Provisioning the emulator with IEEE %s", target)
-
-    async def async_set_channel(self, key: str, enabled: bool) -> None:
-        """Turns a mirror channel on or off (from the channel switch) and stores it."""
-        self.channels[key] = enabled
-        self._persist_options()
-        self._publish_snapshot()
-
-    async def async_set_master(self, enabled: bool) -> None:
-        """Master on/off for the whole mirror."""
-        self.master_enabled = enabled
-        self._persist_options()
-        if enabled:
-            await self._async_sync_to_app()
-        self._publish_snapshot()
-
-    @callback
-    def _persist_options(self) -> None:
-        options = dict(self.entry.options)
-        options[CONF_CHANNELS] = dict(self.channels)
-        options[CONF_ENABLED] = self.master_enabled
-        self.hass.config_entries.async_update_entry(self.entry, options=options)
-
-    async def _async_sync_to_app(self) -> None:
-        if not self.active(CH_SYNC):
-            return
-        if self.active(CH_VOLUME) and (
-            ent := self.related.get("volume")
-        ) and (state := self.hass.states.get(ent)):
-            self.app_volume = _as_int(state.state, 2)
-            await self._async_publish({"cmd": CMD_VOLUME, "value": self.app_volume})
-        if self.active(CH_AUTOLOCK) and (
-            ent := self.related.get("autolock")
-        ) and (state := self.hass.states.get(ent)):
-            self.app_autolock = state.state == "on"
-            await self._async_publish(
-                {"cmd": CMD_AUTOLOCK, "value": 1 if self.app_autolock else 0}
-            )
-        if self.active(CH_BATTERY) and (
-            ent := self.related.get("battery")
-        ) and (state := self.hass.states.get(ent)):
-            self.app_battery = _as_int(state.state, 100)
-            await self._async_publish({"cmd": CMD_BATTERY, "value": self.app_battery})
-        self._publish_snapshot()
+        return self._snapshot()
 
     # -- PIN / fingerprint towards ZHA ---------------------------------------
 
@@ -2175,29 +1252,19 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         code: str,
         *,
         journal: dict[str, Any] | None = None,
-        virtual_slot: int | None = None,
     ) -> None:
         if self.zha is None:
             raise RuntimeError("the ZHA link is not ready")
         reason = check_credential_slot(slot, self.entry.options, self.lock_facts)
         if reason is not None:
             raise RuntimeError(reason)
-        if virtual_slot is None and (owner := self._virtual_slot(slot)) is not None:
-            where = (
-                f"the app's slot {owner} credential"
-                if owner != slot
-                else "the app's credential"
-            )
-            raise RuntimeError(f"slot {slot} holds {where}; choose another slot")
         if not await self.zha.set_pin(slot, code):
             raise RuntimeError("the lock did not accept the PIN command")
         self.slots.mark_pin(slot, True)
-        shown = virtual_slot if virtual_slot is not None else slot
-        await self._async_publish_slot(shown, self.slots.occupied(slot))
         entry = make_entry(
             time=dt_util.utcnow().isoformat(),
             origin=ORIGIN_HA,
-            slot=shown,
+            slot=slot,
             **(
                 journal
                 or {
@@ -2206,8 +1273,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 }
             ),
         )
-        if shown != slot and not entry.get("detail"):
-            entry["detail"] = f"stored in local slot {slot}"
         await self._async_journal_add(entry)
 
     async def _async_clear_pin(
@@ -2215,55 +1280,22 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         slot: int,
         *,
         journal: dict[str, Any] | None = None,
-        virtual_slot: int | None = None,
     ) -> None:
         if self.zha is None:
             raise RuntimeError("the ZHA link is not ready")
         reason = check_credential_slot(slot, self.entry.options, self.lock_facts)
         if reason is not None:
             raise RuntimeError(reason)
-        if virtual_slot is None and (owner := self._virtual_slot(slot)) is not None:
-            where = (
-                f"the app's slot {owner} credential"
-                if owner != slot
-                else "the app's credential"
-            )
-            raise RuntimeError(
-                f"slot {slot} holds {where}; clear that in the app instead"
-            )
         if not await self.zha.clear_pin(slot):
             raise RuntimeError("the lock did not accept the clear command")
         self.slots.mark_pin(slot, False)
-        shown = virtual_slot if virtual_slot is not None else slot
-        await self._async_publish_slot(shown, self.slots.occupied(slot))
         entry = make_entry(
             time=dt_util.utcnow().isoformat(),
             origin=ORIGIN_HA,
-            slot=shown,
+            slot=slot,
             **(journal or {"action": "pin_cleared"}),
         )
-        if shown != slot and not entry.get("detail"):
-            entry["detail"] = f"cleared local slot {slot}"
         await self._async_journal_add(entry)
-
-    async def async_forget_zigbee_network(self) -> None:
-        """Ask the emulator to drop its Zigbee state and start as a fresh module.
-
-        The vendor hub refuses a device it no longer knows, and a module that
-        still holds the old network cannot fall back to a fresh join on its own
-        — so a repair resets the module first. The UART/MQTT identity (the C3
-        link, the emulator's role) is untouched.
-        """
-        await self._async_publish({"cmd": CMD_FACTORY_RESET})
-        await self._async_journal_add(
-            make_entry(
-                action="zigbee_reset",
-                time=dt_util.utcnow().isoformat(),
-                origin=ORIGIN_HA,
-                detail="the emulator starts fresh for a repair",
-            )
-        )
-        self._publish_snapshot()
 
     async def async_start_finger_enroll(self, slot: int, mode: str = "auto") -> dict[str, Any]:
         """Start a fingerprint enrollment for one slot.
@@ -2273,8 +1305,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         lights the reader and leaves the touch to the person at the door.
         ``mode`` is ``auto`` or ``local``; both enroll locally.
         """
-        if not self.active(CH_FINGERPRINT):
-            raise RuntimeError("fingerprint mirroring is off")
         if self.zha is None:
             raise RuntimeError("the ZHA link is not ready")
         guest = self.guests.get(str(slot))
@@ -2291,57 +1321,8 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 detail="local",
             )
         )
-        await self._async_publish_slot(slot, self.slots.occupied(slot))
         self._publish_snapshot()
         return {"slot": slot, "name": name, "via": "local"}
-
-    async def _async_handle_tag_scan(self, arg: int) -> None:
-        """The app asked for a tag scan; make the real lock read the tag.
-
-        Command 0x70 is new (found 2026-09-23): the reader is lit on the real
-        lock, and the whole reply is journaled — its shape is what the module
-        must eventually ferry back to the app so it can record the tag's value.
-        """
-        if self.zha is None:
-            return
-        result = await self.zha.send_vendor_detailed(ZCL_CMD_TAG_SCAN, arg)
-        await self._async_journal_add(
-            make_entry(
-                action="tag_scan",
-                time=dt_util.utcnow().isoformat(),
-                origin=ORIGIN_HA,
-                detail=(
-                    f"arg 0x{arg:04x} · svar {result.get('reply')}"
-                    if result.get("ok")
-                    else f"arg 0x{arg:04x} · fel {result.get('error')}"
-                ),
-            )
-        )
-        self._publish_snapshot()
-
-    async def _async_handle_tag_clear(self, arg: int) -> None:
-        """The app removed a credential (0x18); do the same on the real lock.
-
-        The id is the vendor's credential handle from the enroll flow, and the
-        real module answers the same command natively — the reply is journaled
-        so the ferry back can be built from measured bytes (docs/protocol.md).
-        """
-        if self.zha is None:
-            return
-        result = await self.zha.send_vendor_detailed(ZCL_CMD_TAG_CLEAR, arg)
-        await self._async_journal_add(
-            make_entry(
-                action="tag_clear",
-                time=dt_util.utcnow().isoformat(),
-                origin=ORIGIN_HA,
-                detail=(
-                    f"arg 0x{arg:04x} · svar {result.get('reply')}"
-                    if result.get("ok")
-                    else f"arg 0x{arg:04x} · fel {result.get('error')}"
-                ),
-            )
-        )
-        self._publish_snapshot()
 
     async def _async_zcl(self, command: int, arg: int) -> None:
         if self.zha is None:
@@ -2355,40 +1336,3 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.zha is not None:
             self.zha.ensure_listener()
             self.zha.maybe_configure_reporting()
-        await self._async_publish({"cmd": CMD_GET_STATE})
-        if self._last_state_rx and (
-            time.monotonic() - self._last_state_rx > HEALTH_TIMEOUT
-        ):
-            self._set_online(False)
-        self._check_health_issues()
-
-    @callback
-    def _check_health_issues(self) -> None:
-        """Surface the silent failure mode as a repair."""
-        now = time.monotonic()
-
-        # The emulator answers on the UART but is not on a Zigbee network.
-        if self.emulator_joined is False:
-            if self._not_joined_since is None:
-                self._not_joined_since = now
-            elif now - self._not_joined_since > 300:
-                ir.async_create_issue(
-                    self.hass,
-                    DOMAIN,
-                    self._issue_id("emulator_not_joined"),
-                    is_fixable=True,
-                    is_persistent=True,
-                    severity=ir.IssueSeverity.WARNING,
-                    translation_key="emulator_not_joined",
-                    data={"entry_id": self.entry.entry_id},
-                )
-        elif self.emulator_joined is True:
-            self._not_joined_since = None
-            ir.async_delete_issue(self.hass, DOMAIN, self._issue_id("emulator_not_joined"))
-
-
-def _as_int(value: Any, default: int) -> int:
-    try:
-        return int(float(value))
-    except (TypeError, ValueError):
-        return default

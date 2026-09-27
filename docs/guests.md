@@ -1,7 +1,7 @@
 # Guest codes
 
 A guest code is a PIN written to the lock for someone who is not part of the
-household. The lock can hold 50 PINs; guests do not need a vendor-app user.
+household. The lock can hold 50 PINs; guests are ordinary user-slot credentials.
 
 Four kinds exist:
 
@@ -74,16 +74,12 @@ Edit them with `hemnyckel.update_guest` (or the card): the change takes effect
 immediately — a window that just opened writes the code, one that just closed
 clears it. `paused: true` clears the code and stops the schedule until resumed.
 
-## What the lock and the app know
+## What the lock knows
 
 - The **lock** has no schedules at all (the vendor's own module specification:
   *"No schedules, no user status"*), so enforcement is Home Assistant's. While
   Home Assistant is up, a guest code exists in the lock exactly inside its
   window and offline use inside the window works.
-- The **vendor app** shows a recurring guest's code as always valid. The app's
-  record cannot express a schedule; the lock is the one that decides.
-- The **emulator** reports the slot as occupied only while the credential is in
-  the lock, so the app's own slot allocation stays consistent with reality.
 - Trying a code outside its window counts as a failed attempt on the lock
   (that is what keeps the lockout counter honest) — tell the guest the hours.
 
@@ -125,8 +121,7 @@ fingerprint button calls the same service.
 The guest card marks every row twice over. A **key**: solid (green) when the
 catalog holds the PIN value itself — a recurring or permanent guest — so the
 code can be replayed after a loss, and struck through when it does not (a
-temporary guest's code is shown once and never stored; an app-created guest's
-value only exists in the app). A **fingerprint**: solid when a finger in the slot has
+temporary guest's code is shown once and never stored). A **fingerprint**: solid when a finger in the slot has
 really opened the door, so the slot can be reused when restoring, and struck
 through when the finger was enrolled but never used — an enrollment proves
 nothing about the template the lock holds, so it is never replayed on faith.
