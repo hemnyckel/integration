@@ -1,4 +1,4 @@
-"""Switch platform for nimly — routes each config entry to its layer."""
+"""Lock platform for hemnyckel — routes each config entry to its layer."""
 
 from __future__ import annotations
 
@@ -15,6 +15,6 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     if entry.data.get(CONF_TYPE) == TYPE_MIRROR:
-        from .mirror.switch import async_setup_entry as async_setup_mirror
+        from .mirror.lock import async_setup_entry as async_setup_mirror
 
         await async_setup_mirror(hass, entry, async_add_entities)

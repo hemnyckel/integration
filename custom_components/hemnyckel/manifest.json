@@ -1,6 +1,6 @@
 {
-  "domain": "nimly",
-  "name": "Nimly",
+  "domain": "hemnyckel",
+  "name": "Hemnyckel",
   "codeowners": [
     "@c14ym0re"
   ],
@@ -15,10 +15,10 @@
       "service_uuid": "00467768-6228-2272-4663-277478268000"
     }
   ],
-  "documentation": "https://github.com/c14ym0re/nimly",
-  "issue_tracker": "https://github.com/c14ym0re/nimly/issues",
+  "documentation": "https://github.com/hemnyckel/integration",
+  "issue_tracker": "https://github.com/hemnyckel/integration/issues",
   "integration_type": "hub",
   "iot_class": "local_push",
   "homeassistant": "2025.1.0",
-  "version": "1.0.14"
+  "version": "2.0.0"
 }

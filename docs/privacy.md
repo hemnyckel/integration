@@ -28,7 +28,7 @@ carries no vendor account or credentials.
 | Where | What | Why |
 |---|---|---|
 | Config entry options | Slot names, the slot map, guest definitions (and, for recurring and permanent guests, their code), channel switches | Local behaviour and schedules. |
-| `.nimly/journal_<entry>.jsonl` | The access and admin timeline | The journal sensor and `fetch_journal`. |
+| `.hemnyckel/journal_<entry>.jsonl` | The access and admin timeline | The journal sensor and `fetch_journal`. |
 | The firmware | Wi-Fi and MQTT credentials, on the bridge only | It has to connect; the emulator stores none. |
 
 Everything is part of a normal Home Assistant backup and never leaves the

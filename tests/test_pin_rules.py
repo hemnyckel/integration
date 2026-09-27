@@ -1,4 +1,4 @@
-"""Unit tests for the slot rules in nimly.mirror.pin_rules — no Home Assistant."""
+"""Unit tests for the slot rules in hemnyckel.mirror.pin_rules — no Home Assistant."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ import unittest
 RULES_PATH = (
     pathlib.Path(__file__).resolve().parents[1]
     / "custom_components"
-    / "nimly"
+    / "hemnyckel"
     / "mirror"
     / "pin_rules.py"
 )
-spec = importlib.util.spec_from_file_location("nimly_pin_rules", RULES_PATH)
+spec = importlib.util.spec_from_file_location("hemnyckel_pin_rules", RULES_PATH)
 assert spec is not None and spec.loader is not None
 rules = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rules)

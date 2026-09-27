@@ -83,8 +83,8 @@ refusal only diverges silently — so the mirror never refuses:
 
 One timeline of access and admin events from the lock's own reports and the
 integration's admin actions. Entries for the same physical event are merged by
-time and action instead of stored twice. `nimly_journal_entry` is fired for
-automations; the file lives in `.nimly/journal_<entry>.jsonl` with a retention of
+time and action instead of stored twice. `hemnyckel_door_event` is fired for
+automations; the file lives in `.hemnyckel/journal_<entry>.jsonl` with a retention of
 5000 entries / 365 days.
 
 ### Guest codes and schedules (`mirror/guests.py`, `mirror/schedule.py`)

@@ -19,19 +19,19 @@ services:
 
 ```yaml
 # Temporary, two hours from now
-action: nimly.create_guest_code
+action: hemnyckel.create_guest_code
 data:
   name: "Courier"
   until: "2026-10-01T18:00:00+02:00"
 
 # One-time
-action: nimly.create_guest_code
+action: hemnyckel.create_guest_code
 data:
   name: "Move-in help"
   one_time: true
 
 # Recurring: same code, Monday and Friday mornings, forever
-action: nimly.create_recurring_guest
+action: hemnyckel.create_recurring_guest
 data:
   name: "Cleaner"
   schedule:
@@ -42,7 +42,7 @@ data:
 
 ```yaml
 # Permanent: a family member; the code is stored and never cleared
-action: nimly.create_guest_code
+action: hemnyckel.create_guest_code
 data:
   name: "Alva"
   permanent: true
@@ -70,7 +70,7 @@ schedule:
     end: "15:00"
 ```
 
-Edit them with `nimly.update_guest` (or the card): the change takes effect
+Edit them with `hemnyckel.update_guest` (or the card): the change takes effect
 immediately — a window that just opened writes the code, one that just closed
 clears it. `paused: true` clears the code and stops the schedule until resumed.
 
@@ -97,25 +97,25 @@ the next start — the one bounded gap of the design.
 ## Managing guests
 
 ```yaml
-action: nimly.list_guests          # live state per guest (never the codes)
-action: nimly.update_guest         # name, code, schedule, pause, expiry
+action: hemnyckel.list_guests          # live state per guest (never the codes)
+action: hemnyckel.update_guest         # name, code, schedule, pause, expiry
 data:
   slot: 5
   paused: true
 
-action: nimly.revoke_guest_code    # clears the code and forgets the guest
+action: hemnyckel.revoke_guest_code    # clears the code and forgets the guest
 data:
   slot: 5
 ```
 
-`nimly.update_guest` can also turn a temporary guest into a recurring one, but
+`hemnyckel.update_guest` can also turn a temporary guest into a recurring one, but
 only when it is given a code — a temporary guest never stored its own. A
 permanent guest keeps its code: rename it or change the code the same way, and
 it never expires on its own.
 
 ## Fingerprint enrollment from Home Assistant
 
-`nimly.enroll_fingerprint` lights the lock's reader for one slot. It is sent
+`hemnyckel.enroll_fingerprint` lights the lock's reader for one slot. It is sent
 straight to the lock, and the lock reports nothing while the enrollment runs — a
 template exists only once that finger has really opened the door, which is why
 `finger_used` (not

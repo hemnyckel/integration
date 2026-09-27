@@ -212,5 +212,5 @@ class BridgeEntity(CoordinatorEntity[BridgeCoordinator]):
             name="Nimly Bridge",
             manufacturer="nimly",
             model=coordinator.info.get("model", "Nimly Bridge"),
-            configuration_url="https://github.com/c14ym0re/nimly",
+            configuration_url="https://github.com/hemnyckel/integration",
         )

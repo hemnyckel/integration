@@ -12,13 +12,13 @@ if [ -z "$TARGET" ] || [ ! -d "$TARGET" ]; then
 fi
 
 SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DESTINATION="$TARGET/custom_components/nimly"
+DESTINATION="$TARGET/custom_components/hemnyckel"
 
 rm -rf "$DESTINATION"
-cp -a "$SOURCE/custom_components/nimly" "$DESTINATION"
+cp -a "$SOURCE/custom_components/hemnyckel" "$DESTINATION"
 find "$DESTINATION" -name '__pycache__' -type d -prune -exec rm -rf {} +
 find "$DESTINATION" \( -name '*.pyc' -o -name '*.pyo' \) -delete
 
-echo "synced nimly -> $DESTINATION"
+echo "synced hemnyckel -> $DESTINATION"
 echo
 echo "Reload the integration (Settings -> Devices & services) or restart Home Assistant."

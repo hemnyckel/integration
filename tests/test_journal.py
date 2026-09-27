@@ -1,4 +1,4 @@
-"""Unit tests for the journal logic in nimly.mirror.journal — no Home Assistant."""
+"""Unit tests for the journal logic in hemnyckel.mirror.journal — no Home Assistant."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ import unittest
 JOURNAL_PATH = (
     pathlib.Path(__file__).resolve().parents[1]
     / "custom_components"
-    / "nimly"
+    / "hemnyckel"
     / "mirror"
     / "journal.py"
 )
-spec = importlib.util.spec_from_file_location("nimly_journal", JOURNAL_PATH)
+spec = importlib.util.spec_from_file_location("hemnyckel_journal", JOURNAL_PATH)
 assert spec is not None and spec.loader is not None
 journal = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(journal)

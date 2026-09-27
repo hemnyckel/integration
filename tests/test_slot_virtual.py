@@ -1,4 +1,4 @@
-"""Unit tests for app slot virtualization in nimly.mirror.slot_virtual — no Home Assistant."""
+"""Unit tests for app slot virtualization in hemnyckel.mirror.slot_virtual — no Home Assistant."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ import unittest
 RULES_PATH = (
     pathlib.Path(__file__).resolve().parents[1]
     / "custom_components"
-    / "nimly"
+    / "hemnyckel"
     / "mirror"
     / "slot_virtual.py"
 )
-spec = importlib.util.spec_from_file_location("nimly_slot_virtual", RULES_PATH)
+spec = importlib.util.spec_from_file_location("hemnyckel_slot_virtual", RULES_PATH)
 assert spec is not None and spec.loader is not None
 virt = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(virt)

@@ -49,7 +49,7 @@ re-pair from the app when commands keep timing out.
 
 ## Changing the emulator's IEEE needs the full reset dance
 
-Measured 2026-09-23: `nimly.set_ieee` alone stores the new address in the
+Measured 2026-09-23: `hemnyckel.set_ieee` alone stores the new address in the
 firmware's NVS (the boot log confirms "IEEE satt till …a4") while the Zigbee
 stack keeps its stored extended address ("own IEEE = …a3") — a plain set plus
 reboot does not move it. What works: a local factory reset

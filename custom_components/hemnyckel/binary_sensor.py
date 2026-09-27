@@ -1,4 +1,4 @@
-"""Sensor platform for nimly — routes each config entry to its layer."""
+"""Binary sensor platform for hemnyckel — routes each config entry to its layer."""
 
 from __future__ import annotations
 
@@ -16,6 +16,6 @@ async def async_setup_entry(
 ) -> None:
     entry_type = entry.data.get(CONF_TYPE)
     if entry_type in (TYPE_MIRROR, TYPE_BRIDGE):
-        from .mirror.sensor import async_setup_entry as async_setup_mirror
+        from .mirror.binary_sensor import async_setup_entry as async_setup_mirror
 
         await async_setup_mirror(hass, entry, async_add_entities)

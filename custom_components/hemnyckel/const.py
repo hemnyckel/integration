@@ -1,4 +1,4 @@
-"""Constants for nimly — the local lock mirror and the ESP32 bridge.
+"""Constants for hemnyckel — the local lock mirror and the ESP32 bridge.
 
 The protocol towards the firmware (the bridge) is frozen; see the repository docs.
 """
@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-DOMAIN = "nimly"
+DOMAIN = "hemnyckel"
 
 # --- Entry types -------------------------------------------------------------
 CONF_TYPE = "type"
@@ -186,7 +186,7 @@ CMD_OTA = "ota"
 # Filenames are relative to the manifest URL. The user can repoint them in options.
 CONF_OTA_MANIFEST_URL = "ota_manifest_url"
 DEFAULT_OTA_MANIFEST_URL = (
-    "https://raw.githubusercontent.com/c14ym0re/nimly/main/firmware/webflash/ota.json"
+    "https://raw.githubusercontent.com/hemnyckel/integration/main/firmware/webflash/ota.json"
 )
 MANIFEST_REFRESH = 1800  # seconds between fetches of the OTA manifest
 
@@ -273,9 +273,7 @@ HELLO_GAP = 90  # a longer gap between hellos means the emulator rebooted
 ECHO_WINDOW = 8.0  # seconds a mirrored command suppresses its echo
 
 # --- Shared events ----------------------------------------------------------
-# Fired when the lock itself reports an activity (button, keypad, app command).
-EVENT_NIMLY_LOCK_ACTIVITY = "nimly_lock_activity"
 # Fired for every new journal entry (access and admin events), so automations can
 # react to "who opened the door" without polling the journal.
-EVENT_JOURNAL = "nimly_journal_entry"
+EVENT_JOURNAL = "hemnyckel_door_event"
 

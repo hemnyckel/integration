@@ -66,9 +66,9 @@ per-prefix one.
 1. Pair the lock's real module to **ZHA** and name it there.
 2. Add the kit's **bridge entry** — over Bluetooth/Improv for a fresh board, or
    automatically from its `info` when it is already provisioned.
-3. **Add integration → Nimly → Lock mirror**: pick the ZHA lock, pick the free
+3. **Add integration → Hemnyckel → Lock mirror**: pick the ZHA lock, pick the free
    kit (or accept the only one). The wizard prefills the prefix.
-4. `nimly.set_ieee` provisions the emulator with the module's IEEE (the same
+4. `hemnyckel.set_ieee` provisions the emulator with the module's IEEE (the same
    value arrives from ZHA); open the vendor bridge's pairing window in the app;
    the emulator steers in and the app creates the record.
 5. The record is **named automatically** (the ZHA name wins) on every later
@@ -100,7 +100,7 @@ The emulator steers on its own once the app's pairing window is open.
 | `emulator_not_joined` | C6 not on the bridge's network | guided re-pair in the app (remove the old lock, then add the device again) |
 | `app_path_dead` (planned) | repeated 504s on device commands | re-pair the lock in the app |
 | `prefix_conflict` | two mirrors share one prefix | give a kit its own prefix (`set_prefix`) |
-| wrong emulator IEEE (warning + audit) | C6 wears another module's address | `nimly.set_ieee` |
+| wrong emulator IEEE (warning + audit) | C6 wears another module's address | `hemnyckel.set_ieee` |
 
 ## Migration in this installation
 
@@ -119,7 +119,7 @@ The emulator steers on its own once the app's pairing window is open.
 | Bridge entry learns prefix by MAC; OTA over the learned prefix | built |
 | Name-on-repair / reconcile rename, catalog replay on re-pair | built |
 | BLE provisioning of WiFi **and** MQTT credentials; credential-free bridge image; webflash page for both boards | planned (world-scale flashing) |
-| `nimly.add_lock` one-call onboarding | planned (composes `set_ieee` + the app's pairing window + replay) |
+| `hemnyckel.add_lock` one-call onboarding | planned (composes `set_ieee` + the app's pairing window + replay) |
 | Both C3s on 0.6.0 (kit A keeps `nimly/proxy`, kit B gets its MAC prefix) | done 2026-09-24 |
 | Two-live-locks bring-up: module #2 to ZHA, the IEEE dance, join, name | next |
 | Two-live-kits validation on the desk | next (needs both locks) |

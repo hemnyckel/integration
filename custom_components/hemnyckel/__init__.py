@@ -1,4 +1,4 @@
-"""nimly — the Nimly lock product as a Home Assistant integration.
+"""hemnyckel — Hemnyckel's Home Assistant integration for Nimly locks.
 
 Entry types: ``mirror`` (the emulator mirror against the real lock) and ``bridge``
 (the ESP32 bridge provisioning).
@@ -39,7 +39,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return await _async_setup_mirror(hass, entry)
     if entry_type == TYPE_BRIDGE:
         return await _async_setup_bridge(hass, entry)
-    _LOGGER.error("nimly: unknown entry type %s", entry_type)
+    _LOGGER.error("hemnyckel: unknown entry type %s", entry_type)
     return False
 
     from .mirror.coordinator import MirrorCoordinator

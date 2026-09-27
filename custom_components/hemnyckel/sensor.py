@@ -1,4 +1,4 @@
-"""Number platform for nimly — routes each config entry to its layer."""
+"""Sensor platform for hemnyckel — routes each config entry to its layer."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_TYPE, TYPE_MIRROR
+from .const import CONF_TYPE, TYPE_BRIDGE, TYPE_MIRROR
 
 
 async def async_setup_entry(
@@ -14,7 +14,8 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    if entry.data.get(CONF_TYPE) == TYPE_MIRROR:
-        from .mirror.number import async_setup_entry as async_setup_mirror
+    entry_type = entry.data.get(CONF_TYPE)
+    if entry_type in (TYPE_MIRROR, TYPE_BRIDGE):
+        from .mirror.sensor import async_setup_entry as async_setup_mirror
 
         await async_setup_mirror(hass, entry, async_add_entities)

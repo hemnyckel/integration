@@ -218,7 +218,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._facts_task: asyncio.Task[Any] | None = None
         self.journal: list[dict[str, Any]] = []
         self._journal_path = hass.config.path(
-            ".nimly", f"journal_{entry.entry_id}.jsonl"
+            ".hemnyckel", f"journal_{entry.entry_id}.jsonl"
         )
         self._journal_lock = asyncio.Lock()
         self.guests: dict[str, dict[str, Any]] = {}
@@ -1545,7 +1545,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if self.ieee and self.emulator_ieee != self.ieee.lower():
                     _LOGGER.warning(
                         "The emulator IEEE %s does not match the lock %s - provision with "
-                        "the nimly.set_ieee service",
+                        "the hemnyckel.set_ieee service",
                         self.emulator_ieee,
                         self.ieee,
                     )

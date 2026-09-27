@@ -1,4 +1,4 @@
-"""Unit tests for weekly guest windows in nimly.mirror.schedule — no Home Assistant."""
+"""Unit tests for weekly guest windows in hemnyckel.mirror.schedule — no Home Assistant."""
 
 from __future__ import annotations
 
@@ -10,11 +10,11 @@ from datetime import datetime
 RULES_PATH = (
     pathlib.Path(__file__).resolve().parents[1]
     / "custom_components"
-    / "nimly"
+    / "hemnyckel"
     / "mirror"
     / "schedule.py"
 )
-spec = importlib.util.spec_from_file_location("nimly_schedule", RULES_PATH)
+spec = importlib.util.spec_from_file_location("hemnyckel_schedule", RULES_PATH)
 assert spec is not None and spec.loader is not None
 sched = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sched)

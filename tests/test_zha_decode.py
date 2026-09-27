@@ -9,10 +9,10 @@ import unittest
 CONST_PATH = (
     pathlib.Path(__file__).resolve().parents[1]
     / "custom_components"
-    / "nimly"
+    / "hemnyckel"
     / "const.py"
 )
-spec = importlib.util.spec_from_file_location("nimly_const_decode", CONST_PATH)
+spec = importlib.util.spec_from_file_location("hemnyckel_const_decode", CONST_PATH)
 assert spec is not None and spec.loader is not None
 const = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(const)

@@ -1,11 +1,11 @@
 /**
- * nimly-guests-card — guest codes with three-tap simplicity.
+ * hemnyckel-guests-card — guest codes with three-tap simplicity.
  *
- * A Lovelace card for the Nimly integration's guest codes: create a temporary
+ * A Lovelace card for the Hemnyckel integration's guest codes: create a temporary
  * code, a recurring guest (weekly windows, same code every time) or a
  * permanent one (family; the code is stored and can be restored), see what is
  * active right now, pause it, change it or revoke it. The card reads
- * sensor.nimly_guests (attributes.guests) and calls the nimly guest services;
+ * sensor.nimly_guests (attributes.guests) and calls the hemnyckel guest services;
  * a freshly created temporary code is shown once, in the card only, and never
  * stored - a recurring or permanent code lives in the config entry's options.
  *
@@ -188,7 +188,7 @@ const STYLE = `
   .cloudmark.off { opacity: .55; }
 `;
 
-class NimlyGuestsCard extends HTMLElement {
+class HemnyckelGuestsCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
@@ -247,7 +247,7 @@ class NimlyGuestsCard extends HTMLElement {
       const state = this._hass.states[this._entityId()];
       const entryId = state && state.attributes && state.attributes.entry_id;
       const response = await this._callServiceWS(
-        "nimly",
+        "hemnyckel",
         "cloud_guests",
         entryId ? { entry_id: entryId } : {}
       );
@@ -314,7 +314,7 @@ class NimlyGuestsCard extends HTMLElement {
     this._actionNotice = "";
     try {
       await this._callServiceWS(
-        "nimly",
+        "hemnyckel",
         "enroll_fingerprint",
         this._lockData({ slot: guest.slot })
       );
@@ -459,7 +459,7 @@ class NimlyGuestsCard extends HTMLElement {
     for (const sibling of siblings) {
       try {
         await this._callServiceWS(
-          "nimly",
+          "hemnyckel",
           service,
           build({ ...sibling, entry_id: sibling.lock.entry_id })
         );
@@ -712,7 +712,7 @@ class NimlyGuestsCard extends HTMLElement {
           if (validFrom) data.valid_from = validFrom;
           if (validTo) data.valid_to = validTo;
         }
-        await this._callServiceWS("nimly", "update_cloud_guest", data);
+        await this._callServiceWS("hemnyckel", "update_cloud_guest", data);
       }
       if (code) {
         if (!/^\d{4,10}$/.test(code)) {
@@ -720,7 +720,7 @@ class NimlyGuestsCard extends HTMLElement {
         }
         const data = { user_id: edit.id, type: "pin", value: code };
         if (entryId) data.entry_id = entryId;
-        await this._callServiceWS("nimly", "set_cloud_code", data);
+        await this._callServiceWS("hemnyckel", "set_cloud_code", data);
       }
       this._cloudEdit = null;
       this._cloudNotice = "Sparat.";
@@ -743,7 +743,7 @@ class NimlyGuestsCard extends HTMLElement {
     this._cloudError = "";
     this._cloudNotice = "";
     try {
-      await this._callServiceWS("nimly", "delete_cloud_guest", {
+      await this._callServiceWS("hemnyckel", "delete_cloud_guest", {
         user_id: guest.id,
       });
       this._cloudNotice = `${guest.name || "Gästen"} borttagen.`;
@@ -1210,7 +1210,7 @@ class NimlyGuestsCard extends HTMLElement {
             form.forever || !form.until ? "" : new Date(form.until).toISOString();
         }
         await this._callServiceWS(
-          "nimly",
+          "hemnyckel",
           "update_guest",
           this._lockData(changes)
         );
@@ -1274,7 +1274,7 @@ class NimlyGuestsCard extends HTMLElement {
         if (group) payload.group = group;
         if (createdCode) payload.code = createdCode;
         try {
-          const response = await this._callServiceWS("nimly", service, payload);
+          const response = await this._callServiceWS("hemnyckel", service, payload);
           const result =
             (target.entry_id && response && response[target.entry_id]) ||
             Object.values(response || {})[0] ||
@@ -1391,7 +1391,7 @@ class NimlyGuestsCard extends HTMLElement {
 
   async _callService(service, data) {
     try {
-      await this._callServiceWS("nimly", service, data);
+      await this._callServiceWS("hemnyckel", service, data);
       this._actionError = "";
     } catch (err) {
       this._actionError = this._errorText(err);
@@ -1405,11 +1405,11 @@ class NimlyGuestsCard extends HTMLElement {
   }
 }
 
-customElements.define("nimly-guests-card", NimlyGuestsCard);
+customElements.define("hemnyckel-guests-card", HemnyckelGuestsCard);
 
 window.customCards = window.customCards || [];
 window.customCards.push({
-  type: "nimly-guests-card",
-  name: "Nimly Gästkoder",
+  type: "hemnyckel-guests-card",
+  name: "Hemnyckel Gästkoder",
   description: "Skapa och hantera gästkoder — tillfälliga, återkommande och permanenta.",
 });

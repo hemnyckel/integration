@@ -13,11 +13,11 @@ import unittest
 DISCOVERY_PATH = (
     pathlib.Path(__file__).resolve().parents[1]
     / "custom_components"
-    / "nimly"
+    / "hemnyckel"
     / "mirror"
     / "discovery.py"
 )
-spec = importlib.util.spec_from_file_location("nimly_discovery", DISCOVERY_PATH)
+spec = importlib.util.spec_from_file_location("hemnyckel_discovery", DISCOVERY_PATH)
 assert spec is not None and spec.loader is not None
 discovery = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(discovery)

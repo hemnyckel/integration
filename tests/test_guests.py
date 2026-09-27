@@ -1,4 +1,4 @@
-"""Unit tests for the guest-code logic in nimly.mirror.guests — no HA needed."""
+"""Unit tests for the guest-code logic in hemnyckel.mirror.guests — no HA needed."""
 
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ from datetime import datetime, timezone
 GUESTS_PATH = (
     pathlib.Path(__file__).resolve().parents[1]
     / "custom_components"
-    / "nimly"
+    / "hemnyckel"
     / "mirror"
     / "guests.py"
 )
-spec = importlib.util.spec_from_file_location("nimly_guests", GUESTS_PATH)
+spec = importlib.util.spec_from_file_location("hemnyckel_guests", GUESTS_PATH)
 assert spec is not None and spec.loader is not None
 guests = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guests)

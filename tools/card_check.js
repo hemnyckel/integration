@@ -85,7 +85,7 @@ global.document = {
 global.window = { crypto: undefined };
 
 const source = fs.readFileSync(
-  path.join(__dirname, "..", "www", "nimly-guests-card.js"),
+  path.join(__dirname, "..", "www", "hemnyckel-guests-card.js"),
   "utf8"
 );
 eval(source);

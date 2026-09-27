@@ -1,18 +1,18 @@
 # The guest-code card
 
 The repository ships one Lovelace card for guest codes:
-[`www/nimly-guests-card.js`](../www/nimly-guests-card.js). It needs the
+[`www/hemnyckel-guests-card.js`](../www/hemnyckel-guests-card.js). It needs the
 integration's `sensor.nimly_guests` entity and nothing else.
 
 ## Install
 
-1. Copy the file to `<config>/www/nimly-guests-card.js`.
+1. Copy the file to `<config>/www/hemnyckel-guests-card.js`.
 2. **Settings → Dashboards → ⋮ → Resources → Add resource**:
-   `/local/nimly-guests-card.js` with **JavaScript module**.
+   `/local/hemnyckel-guests-card.js` with **JavaScript module**.
 3. Hard-refresh the browser, then add a card:
 
 ```yaml
-type: custom:nimly-guests-card
+type: custom:hemnyckel-guests-card
 ```
 
 ## What it does
@@ -35,9 +35,9 @@ variables, so it follows light and dark themes without configuration.
 - The UI text is Swedish; the card is self-contained, so changing the strings is
   a matter of editing the file.
 - After replacing the file, bump the resource URL (for example
-  `/local/nimly-guests-card.js?v=2`) so browsers fetch the new version.
+  `/local/hemnyckel-guests-card.js?v=2`) so browsers fetch the new version.
 - The card is also mirrored in this repository, so improvements should go to
-  `www/nimly-guests-card.js` and be copied to Home Assistant, not the other way
+  `www/hemnyckel-guests-card.js` and be copied to Home Assistant, not the other way
   around.
 
 

@@ -1,4 +1,4 @@
-"""Config and options flow for nimly.
+"""Config and options flow for hemnyckel.
 
 The user step picks the lock mirror (``mirror``); the bridge (``bridge``) is
 discovered over Bluetooth and provisioned with Improv.
@@ -127,8 +127,8 @@ async def _detect_bridges(hass: Any) -> list[dict[str, Any]]:
     return collect_bridges(payloads, used)
 
 
-class NimlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Set up a Nimly entry: the lock mirror or the bridge."""
+class HemnyckelConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Set up a Hemnyckel entry: the lock mirror or the bridge."""
 
     VERSION = 1
 
@@ -341,10 +341,10 @@ class NimlyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
-        return NimlyOptionsFlow()
+        return HemnyckelOptionsFlow()
 
 
-class NimlyOptionsFlow(config_entries.OptionsFlow):
+class HemnyckelOptionsFlow(config_entries.OptionsFlow):
     """Options for the mirror: channels, slots and the firmware source."""
 
     _pin_task: asyncio.Task | None = None

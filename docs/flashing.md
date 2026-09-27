@@ -58,10 +58,10 @@ Three wires (see [hardware.md](hardware.md)): C6 `GPIO6 →` C3 `GPIO5`, C6
 ## 4. Home Assistant
 
 1. Install the integration (HACS or a manual copy) and restart.
-2. **Add integration → Nimly → Nimly account** (the vendor app's email and
+2. **Add integration → Hemnyckel → Nimly account** (the vendor app's email and
    password) and pick the location. This is optional but recommended: it gives
    attribution and the app's view.
-3. **Add integration → Nimly → Lock mirror**, pick the lock entity and accept
+3. **Add integration → Hemnyckel → Lock mirror**, pick the lock entity and accept
    the auto-detected MQTT prefix. The emulator's firmware version should show up
    in the device's entities.
 4. Add the lock's real module to **ZHA** if it is not already there.
@@ -76,7 +76,7 @@ address joined and was accepted — but the identity is what makes the emulator
 this lock and nothing else.) The sequence that works, learned on hardware:
 
 1. **Give the emulator the right IEEE** — the mirror device exposes
-   `nimly.set_ieee`; called without a value it uses the real lock's address.
+   `hemnyckel.set_ieee`; called without a value it uses the real lock's address.
    The address is stored in NVS and survives a factory reset.
 2. **Make sure the emulator is factory-new** — a module that has been paired
    before will not start a fresh join. The `nimly` firmware accepts a

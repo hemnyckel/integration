@@ -30,7 +30,7 @@ installation:
 tools/sync_to_ha.sh /path/to/homeassistant/config
 ```
 
-That copies `custom_components/nimly` into the target configuration directory. Restart Home
+That copies `custom_components/hemnyckel` into the target configuration directory. Restart Home
 Assistant (or reload the integration) to pick up the change.
 
 Checks that run in CI:

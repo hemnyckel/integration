@@ -1,4 +1,4 @@
-"""Unit tests for the pure helpers in nimly.mirror.facts — no Home Assistant."""
+"""Unit tests for the pure helpers in hemnyckel.mirror.facts — no Home Assistant."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ import unittest
 FACTS_PATH = (
     pathlib.Path(__file__).resolve().parents[1]
     / "custom_components"
-    / "nimly"
+    / "hemnyckel"
     / "mirror"
     / "facts.py"
 )
-spec = importlib.util.spec_from_file_location("nimly_facts", FACTS_PATH)
+spec = importlib.util.spec_from_file_location("hemnyckel_facts", FACTS_PATH)
 assert spec is not None and spec.loader is not None
 facts = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(facts)

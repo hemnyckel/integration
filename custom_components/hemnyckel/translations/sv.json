@@ -2,13 +2,13 @@
   "config": {
     "step": {
       "user": {
-        "title": "Nimly",
+        "title": "Hemnyckel",
         "menu_options": {
           "mirror": "Låsspegel (app-sidan)"
         }
       },
       "mirror": {
-        "title": "Nimly-spegeln",
+        "title": "Hemnyckel-spegeln",
         "description": "Välj det riktiga låset (parat i ZHA) och MQTT-prefixet som emulatorn använder.\n\n{detected}",
         "data": {
           "lock_entity_id": "Lås",
@@ -61,7 +61,7 @@
   "options": {
     "step": {
       "mirror_menu": {
-        "title": "Nimly-spegeln",
+        "title": "Hemnyckel-spegeln",
         "menu_options": {
           "slots": "Slottar",
           "slot_set_pin": "Sätt en PIN-kod",

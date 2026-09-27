@@ -1,4 +1,4 @@
-"""Diagnostics for nimly — routes each config entry to its layer."""
+"""Diagnostics for hemnyckel — routes each config entry to its layer."""
 
 from __future__ import annotations
 

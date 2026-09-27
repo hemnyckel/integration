@@ -1,4 +1,4 @@
-# Nimly
+# Hemnyckel
 
 **Local control for Nimly locks — with the vendor app kept alive.**
 
@@ -10,7 +10,7 @@
 > involves reflashing ESP32 boards — **you use it entirely at your own risk**
 > and are solely responsible for access to your home.
 
-A Home Assistant integration for [Nimly](https://nimly.se) smart locks (Nimly
+Hemnyckel is a Home Assistant integration for [Nimly](https://nimly.se) smart locks (Nimly
 Touch, Code, Keypad, Pro and the Touch Pro families). The lock's module stays on
 ZHA — Home Assistant keeps working when the internet or the Nimly app does not —
 and two small ESP32 boards let the lock live on in the vendor app as if nothing
@@ -35,7 +35,7 @@ Real lock  ───────────────►  Home Assistant  ◄
                           (local, always)                (the vendor app)
 ```
 
-- **The integration** ([`custom_components/nimly`](custom_components/nimly)) owns the
+- **The integration** ([`custom_components/hemnyckel`](custom_components/hemnyckel)) owns the
   real lock through ZHA: state, PIN codes, fingerprints, settings, history.
 - **The emulator** ([`firmware/esp32c6-nimly-ed`](firmware/esp32c6-nimly-ed)) is a
   Zigbee module with the lock's own IEEE address, paired to the Nimly Connect
@@ -54,7 +54,7 @@ Real lock  ───────────────►  Home Assistant  ◄
 | **Guest codes with schedules** | Temporary codes with an expiry, one-time codes, recurring guests (a cleaner, a nanny) whose code **never changes** but only works inside weekly windows, and permanent codes for family members — stored and restorable, with no window at all. |
 | **Several locks** | The guest card discovers every lock and, when there is more than one, offers a lock picker: create a guest once, choose the doors, and one code lands on each — with edit, pause and revoke following the person across locks. |
 | **Slot virtualization** | App-created credentials never collide with local ones, and vice versa — the app keeps its own slot numbers while the lock keeps its own secrets. |
-| **A journal** | One timeline of access and admin events, with a `nimly_journal_entry` event for your automations. |
+| **A journal** | One timeline of access and admin events, with a `hemnyckel_door_event` event for your automations. |
 | **OTA both ways** | The bridge and the emulator update over the air from Home Assistant. |
 | **Diagnostics and repairs** | Stale bridge, unpaired emulator and slot conflicts surface as repairs instead of silence. |
 
@@ -68,10 +68,10 @@ Real lock  ───────────────►  Home Assistant  ◄
 
 ## Installation
 
-1. **HACS** → *Custom repositories* → add `https://github.com/c14ym0re/nimly` as
-   an *Integration*, then install **Nimly** and restart Home Assistant.
-   (Or copy `custom_components/nimly` into your configuration directory.)
-2. **Settings → Devices & services → Add integration → Nimly**, and pick a path:
+1. **HACS** → *Custom repositories* → add `https://github.com/hemnyckel/integration` as
+   an *Integration*, then install **Hemnyckel** and restart Home Assistant.
+   (Or copy `custom_components/hemnyckel` into your configuration directory.)
+2. **Settings → Devices & services → Add integration → Hemnyckel**, and pick a path:
    - **Lock mirror** — the local lock. Pick the lock entity (ZHA) and the MQTT
      prefix (auto-detected from the bridge when one is online), then choose how
      much to mirror.
@@ -86,18 +86,18 @@ is in [docs/flashing.md](docs/flashing.md).
 
 ## Guest codes
 
-Create a guest from the `nimly-guests-card` (included, see
+Create a guest from the `hemnyckel-guests-card` (included, see
 [docs/dashboard.md](docs/dashboard.md)) or from the services:
 
 ```yaml
-action: nimly.create_guest_code      # one-shot code with an expiry
+action: hemnyckel.create_guest_code      # one-shot code with an expiry
 data:
   name: "Anna"
   until: "2026-10-01T18:00:00+02:00"
 ```
 
 ```yaml
-action: nimly.create_recurring_guest # a cleaner: same code, weekly windows
+action: hemnyckel.create_recurring_guest # a cleaner: same code, weekly windows
 data:
   name: "Cleaner"
   schedule:
@@ -117,15 +117,15 @@ as always valid; the schedule is enforced locally. Details:
 
 | Service | Purpose |
 |---|---|
-| `nimly.create_guest_code`, `nimly.create_recurring_guest`, `nimly.update_guest`, `nimly.revoke_guest_code`, `nimly.list_guests` | Guest codes and their schedules. |
-| `nimly.fetch_journal` | The lock's timeline of access and admin events. |
-| `nimly.set_pin`, `nimly.clear_slot`, `nimly.set_slot_name` | Local slot management on the real lock. |
-| `nimly.read_lock_attributes` | Standard DoorLock attributes (never credentials). |
-| `nimly.set_auto_lock`, `nimly.set_sound_volume` | The lock's own settings, read back and mirrored to the app. |
-| `nimly.enroll_fingerprint` | Light the lock's fingerprint reader for a slot; the touch — and only a real unlock — proves the template. |
-| `nimly.wipe` | Empty every credential slot above the master slots and remove every guest (dry run first, then `confirm: WIPE`). |
-| `nimly.clear_repairs` | Delete every repair issue this integration raised. |
-| `nimly.ota_install`, `nimly.provision_wifi`, `nimly.set_ieee` | Firmware and provisioning. |
+| `hemnyckel.create_guest_code`, `hemnyckel.create_recurring_guest`, `hemnyckel.update_guest`, `hemnyckel.revoke_guest_code`, `hemnyckel.list_guests` | Guest codes and their schedules. |
+| `hemnyckel.fetch_journal` | The lock's timeline of access and admin events. |
+| `hemnyckel.set_pin`, `hemnyckel.clear_slot`, `hemnyckel.set_slot_name` | Local slot management on the real lock. |
+| `hemnyckel.read_lock_attributes` | Standard DoorLock attributes (never credentials). |
+| `hemnyckel.set_auto_lock`, `hemnyckel.set_sound_volume` | The lock's own settings, read back and mirrored to the app. |
+| `hemnyckel.enroll_fingerprint` | Light the lock's fingerprint reader for a slot; the touch — and only a real unlock — proves the template. |
+| `hemnyckel.wipe` | Empty every credential slot above the master slots and remove every guest (dry run first, then `confirm: WIPE`). |
+| `hemnyckel.clear_repairs` | Delete every repair issue this integration raised. |
+| `hemnyckel.ota_install`, `hemnyckel.provision_wifi`, `hemnyckel.set_ieee` | Firmware and provisioning. |
 
 ## Local by design
 
@@ -137,7 +137,7 @@ integration's own store. What leaves the house, if anything, is in
 ## Repository layout
 
 ```
-custom_components/nimly/   the integration (local mirror + bridge)
+custom_components/hemnyckel/   the integration (local mirror + bridge)
   mirror/                  the local layer: ZHA link, slot table, journal, guests
 firmware/                  the two ESP-IDF projects and browser flashing
 tests/                     unit tests (no Home Assistant needed)

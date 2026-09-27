@@ -28,5 +28,5 @@ class MirrorEntity(CoordinatorEntity[MirrorCoordinator]):
             name=f"Nimly ({lock_name})" if lock_name else coordinator.entry.title,
             manufacturer="nimly",
             model="Nimly Connect Module (emulated)",
-            configuration_url="https://github.com/c14ym0re/nimly",
+            configuration_url="https://github.com/hemnyckel/integration",
         )
