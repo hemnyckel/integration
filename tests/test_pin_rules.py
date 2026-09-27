@@ -20,18 +20,10 @@ spec.loader.exec_module(rules)
 
 
 class FirstUserSlotTest(unittest.TestCase):
-    def test_default_is_three(self) -> None:
-        self.assertEqual(rules.first_user_slot(None), 3)
-        self.assertEqual(rules.first_user_slot({}), 3)
-
-    def test_value_is_read(self) -> None:
-        self.assertEqual(rules.first_user_slot({"reserved_slots": 1}), 1)
-        self.assertEqual(rules.first_user_slot({"reserved_slots": "2"}), 2)
-
-    def test_clamped_so_slot_zero_stays_protected(self) -> None:
-        self.assertEqual(rules.first_user_slot({"reserved_slots": 0}), 1)
-        self.assertEqual(rules.first_user_slot({"reserved_slots": 9}), 3)
-        self.assertEqual(rules.first_user_slot({"reserved_slots": "x"}), 3)
+    def test_the_floor_is_a_constant(self) -> None:
+        # Slots 0-2 are the locks' master credentials. Nothing - no stored
+        # option, no service call - may lower this.
+        self.assertEqual(rules.FIRST_USER_SLOT, 3)
 
 
 class PinCapacityTest(unittest.TestCase):
@@ -48,27 +40,22 @@ class PinCapacityTest(unittest.TestCase):
 
 
 class CheckCredentialSlotTest(unittest.TestCase):
-    def test_master_slots_are_refused(self) -> None:
-        self.assertIsNotNone(rules.check_credential_slot(0, {}, {}))
-        self.assertIsNotNone(rules.check_credential_slot(2, {}, {}))
-        self.assertIsNone(rules.check_credential_slot(3, {}, {}))
-
-    def test_floor_option_allows_one_and_two(self) -> None:
-        options = {"reserved_slots": 1}
-        self.assertIsNone(rules.check_credential_slot(1, options, {}))
-        self.assertIsNone(rules.check_credential_slot(2, options, {}))
-        self.assertIsNotNone(rules.check_credential_slot(0, options, {}))
+    def test_every_master_slot_is_refused(self) -> None:
+        for slot in (0, 1, 2):
+            self.assertIsNotNone(rules.check_credential_slot(slot, {}), slot)
+        self.assertIsNone(rules.check_credential_slot(3, {}))
 
     def test_capacity_ceiling(self) -> None:
         facts = {"num_of_pin_users_supported": 50}
-        self.assertIsNone(rules.check_credential_slot(49, {}, facts))
-        self.assertIsNotNone(rules.check_credential_slot(50, {}, facts))
+        self.assertIsNone(rules.check_credential_slot(49, facts))
+        self.assertIsNotNone(rules.check_credential_slot(50, facts))
 
     def test_last_manual_slot(self) -> None:
-        self.assertIsNone(rules.check_credential_slot(999, {}, {}))
+        self.assertIsNone(rules.check_credential_slot(999, {}))
 
     def test_invalid_slot(self) -> None:
-        self.assertIsNotNone(rules.check_credential_slot(-1, {}, {}))
+        self.assertIsNotNone(rules.check_credential_slot(-1, {}))
+        self.assertIsNotNone(rules.check_credential_slot(True, {}))  # type: ignore[arg-type]
 
 
 if __name__ == "__main__":

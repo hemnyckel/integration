@@ -21,15 +21,7 @@
           "slots": "Slottar",
           "slot_set_pin": "Sätt en PIN-kod",
           "slot_name": "Namnge en slot",
-          "slot_clear": "Rensa en slot",
-          "reserved": "Master-slots"
-        }
-      },
-      "reserved": {
-        "title": "Master-slots",
-        "description": "Hur många slots låset reserverar för masteruppgifter. Manualerna säger 0-2 på alla modeller utom Code Pro, som bara reserverar slot 0. Slot 0 skrivs aldrig.",
-        "data": {
-          "reserved_slots": "Reserverade slots"
+          "slot_clear": "Rensa en slot"
         }
       },
       "slots": {

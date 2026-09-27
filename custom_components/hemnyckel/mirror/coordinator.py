@@ -76,7 +76,7 @@ from .journal import (
     summarize as journal_summarize,
     trim as journal_trim,
 )
-from .pin_rules import check_credential_slot, first_user_slot, pin_capacity
+from .pin_rules import FIRST_USER_SLOT, check_credential_slot, pin_capacity
 from .schedule import describe as schedule_describe
 from .schedule import in_window, next_boundary, normalize_windows
 from .slots import SlotTable
@@ -441,7 +441,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not dry_run and confirm != "WIPE":
             raise ValueError("pass confirm: WIPE to run the wipe for real")
 
-        floor = first_user_slot(self.entry.options)
+        floor = FIRST_USER_SLOT
         slot_numbers = {slot for slot, _data in self.slots.items() if slot >= floor}
         report: dict[str, Any] = {
             "dry_run": dry_run,
@@ -781,7 +781,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             occupied |= {int(key) for key in self.guests if str(key).isdigit()}
             slot = pick_slot(
                 occupied,
-                first_user_slot(self.entry.options),
+                FIRST_USER_SLOT,
                 pin_capacity(self.lock_facts),
             )
             if slot is None:
@@ -863,7 +863,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             occupied |= {int(key) for key in self.guests if str(key).isdigit()}
             slot = pick_slot(
                 occupied,
-                first_user_slot(self.entry.options),
+                FIRST_USER_SLOT,
                 pin_capacity(self.lock_facts),
             )
             if slot is None:
@@ -1240,7 +1240,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         if self.zha is None:
             raise RuntimeError("the ZHA link is not ready")
-        reason = check_credential_slot(slot, self.entry.options, self.lock_facts)
+        reason = check_credential_slot(slot, self.lock_facts)
         if reason is not None:
             raise RuntimeError(reason)
         if not await self.zha.set_pin(slot, code):
@@ -1268,7 +1268,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         if self.zha is None:
             raise RuntimeError("the ZHA link is not ready")
-        reason = check_credential_slot(slot, self.entry.options, self.lock_facts)
+        reason = check_credential_slot(slot, self.lock_facts)
         if reason is not None:
             raise RuntimeError(reason)
         if not await self.zha.clear_pin(slot):
@@ -1292,6 +1292,9 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         if self.zha is None:
             raise RuntimeError("the ZHA link is not ready")
+        reason = check_credential_slot(slot, self.lock_facts)
+        if reason is not None:
+            raise RuntimeError(reason)
         guest = self.guests.get(str(slot))
         name = (guest or {}).get("name") or self.slots.name(slot, fallback=False)
 

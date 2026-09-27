@@ -21,15 +21,7 @@
           "slots": "Slots",
           "slot_set_pin": "Set a PIN",
           "slot_name": "Name a slot",
-          "slot_clear": "Clear a slot",
-          "reserved": "Master slots"
-        }
-      },
-      "reserved": {
-        "title": "Master slots",
-        "description": "How many slots the lock reserves for master credentials. The manuals say 0-2 on every model but the Code Pro, which reserves only slot 0. Slot 0 is never written.",
-        "data": {
-          "reserved_slots": "Reserved slots"
+          "slot_clear": "Clear a slot"
         }
       },
       "slots": {

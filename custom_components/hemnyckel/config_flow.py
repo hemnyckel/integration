@@ -22,13 +22,6 @@ from .const import (
     DOMAIN,
     TYPE_MIRROR,
 )
-from .mirror.pin_rules import (  # noqa: E402 - after the const imports
-    OPTION_RESERVED_SLOTS,
-    RESERVED_SLOTS_MAX,
-    RESERVED_SLOTS_MIN,
-    first_user_slot,
-)
-
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -110,55 +103,11 @@ class HemnyckelOptionsFlow(config_entries.OptionsFlow):
                 "slot_set_pin",
                 "slot_name",
                 "slot_clear",
-                "reserved",
             ],
         )
 
     def _mirror(self) -> Any:
         return self.hass.data[DOMAIN][self.config_entry.entry_id]
-
-    async def async_step_reserved(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        """How many slots the lock keeps for master credentials."""
-        if user_input is not None:
-            options = dict(self.config_entry.options)
-            options[OPTION_RESERVED_SLOTS] = int(user_input[OPTION_RESERVED_SLOTS])
-            return self.async_create_entry(data=options)
-        current = first_user_slot(self.config_entry.options)
-        return self.async_show_form(
-            step_id="reserved",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(OPTION_RESERVED_SLOTS, default=current): vol.All(
-                        int,
-                        vol.Range(min=RESERVED_SLOTS_MIN, max=RESERVED_SLOTS_MAX),
-                    )
-                }
-            ),
-        )
-
-    # -- lock: slots --------------------------------------------------------
-
-    def _slot_rows(self) -> list[str]:
-        coordinator = self._mirror()
-        rows = []
-        for slot, data in coordinator.slots.items():
-            name = str(data.get("name") or "unnamed")
-            creds = ", ".join(coordinator.slots.credentials(slot)) or "no credential seen"
-            rows.append(f"Slot {slot}: **{name}** - {creds}")
-        return rows
-
-    def _slot_options(self, *, only_occupied: bool = False) -> dict[str, str]:
-        coordinator = self._mirror()
-        options: dict[str, str] = {}
-        for slot, data in coordinator.slots.items():
-            if only_occupied and not coordinator.slots.occupied(slot):
-                continue
-            name = str(data.get("name") or "unnamed")
-            creds = ", ".join(coordinator.slots.credentials(slot)) or "no credentials seen"
-            options[str(slot)] = f"Slot {slot}: {name} ({creds})"
-        return options
 
     async def async_step_slots(
         self, user_input: dict[str, Any] | None = None
