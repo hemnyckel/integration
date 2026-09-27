@@ -269,8 +269,16 @@ class HemnyckelConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def _create_mirror(self) -> config_entries.ConfigFlowResult:
         assert self._lock_entity is not None
+        # The title is what the entry list shows and the device falls back to,
+        # so it is the lock's human name - the one the household already uses
+        # ("Ytterdörren") - not the Zigbee module's serial. A lock that has no
+        # state yet still gets a recognisable title from its entity id.
+        lock_state = self.hass.states.get(self._lock_entity)
+        title = (lock_state.name if lock_state is not None else None) or (
+            self._lock_entity.split(".")[-1]
+        )
         return self.async_create_entry(
-            title=f"Nimly Mirror ({self._lock_entity.split('.')[-1]})",
+            title=title,
             data={
                 CONF_TYPE: TYPE_MIRROR,
                 CONF_LOCK_ENTITY: self._lock_entity,
