@@ -24,13 +24,12 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import (
     async_call_later,
-    async_track_state_change_event,
     async_track_time_interval,
 )
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -122,7 +121,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.guests: dict[str, dict[str, Any]] = {}
         self._guest_unsubs: dict[str, Callable[[], None]] = {}
         self.zha: ZhaLink | None = None
-        self.last_error: str | None = None
         self.counters: dict[str, int] = {
             "events": 0,
             "errors": 0,
@@ -161,16 +159,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "Corrected %s fingerprint mark(s) against the lock's table",
                     corrected,
                 )
-
-        # Track the lock entity and the companions on its device (volume,
-        # auto-lock, battery) so the coordinator stays aware of them.
-        watched = [self.lock_entity_id]
-        for key in ("volume", "autolock", "battery"):
-            if ent := self.related.get(key):
-                watched.append(ent)
-        self._unsubs.append(
-            async_track_state_change_event(self.hass, watched, self._on_tracked_change)
-        )
 
         self._unsubs.append(
             self.hass.bus.async_listen(
@@ -350,7 +338,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _snapshot(self) -> dict[str, Any]:
         return {
             "last_event": self.last_event,
-            "last_error": self.last_error,
             "counters": dict(self.counters),
         }
 
@@ -1154,15 +1141,6 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- state ------------------------------------------------------------------
 
     @callback
-    def _on_tracked_change(self, event: Event) -> None:
-        """The lock entity and the companions on its device changed state.
-
-        The local engine owns everything through ZhaLink, so there is nothing
-        left to mirror; the watch is kept because the lock's companions stay
-        part of the coordinator's view of the device.
-        """
-        return
-
     # -- lock -> journal --------------------------------------------------------
 
     @callback

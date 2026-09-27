@@ -27,7 +27,6 @@ async def async_setup_entry(
         [
             MirrorSlots(coordinator),
             MirrorLastEvent(coordinator),
-            MirrorLastError(coordinator),
             MirrorLockFacts(coordinator),
             MirrorJournal(coordinator),
             MirrorGuests(coordinator),
@@ -158,22 +157,6 @@ class MirrorLastEvent(MirrorEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return dict(self.coordinator.last_event or {})
-
-
-class MirrorLastError(MirrorEntity, SensorEntity):
-    """The most recent error the integration recorded (for troubleshooting)."""
-
-    _attr_name = "Last error"
-    _attr_icon = "mdi:alert-circle-outline"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    def __init__(self, coordinator: MirrorCoordinator) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{coordinator.entry.entry_id}_last_error"
-
-    @property
-    def native_value(self) -> str | None:
-        return self.coordinator.last_error
 
 
 class MirrorLockFacts(MirrorEntity, SensorEntity):

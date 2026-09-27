@@ -5,11 +5,11 @@
  * code, a recurring guest (weekly windows, same code every time) or a
  * permanent one (family; the code is stored and can be restored), see what is
  * active right now, pause it, change it or revoke it. The card reads
- * sensor.nimly_guests (attributes.guests) and calls the hemnyckel guest services;
+ * the guests sensors (their guests attribute) and calls the hemnyckel guest services;
  * a freshly created temporary code is shown once, in the card only, and never
  * stored - a recurring or permanent code lives in the config entry's options.
  *
- * Config: { entity: "sensor.nimly_guests" } — the entity is optional.
+ * Config: { entity: "sensor.<door>_guests" } — optional: the card finds the locks itself.
  */
 
 const DAYS = [
@@ -30,7 +30,9 @@ const DURATIONS = [
   ["none", "Tills vidare", 0],
 ];
 
-const DEFAULT_ENTITY = "sensor.nimly_guests";
+/* Empty on purpose: the card discovers every lock from the guests sensors.
+   Pin one entity here to make that door this card's own. */
+const DEFAULT_ENTITY = "";
 
 const STYLE = `
   :host { display: block; }
