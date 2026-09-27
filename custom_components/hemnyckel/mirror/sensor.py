@@ -105,7 +105,7 @@ class MirrorSlots(MirrorEntity, SensorEntity):
                     "credentials": self.coordinator.slots.credentials(slot),
                 }
             )
-        return {"slots": rows}
+        return {"slots": rows, **self.door_identity()}
 
 
 class SlotSensor(MirrorEntity, SensorEntity):
@@ -177,7 +177,7 @@ class MirrorLockFacts(MirrorEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         facts = self.coordinator.lock_facts
         if not facts:
-            return {}
+            return self.door_identity()
         auto = facts.get("auto_relock_time")
         return {
             "total_users": facts.get("num_of_total_users_supported"),
@@ -187,6 +187,7 @@ class MirrorLockFacts(MirrorEntity, SensorEntity):
             "sound_volume": facts.get("sound_volume"),
             "door_state": facts.get("door_state"),
             "updated": self.coordinator.lock_facts_at,
+            **self.door_identity(),
         }
 
 
@@ -241,14 +242,7 @@ class MirrorGuests(MirrorEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         rows = self.coordinator.guest_rows()
         order = sorted(rows, key=lambda key: int(key) if key.isdigit() else 0)
-        lock_state = self.coordinator.hass.states.get(
-            self.coordinator.lock_entity_id
-        )
         return {
-            "entry_id": self.coordinator.entry.entry_id,
-            "lock": (
-                lock_state.name if lock_state is not None
-                else self.coordinator.entry.title
-            ),
+            **self.door_identity(),
             "guests": [rows[key] for key in order],
         }

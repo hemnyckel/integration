@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -32,3 +34,21 @@ class MirrorEntity(CoordinatorEntity[MirrorCoordinator]):
             model="Nimly Connect Module",
             configuration_url="https://github.com/hemnyckel/integration",
         )
+
+    def door_identity(self) -> dict[str, Any]:
+        """The two keys that name this door wherever its sensors appear.
+
+        ``entry_id`` says which config entry - which door - a value belongs to,
+        and ``lock`` is the name the household uses for it ("Ytterdörren"), so a
+        consumer can tell two doors' sensors apart without knowing any entity
+        id. Every door-scoped sensor carries them.
+        """
+        lock_state = self.coordinator.hass.states.get(self.coordinator.lock_entity_id)
+        return {
+            "entry_id": self.coordinator.entry.entry_id,
+            "lock": (
+                lock_state.name
+                if lock_state is not None
+                else self.coordinator.entry.title
+            ),
+        }
