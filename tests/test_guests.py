@@ -108,3 +108,18 @@ class CodeOwnerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class RecurringExpiryTest(unittest.TestCase):
+    def test_a_recurring_guest_with_an_end_date_expires(self) -> None:
+        """The expiry is kind-agnostic: a weekly window with an end date ends.
+
+        A cleaner's code must not outlive the arrangement, and the sweep that
+        revokes expired slots reads "until" whatever the guest's kind is.
+        """
+        now = datetime(2026, 9, 27, 22, 0, tzinfo=timezone.utc)
+        stored = {
+            "5": {"kind": "recurring", "schedule": [], "until": "2026-09-27T21:00:00+00:00"},
+            "6": {"kind": "recurring", "schedule": [], "until": "2026-09-28T21:00:00+00:00"},
+            "7": {"kind": "recurring", "schedule": []},
+        }
+        self.assertEqual(guests.expired_slots(stored, now), [5])

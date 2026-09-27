@@ -844,6 +844,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         slot: int | None = None,
         paused: bool = False,
         group: str | None = None,
+        until: str | None = None,
     ) -> dict[str, Any]:
         """A guest whose code stays the same, valid only inside weekly windows.
 
@@ -858,6 +859,12 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         schedule = normalize_windows(windows)
         if schedule is None:
             raise RuntimeError("the schedule needs at least one valid window")
+        # A recurring guest may also carry an end date: the same helper the
+        # simple guest uses expires it, so a cleaner's code does not outlive
+        # the arrangement.
+        normalized_until = normalize_until(until) if until else None
+        if until and normalized_until is None:
+            raise RuntimeError("until is not a valid ISO timestamp")
         if slot is None:
             occupied = {s for s, _data in self.slots.items() if self.slots.occupied(s)}
             occupied |= {int(key) for key in self.guests if str(key).isdigit()}
@@ -878,6 +885,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "schedule": schedule,
             "paused": bool(paused),
             "created": dt_util.utcnow().isoformat(),
+            **({"until": normalized_until} if normalized_until else {}),
             **({"group": str(group)} if group else {}),
         }
         self.slots.set_name(slot, clean_name)
@@ -1044,11 +1052,15 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 row["schedule"] = windows
                 row["summary"] = schedule_describe(windows)
                 row["paused"] = bool(guest.get("paused"))
+                row["until"] = guest.get("until")
                 row["in_window"] = bool(
                     windows and not guest.get("paused") and in_window(windows, now)
                 )
                 if guest.get("paused"):
                     row["state"] = "paused"
+                elif is_expired(guest.get("until"), now):
+                    # Past its end date the window no longer matters.
+                    row["state"] = "expired"
                 else:
                     row["state"] = "active" if row["in_window"] else "outside"
             elif kind == "permanent":

@@ -137,6 +137,7 @@ CREATE_RECURRING_GUEST_SCHEMA = vol.Schema(
         vol.Required("name"): cv.string,
         vol.Required("schedule"): vol.All(cv.ensure_list, [WINDOW_SCHEMA]),
         vol.Optional("code"): cv.string,
+        vol.Optional("until"): cv.string,
         vol.Optional("slot"): vol.Coerce(int),
         vol.Optional("paused", default=False): cv.boolean,
         vol.Optional("entry_id"): cv.string,
@@ -357,6 +358,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 windows=call.data.get("schedule"),
                 slot=call.data.get("slot"),
                 paused=bool(call.data.get("paused")),
+                until=call.data.get("until"),
                 group=call.data.get("group"),
             )
         return results
