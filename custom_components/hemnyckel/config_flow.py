@@ -14,14 +14,18 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 
 from .const import (
     CONF_LOCK_ENTITY,
+    CONF_LOCK_IEEE,
     CONF_TYPE,
     DOMAIN,
     TYPE_MIRROR,
 )
+from .mirror.identity import zha_ieee
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -46,13 +50,20 @@ class HemnyckelConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             title = (lock_state.name if lock_state is not None else None) or (
                 lock_entity.split(".")[-1]
             )
-            return self.async_create_entry(
-                title=title,
-                data={
-                    CONF_TYPE: TYPE_MIRROR,
-                    CONF_LOCK_ENTITY: lock_entity,
-                },
-            )
+            data: dict[str, Any] = {
+                CONF_TYPE: TYPE_MIRROR,
+                CONF_LOCK_ENTITY: lock_entity,
+            }
+            # Remember the Zigbee serial while we can still see the entity, so
+            # the entry can find its lock again after the entity is renamed.
+            registry_entry = er.async_get(self.hass).async_get(lock_entity)
+            if registry_entry is not None and registry_entry.device_id:
+                device = dr.async_get(self.hass).async_get(registry_entry.device_id)
+                if device is not None:
+                    ieee = zha_ieee(device.identifiers)
+                    if ieee:
+                        data[CONF_LOCK_IEEE] = ieee
+            return self.async_create_entry(title=title, data=data)
 
         return self.async_show_form(
             step_id="user",

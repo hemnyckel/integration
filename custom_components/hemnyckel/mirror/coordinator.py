@@ -38,6 +38,8 @@ from homeassistant.util import dt as dt_util
 from ..const import (
     ACTION_NAMES,
     CONF_DEVICE_IDENTITY,
+    CONF_LOCK_ENTITY,
+    CONF_LOCK_IEEE,
     DEFAULT_ENDPOINT,
     DOMAIN,
     EVENT_JOURNAL,
@@ -53,6 +55,12 @@ from ..const import (
 )
 
 from .facts import placeholder_slot_name
+from .identity import (
+    entity_id_on_serial,
+    normalise_serial,
+    renamed_entity_id,
+    zha_ieee,
+)
 from .guests import (
     GUEST_CREATED,
     GUEST_EXPIRED,
@@ -165,6 +173,11 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 dr.EVENT_DEVICE_REGISTRY_UPDATED, self._on_device_registry_updated
             )
         )
+        self._unsubs.append(
+            self.hass.bus.async_listen(
+                er.EVENT_ENTITY_REGISTRY_UPDATED, self._on_entity_registry_updated
+            )
+        )
 
         if self.zha is not None:
             self.zha.ensure_listener()
@@ -196,7 +209,7 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @staticmethod
     def _normalise_serial(value: Any) -> str:
-        return str(value or "").replace(":", "").replace("-", "").replace(".", "").lower()
+        return normalise_serial(value)
 
     def _device_serial_match(self, device: Any) -> bool:
         """Whether a registry device carries this lock's module serial."""
@@ -290,22 +303,56 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._remember_device_identity(device)
         self._apply_device_identity()
 
+    @callback
+    def _on_entity_registry_updated(self, event: Any) -> None:
+        """Follow our lock when its entity is renamed, so the link survives."""
+        data = event.data if isinstance(event.data, dict) else {}
+        new_entity_id = renamed_entity_id(data, self.lock_entity_id)
+        if new_entity_id is not None:
+            self._apply_lock_entity_id(new_entity_id, reason="was renamed")
+
     # -- metadata -----------------------------------------------------------
 
     def _discover_lock_metadata(self) -> None:
         registry = er.async_get(self.hass)
         entry = registry.async_get(self.lock_entity_id)
         if entry is None:
-            _LOGGER.warning("The lock entity %s is not in the registry", self.lock_entity_id)
-            return
+            # A rename replaces the entity id but not the registry entry, so a
+            # stored id that no longer exists means the rename happened while
+            # we were not listening (or the lock was re-paired). Recover by the
+            # stored serial before giving up: a detached ZHA link means no
+            # journal, no slots and no guest codes, and must never be quiet.
+            recovered = self._resolve_lock_entity_id()
+            if recovered is None:
+                _LOGGER.error(
+                    "The lock entity %s is not in the entity registry and no "
+                    "lock with the stored Zigbee serial could be found; the "
+                    "ZHA link stays detached - no journal, slots or guest "
+                    "codes - until the entry points at an existing lock entity",
+                    self.lock_entity_id,
+                )
+                return
+            _LOGGER.warning(
+                "The lock entity %s was renamed; following it to %s",
+                self.lock_entity_id,
+                recovered,
+            )
+            self._apply_lock_entity_id(recovered, reason="was renamed")
+            entry = registry.async_get(recovered)
+            if entry is None:
+                _LOGGER.error(
+                    "The renamed lock entity %s is still not in the registry",
+                    recovered,
+                )
+                return
 
         if entry.device_id:
             dev_reg = dr.async_get(self.hass)
             device = dev_reg.async_get(entry.device_id)
             if device:
-                for domain, ident in device.identifiers:
-                    if domain == "zha":
-                        self.ieee = str(ident).lower()
+                ieee = zha_ieee(device.identifiers)
+                if ieee:
+                    self.ieee = ieee
 
             for other in registry.entities.values():
                 if other.device_id != entry.device_id or other.disabled_by:
@@ -325,12 +372,69 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if len(uid) == 3 and uid[1].isdigit():
                         self.endpoint_id = int(uid[1])
 
+        if not self.ieee:
+            _LOGGER.error(
+                "The lock entity %s has no Zigbee device, so the ZHA link "
+                "stays detached - no journal, slots or guest codes",
+                self.lock_entity_id,
+            )
+        elif self.entry.data.get(CONF_LOCK_IEEE) != self.ieee:
+            # Remember the serial so a later setup can follow a rename (or a
+            # re-paired module) back to this lock.
+            self.hass.config_entries.async_update_entry(
+                self.entry,
+                data={**self.entry.data, CONF_LOCK_IEEE: self.ieee},
+            )
+
         _LOGGER.debug(
             "mirror metadata: ieee=%s ep=%s relaterade=%s",
             self.ieee,
             self.endpoint_id,
             self.related,
         )
+
+    def _resolve_lock_entity_id(self) -> str | None:
+        """Find the lock entity from the serial stored on the entry.
+
+        The entity registry is keyed by the entity id, which a rename replaces;
+        the ZHA device behind it keeps its serial. Used only when the stored
+        ``lock_entity_id`` no longer exists.
+        """
+        serial = self.entry.data.get(CONF_LOCK_IEEE)
+        if not serial:
+            return None
+        registry = er.async_get(self.hass)
+        dev_reg = dr.async_get(self.hass)
+        device_values: dict[str, list[str]] = {}
+        for device in dev_reg.devices:
+            device_values[device.id] = [
+                value for _kind, value in device.identifiers
+            ] + [value for _kind, value in device.connections]
+        entities = [
+            {
+                "entity_id": item.entity_id,
+                "domain": item.domain,
+                "device_id": item.device_id,
+                "disabled_by": item.disabled_by,
+            }
+            for item in registry.entities.values()
+        ]
+        return entity_id_on_serial(entities, device_values, serial)
+
+    @callback
+    def _apply_lock_entity_id(self, entity_id: str, *, reason: str) -> None:
+        """Point the coordinator, the ZHA link and the entry at the new id."""
+        old = self.lock_entity_id
+        if not entity_id or entity_id == old:
+            return
+        self.lock_entity_id = entity_id
+        if self.zha is not None:
+            self.zha.lock_entity_id = entity_id
+        self.hass.config_entries.async_update_entry(
+            self.entry,
+            data={**self.entry.data, CONF_LOCK_ENTITY: entity_id},
+        )
+        _LOGGER.info("Lock entity %s %s to %s", old, reason, entity_id)
 
     # -- publishing ---------------------------------------------------------
 

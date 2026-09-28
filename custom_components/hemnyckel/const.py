@@ -17,6 +17,11 @@ TYPE_MIRROR = "mirror"
 # --- Configuration (the lock) ------------------------------------------------
 CONF_LOCK_ENTITY = "lock_entity_id"
 
+# The lock module's Zigbee serial, remembered once the lock is found so the
+# entry can follow an entity rename instead of pinning the id it was created
+# with (the serial does not change when the entity is renamed).
+CONF_LOCK_IEEE = "lock_ieee"
+
 # A name (and area) the user gave the lock's module in Home Assistant; re-applied
 # when the same serial joins again, so a re-pair comes back named correctly.
 CONF_DEVICE_IDENTITY = "device_identity"
