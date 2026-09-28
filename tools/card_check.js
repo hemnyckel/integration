@@ -4,8 +4,8 @@
  *
  * The card is a class over the DOM and `hass`; this harness stubs exactly
  * those, captures the class from `customElements.define`, and drives the
- * multi-lock paths: lock discovery, sibling matching (group marker or shared
- * cloud identity), the lock-aware service data, the create flow across several
+ * multi-lock paths: lock discovery, sibling matching (shared group marker),
+ * the lock-aware service data, the create flow across several
  * locks (same code, one group, partial failures reported) and the fan-out of
  * an edit. Run from the repository root:
  *
@@ -106,16 +106,16 @@ card._config = { entity: "sensor.nimly_guests" };
 card._hass = {
   states: {
     "sensor.nimly_guests": lockSensor("sensor.nimly_guests", OWN, "Ytterdörren", [
-      { slot: 3, name: "Isabelle", cloud_users: ["uuid-1"], group: "grp-1" },
-      { slot: 4, name: "Städfirma", cloud_users: [], group: null },
+      { slot: 3, name: "Isabelle", group: "grp-1" },
+      { slot: 4, name: "Städfirma", group: null },
     ]),
     "sensor.nimly_guests_2": lockSensor(
       "sensor.nimly_guests_2",
       OTHER,
       "Källarlås",
       [
-        { slot: 5, name: "Isabelle", cloud_users: ["uuid-1"], group: "grp-1" },
-        { slot: 6, name: "Syntest", cloud_users: ["uuid-2"], group: null },
+        { slot: 5, name: "Isabelle", group: "grp-1" },
+        { slot: 6, name: "Syntest", group: null },
       ]
     ),
   },
@@ -135,13 +135,13 @@ const isabelle = card._guests
   ? card._guests.find((g) => g.name === "Isabelle")
   : card._hass.states["sensor.nimly_guests"].attributes.guests[0];
 const siblings = card._siblings(isabelle);
-check("shared identity finds the sibling", siblings.length === 1 && siblings[0].lock.entry_id === OTHER && siblings[0].slot === 5);
-const astrid = { slot: 4, name: "Städfirma", cloud_users: [], group: null };
-check("no sibling without group or identity", card._siblings(astrid).length === 0);
-const grouped = { slot: 9, name: "Ny", cloud_users: [], group: "grp-1" };
-check("group marker alone finds the sibling", card._siblings(grouped).length === 1);
-const unrelated = { slot: 9, name: "Ny", cloud_users: ["uuid-9"], group: null };
-check("unrelated identity finds nothing", card._siblings(unrelated).length === 0);
+check("shared group finds the sibling", siblings.length === 1 && siblings[0].lock.entry_id === OTHER && siblings[0].slot === 5);
+const astrid = { slot: 4, name: "Städfirma", group: null };
+check("no sibling without a group", card._siblings(astrid).length === 0);
+const grouped = { slot: 9, name: "Ny", group: "grp-1" };
+check("the group marker finds the sibling", card._siblings(grouped).length === 1);
+const unrelated = { slot: 9, name: "Ny", group: "grp-9" };
+check("an unrelated group finds nothing", card._siblings(unrelated).length === 0);
 
 // -- row rendering ------------------------------------------------------
 const row = card._guestRow(isabelle);
