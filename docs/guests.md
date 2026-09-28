@@ -1,7 +1,10 @@
-# People and codes
+# People and keys
 
 A code is a PIN written to the lock for one person. The lock can hold 50 PINs;
 a person is an ordinary user-slot credential.
+
+The app calls the collection a person's **keys** (Swedish *Nycklar*); a **code**
+is the PIN a key can hold and a **fingerprint** is still a fingerprint.
 
 Four kinds exist:
 

@@ -289,7 +289,7 @@ Consequences the implementation must honour:
   for it (a picker of canonical names, plus a free-text option) and stores it in
   the slot's `fingers` entry with the enrolment time.
 - **The UI always shows the label** wherever a finger is shown — the app's
-  Koder view, the Personer card, the slots sensor. A slot with a fingerprint but
+  Nycklar view, the Personer card, the slots sensor. A slot with a fingerprint but
   no label is shown as *unlabelled finger*, and the owner is offered a way to
   label it (for slots that predate this feature): `hemnyckel.relabel_fingerprint`
   names the confirmed template in place, writing no ZCL at all.
@@ -441,9 +441,9 @@ failing at the ZCL layer.
 
 ## 7. The surfaces
 
-### 7.1 The app (Koder / Personer)
+### 7.1 The app (Nycklar / Personer)
 
-- **Koder** (the brief: `Hemnyckel/Views/CodesView.swift`) becomes **grouped by
+- **Nycklar** (the brief: `Hemnyckel/Views/CodesView.swift`) becomes **grouped by
   person**, not a flat list of slots. Under each person: their fingers, each
   with its label, its per-door state (present / missing / unknown / unlabelled),
   and the slot it sits in.
@@ -541,7 +541,7 @@ build/test.
 | 3 | **Done** — services: `enroll_fingerprint` takes `finger` and records it; new `clear_fingerprint` sends `0x72`; `clear_slot` also clears the template; journal entries `finger_enrolled` / `finger_cleared` / `finger_relabelled` | integration | compileall, unittest, check_pii; hardware via `tools/sync_to_ha.sh` | the new write path is verified live; the enrolment itself awaits the owner's finger | owner: one clear + one enrol on a spare slot |
 | 4 | **HA surfaces**: slots sensor rows, the Personer card finger section, and the translations | integration | compileall, unittest, check_pii | low; UI only, but the card is shipped so it must be copied to HA | none |
 | 5 | **Relay pass-through**: `/slots` carries `fingers` + `finger_used`; `POST /slots/{slot}/finger` takes `finger`; `DELETE /slots/{slot}/finger` | addon | `ruff`, `pytest` (`test_slots.py` patterns) | low; the relay stores nothing new, so no migration | none |
-| 6 | **App**: group Koder by person, the which-finger picker, present/missing/unknown states, the "also update other doors" re-enrolment sheet | app | iOS CI (`xcodegen`, build, test) | medium; this is where the branch's wording must be honest | owner: an end-to-end enrolment at a door |
+| 6 | **App**: group Nycklar by person, the which-finger picker, present/missing/unknown states, the "also update other doors" re-enrolment sheet | app | iOS CI (`xcodegen`, build, test) | medium; this is where the branch's wording must be honest | owner: an end-to-end enrolment at a door |
 | 7 | **Docs**: update `docs/guests.md`, `docs/architecture.md`, `docs/known-issues.md` (the current `clear_slot` template gap), and the card's on-screen words | integration | check_pii | cheap | none |
 
 The cheap steps are **1, 2, 7**; the genuine model change was **3** (a new

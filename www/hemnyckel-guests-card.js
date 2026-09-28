@@ -1,7 +1,7 @@
 /**
- * hemnyckel-guests-card — people and codes with three-tap simplicity.
+ * hemnyckel-guests-card — people and keys with three-tap simplicity.
  *
- * A Lovelace card for the Hemnyckel integration's people and their codes:
+ * A Lovelace card for the Hemnyckel integration's people and their keys:
  * create a temporary code (shown once), a recurring person (weekly windows,
  * same code every time) or a permanent one (family; the code is stored and can
  * be restored), see what every slot holds right now, pause it, change it or
@@ -997,7 +997,7 @@ class HemnyckelGuestsCard extends HTMLElement {
 
   _meta(guest) {
     if (guest.kind === "slot") {
-      return "Bara i slot-tabellen";
+      return "Bara i Nycklar";
     }
     if (guest.kind === "recurring") {
       const summary = (guest.summary || "").replace(/mon|tue|wed|thu|fri|sat|sun/g, (day) => {
@@ -1485,5 +1485,5 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "hemnyckel-guests-card",
   name: "Hemnyckel Personer",
-  description: "Skapa och hantera personer och deras koder — tillfälliga, återkommande och permanenta.",
+  description: "Skapa och hantera personer och deras nycklar — tillfälliga, återkommande och permanenta.",
 });

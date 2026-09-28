@@ -44,7 +44,7 @@ slot number is the truth now.
 | | |
 |---|---|
 | **Local first** | Lock, unlock, codes, settings and history work with no cloud at all. No outage or account problem can take the door away. |
-| **People and codes with schedules** | Temporary codes with an expiry, one-time codes, recurring people (a cleaner, a nanny) whose code **never changes** but only works inside weekly windows, and permanent codes for family members — stored and restorable, with no window at all. |
+| **People and keys with schedules** | Temporary codes with an expiry, one-time codes, recurring people (a cleaner, a nanny) whose code **never changes** but only works inside weekly windows, and permanent codes for family members — stored and restorable, with no window at all. |
 | **Several locks** | The card discovers every lock and, when there is more than one, offers a lock picker: create a person once, choose the doors, and one code lands on each — with edit, pause and revoke following the person across locks. |
 | **A journal** | One timeline of access and admin events, with a `hemnyckel_door_event` event for your automations. |
 | **Slot management** | Name slots, set and clear PINs, enroll fingerprints and wipe credentials, all locally. |
@@ -63,7 +63,7 @@ slot number is the truth now.
 2. **Settings → Devices & services → Add integration → Hemnyckel**, pick the
    lock entity (paired in ZHA) and you are done.
 
-## People and codes
+## People and keys
 
 Create a person from the `hemnyckel-guests-card` (included, see
 [docs/dashboard.md](docs/dashboard.md)) or from the services:
@@ -96,7 +96,7 @@ once and never stored, which the card says before it is created. Details:
 
 | Service | Purpose |
 |---|---|
-| `hemnyckel.create_guest_code`, `hemnyckel.create_recurring_guest`, `hemnyckel.update_guest`, `hemnyckel.revoke_guest_code`, `hemnyckel.list_guests` | People and their codes. |
+| `hemnyckel.create_guest_code`, `hemnyckel.create_recurring_guest`, `hemnyckel.update_guest`, `hemnyckel.revoke_guest_code`, `hemnyckel.list_guests` | People and their keys. |
 | `hemnyckel.fetch_journal` | The lock's timeline of access and admin events. |
 | `hemnyckel.set_pin`, `hemnyckel.clear_slot`, `hemnyckel.set_slot_name` | Local slot management on the real lock. |
 | `hemnyckel.read_lock_attributes` | Standard DoorLock attributes (never credentials). |

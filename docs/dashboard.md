@@ -1,6 +1,6 @@
 # The people card
 
-The repository ships one Lovelace card for people and their codes:
+The repository ships one Lovelace card for people and their keys:
 [`www/hemnyckel-guests-card.js`](../www/hemnyckel-guests-card.js). It reads the
 integration's guests sensors (the person records) **and** its slots sensors
 (what each slot holds), and discovers the locks itself, so it works with no
@@ -54,7 +54,7 @@ variables, so it follows light and dark themes without configuration.
 The card shows this integration's own people — create, edit, pause, revoke —
 with their slot, what the slot holds (`Kod`, `Fingeravtryck`) and the validity
 window. A row can also come straight from the slots table (a named slot with a
-credential but no person record); it is marked *Bara i slot-tabellen* and can be
+credential but no person record); it is marked *Bara i Nycklar* and can be
 renamed or cleared like any other slot. RFID is never shown: the lock reports no
 tag use ([known-issues.md](known-issues.md)).
 

@@ -76,7 +76,9 @@ def _setup_slot_sensors(
 class MirrorSlots(MirrorEntity, SensorEntity):
     """All known slots at a glance: names and credential types."""
 
-    _attr_name = "Slots"
+    # The collection is the household's "Nycklar" (Keys); a slot is still a
+    # slot and the entity id stays *_slots.
+    _attr_name = "Nycklar"
     _attr_icon = "mdi:format-list-bulleted"
 
     def __init__(self, coordinator: MirrorCoordinator) -> None:
@@ -90,7 +92,8 @@ class MirrorSlots(MirrorEntity, SensorEntity):
             for slot, _data in self.coordinator.slots.items()
             if self.coordinator.slots.occupied(slot)
         )
-        return f"{occupied} occupied"
+        # The household's language, not "0 occupied".
+        return f"{occupied} upptagen" if occupied == 1 else f"{occupied} upptagna"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -129,7 +132,7 @@ class SlotSensor(MirrorEntity, SensorEntity):
         name = str(data.get("name") or "")
         if name:
             return name
-        return "Occupied" if self.coordinator.slots.occupied(self.slot) else "Vacant"
+        return "Upptagen" if self.coordinator.slots.occupied(self.slot) else "Ledig"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -168,7 +171,8 @@ class MirrorLastEvent(MirrorEntity, SensorEntity):
 
 class MirrorLockFacts(MirrorEntity, SensorEntity):
     """What the lock itself reports: capabilities and settings, over Zigbee."""
-    _attr_name = "Lock facts"
+    # Household word; the entity id stays *_lock_facts.
+    _attr_name = "Låsdata"
     _attr_icon = "mdi:information-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
