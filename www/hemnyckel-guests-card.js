@@ -1,13 +1,16 @@
 /**
- * hemnyckel-guests-card — guest codes with three-tap simplicity.
+ * hemnyckel-guests-card — people and codes with three-tap simplicity.
  *
- * A Lovelace card for the Hemnyckel integration's guest codes: create a temporary
- * code, a recurring guest (weekly windows, same code every time) or a
- * permanent one (family; the code is stored and can be restored), see what is
- * active right now, pause it, change it or revoke it. The card reads
- * the guests sensors (their guests attribute) and calls the hemnyckel guest services;
- * a freshly created temporary code is shown once, in the card only, and never
- * stored - a recurring or permanent code lives in the config entry's options.
+ * A Lovelace card for the Hemnyckel integration's people and their codes:
+ * create a temporary code (shown once), a recurring person (weekly windows,
+ * same code every time) or a permanent one (family; the code is stored and can
+ * be restored), see what every slot holds right now, pause it, change it or
+ * revoke it. The card reads both the guests sensors (the person records) and
+ * the slots sensors (what each slot holds) and calls the hemnyckel services, so
+ * a person it creates appears in its list at once even when no entity is
+ * pinned. A freshly created temporary code is shown once, in the card only, and
+ * never stored - a recurring or permanent code lives in the config entry's
+ * options.
  *
  * Config: { entity: "sensor.<door>_guests" } — optional: the card finds the locks itself.
  */
@@ -200,11 +203,18 @@ class HemnyckelGuestsCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    const entity = this._config.entity || DEFAULT_ENTITY;
-    const state = hass.states[entity];
-    const guests = (state && state.attributes && state.attributes.guests) || [];
+    const guests = this._buildGuests();
     const fingerprint = JSON.stringify(
-      guests.map((g) => [g.slot, g.name, g.state, g.paused, g.until, g.summary])
+      guests.map((g) => [
+        g.entry_id,
+        g.slot,
+        g.name,
+        g.state,
+        g.paused,
+        g.until,
+        g.summary,
+        g.credentials,
+      ])
     );
     if (fingerprint !== this._fingerprint) {
       this._fingerprint = fingerprint;
@@ -212,6 +222,110 @@ class HemnyckelGuestsCard extends HTMLElement {
       this._renderList();
       this._renderForm();
     }
+  }
+
+  _configuredEntity() {
+    return this._config.entity || DEFAULT_ENTITY;
+  }
+
+  _slotsFor(entryId) {
+    /* What each slot on one lock holds, as that lock's slots sensor reports it.
+       The card reads the slot table as well as the person records, so a
+       credential that exists is never hidden just because no person record was
+       written for it. */
+    const bySlot = {};
+    for (const state of Object.values(this._hass.states)) {
+      const attrs = state.attributes || {};
+      if (!Array.isArray(attrs.slots)) continue;
+      if (entryId && attrs.entry_id !== entryId) continue;
+      for (const row of attrs.slots) bySlot[String(row.slot)] = row;
+    }
+    return bySlot;
+  }
+
+  _enrich(row, lock) {
+    /* Fold the slot table into a person row: the slot number and what the slot
+       actually holds (PIN, fingerprint). RFID is deliberately not shown - the
+       lock never reports a tag use, so the family never uses one. */
+    const data = this._slotsFor(lock.entry_id)[String(row.slot)] || {};
+    const credentials = Array.isArray(data.credentials)
+      ? data.credentials
+      : data.has_pin
+      ? ["pin"]
+      : [];
+    const hasPin = credentials.includes("pin") || Boolean(row.has_code);
+    const hasFinger = credentials.includes("fingerprint");
+    return {
+      ...row,
+      entry_id: lock.entry_id,
+      lock: lock.name,
+      credentials,
+      has_pin: hasPin,
+      has_finger: hasFinger,
+      finger_restorable: hasFinger,
+    };
+  }
+
+  _buildGuests() {
+    /* Every person on every lock the card can see, keyed by lock and slot, with
+       the slot table folded in. Without a pinned entity this is the whole
+       house; a person whose group puts them on several doors is listed once. */
+    const pinned = this._configuredEntity();
+    let locks = this._locks();
+    if (pinned) {
+      locks = locks.filter((lock) => lock.entity === pinned);
+      if (!locks.length) {
+        const state = this._hass.states[pinned];
+        const attrs = (state && state.attributes) || {};
+        locks = [
+          {
+            entity: pinned,
+            entry_id: attrs.entry_id || null,
+            name: attrs.lock || pinned,
+            guests: Array.isArray(attrs.guests) ? attrs.guests : [],
+          },
+        ];
+      }
+    }
+    const out = [];
+    for (const lock of locks) {
+      const guestRows = new Map(
+        (lock.guests || []).map((row) => [String(row.slot), row])
+      );
+      const slots = this._slotsFor(lock.entry_id);
+      const keys = new Set([...Object.keys(slots), ...guestRows.keys()]);
+      for (const key of [...keys].sort((a, b) => Number(a) - Number(b))) {
+        const guest = guestRows.get(key);
+        const data = slots[key] || {};
+        const occupied = Boolean(
+          data.name || (Array.isArray(data.credentials) && data.credentials.length)
+        );
+        if (!guest && !occupied) continue;
+        const row = this._enrich(
+          guest || { slot: Number(key), name: data.name || "", kind: "slot" },
+          lock
+        );
+        if (row.group) {
+          const existing = out.find((item) => item.group === row.group);
+          if (existing) {
+            /* The same person on another door: one row, holding whatever the
+               slots on any of their doors hold. */
+            const union = new Set([
+              ...(existing.credentials || []),
+              ...(row.credentials || []),
+            ]);
+            existing.credentials = [...union];
+            existing.has_pin = existing.has_pin || row.has_pin;
+            existing.has_finger = existing.has_finger || row.has_finger;
+            existing.finger_restorable =
+              existing.finger_restorable || row.finger_restorable;
+            continue;
+          }
+        }
+        out.push(row);
+      }
+    }
+    return out;
   }
 
   _errorText(err) {
@@ -227,6 +341,7 @@ class HemnyckelGuestsCard extends HTMLElement {
     return {
       open: false,
       editSlot: null,
+      editEntry: null,
       editKind: "simple",
       mode: "simple",
       name: "",
@@ -255,9 +370,9 @@ class HemnyckelGuestsCard extends HTMLElement {
       await this._callServiceWS(
         "hemnyckel",
         "enroll_fingerprint",
-        this._lockData({ slot: guest.slot })
+        this._lockData({ slot: guest.slot }, guest.entry_id)
       );
-      this._actionNotice = `Läsaren är öppen — lägg ${guest.name || "gästens"} finger på låset nu.`;
+      this._actionNotice = `Läsaren är öppen — lägg ${guest.name || "personens"} finger på låset nu.`;
       clearTimeout(this._actionTimer);
       this._actionTimer = setTimeout(() => {
         this._actionNotice = "";
@@ -283,6 +398,7 @@ class HemnyckelGuestsCard extends HTMLElement {
       ...this._blankForm(),
       open: true,
       editSlot: guest.slot,
+      editEntry: guest.entry_id || null,
       editKind: ["recurring", "permanent"].includes(guest.kind)
         ? guest.kind
         : "simple",
@@ -321,11 +437,12 @@ class HemnyckelGuestsCard extends HTMLElement {
     return (state && state.attributes && state.attributes.entry_id) || null;
   }
 
-  _lockData(data) {
+  _lockData(data, entryId) {
     /* With several locks the services need to know which one: without the
-       entry id they fan out to every mirror. */
-    const entryId = this._entryId();
-    return entryId ? { ...data, entry_id: entryId } : { ...data };
+       entry id they fan out to every mirror. A row that came from a specific
+       lock passes its own entry id, so an action lands on that door first. */
+    const id = entryId || this._entryId();
+    return id ? { ...data, entry_id: id } : { ...data };
   }
 
   _locks() {
@@ -365,7 +482,13 @@ class HemnyckelGuestsCard extends HTMLElement {
 
   _editingGuest() {
     if (this._form.editSlot === null) return null;
-    return (this._guests || []).find((row) => row.slot === this._form.editSlot) || null;
+    return (
+      (this._guests || []).find(
+        (row) =>
+          row.slot === this._form.editSlot &&
+          (!this._form.editEntry || row.entry_id === this._form.editEntry)
+      ) || null
+    );
   }
 
   _siblings(guest) {
@@ -410,7 +533,7 @@ class HemnyckelGuestsCard extends HTMLElement {
       <ha-card>
         <div class="head">
           <ha-icon icon="mdi:account-key"></ha-icon>
-          <div class="title">Gästkoder</div>
+          <div class="title">Personer</div>
           <div class="count" id="count">0</div>
         </div>
         <div class="list" id="list"></div>
@@ -436,7 +559,7 @@ class HemnyckelGuestsCard extends HTMLElement {
     const guests = this._guests || [];
     if (count) count.textContent = String(guests.length);
     if (!guests.length) {
-      list.innerHTML = `<div class="empty">Inga gäster just nu.</div>`;
+      list.innerHTML = `<div class="empty">Inga personer just nu.</div>`;
       return;
     }
     list.innerHTML = this._actionError
@@ -454,7 +577,10 @@ class HemnyckelGuestsCard extends HTMLElement {
     row.className = guest.paused ? "row paused" : "row";
     const initial = (guest.name || "?").trim().charAt(0);
     const meta = this._meta(guest);
+    const slotText =
+      guest.slot === null || guest.slot === undefined ? "" : `Slot ${guest.slot} · `;
     const recurring = guest.kind === "recurring";
+    const slotOnly = guest.kind === "slot";
     const confirming = this._confirmSlot === guest.slot;
     const siblings = this._siblings(guest);
     const sibBadge = siblings.length
@@ -468,6 +594,8 @@ class HemnyckelGuestsCard extends HTMLElement {
         <div class="name"><span>${this._esc(guest.name) || "Namnlös"}</span>${
         guest.restorable
           ? '<span class="mark ok" title="PIN-koden sparas här — kan återställas efter en förlust"><ha-icon icon="mdi:key-variant"></ha-icon></span>'
+          : slotOnly
+          ? ""
           : '<span class="mark off" title="PIN-koden sparas inte — kan inte återställas efter en förlust"><ha-icon icon="mdi:key-remove"></ha-icon></span>'
       }${
         guest.has_finger
@@ -476,11 +604,16 @@ class HemnyckelGuestsCard extends HTMLElement {
             : '<span class="mark off" title="Fingret är registrerat men aldrig använt — kan inte verifieras och återställs inte automatiskt"><ha-icon icon="mdi:fingerprint-off"></ha-icon></span>'
           : ""
       }${sibBadge}${this._pill(guest)}</div>
-        <div class="meta">${this._esc(meta)}</div>
+        <div class="meta">${this._esc(slotText + meta)}</div>
+        ${this._badges(guest)}
       </div>
       <div class="actions">
-        <button class="icon" data-act="edit" title="Redigera">
-          <ha-icon icon="mdi:pencil"></ha-icon></button>
+        ${
+          slotOnly
+            ? ""
+            : `<button class="icon" data-act="edit" title="Redigera">
+          <ha-icon icon="mdi:pencil"></ha-icon></button>`
+        }
         <button class="icon" data-act="finger" title="Starta finger-enroll">
           <ha-icon icon="mdi:fingerprint"></ha-icon></button>
         ${
@@ -492,10 +625,14 @@ class HemnyckelGuestsCard extends HTMLElement {
               }"></ha-icon></button>`
             : ""
         }
-        <button class="icon ${confirming ? "confirm" : "danger"}" data-act="revoke" title="Återkalla">
+        <button class="icon ${confirming ? "confirm" : "danger"}" data-act="revoke" title="${
+          slotOnly ? "Rensa" : "Återkalla"
+        }">
           ${
             confirming
-              ? "Återkalla?"
+              ? slotOnly
+                ? "Rensa?"
+                : "Återkalla?"
               : `<ha-icon icon="mdi:trash-can-outline"></ha-icon>`
           }
         </button>
@@ -504,7 +641,7 @@ class HemnyckelGuestsCard extends HTMLElement {
     row.querySelector('[data-act="finger"]').addEventListener("click", () =>
       this._startFingerEnroll(guest)
     );
-    row.querySelector('[data-act="edit"]').addEventListener("click", () =>
+    row.querySelector('[data-act="edit"]')?.addEventListener("click", () =>
       this._startEdit(guest)
     );
     row.querySelector('[data-act="pause"]')?.addEventListener("click", async () => {
@@ -515,7 +652,7 @@ class HemnyckelGuestsCard extends HTMLElement {
       }));
       this._callService(
         "update_guest",
-        this._lockData({ slot: guest.slot, paused: !guest.paused })
+        this._lockData({ slot: guest.slot, paused: !guest.paused }, guest.entry_id)
       );
       if (failed.length) {
         this._actionError = `Misslyckades — ${failed.join("; ")}`;
@@ -541,7 +678,7 @@ class HemnyckelGuestsCard extends HTMLElement {
       })).then((failed) => {
         this._callService(
           "revoke_guest_code",
-          this._lockData({ slot: guest.slot })
+          this._lockData({ slot: guest.slot }, guest.entry_id)
         );
         if (failed.length) {
           this._actionError = `Misslyckades — ${failed.join("; ")}`;
@@ -552,7 +689,29 @@ class HemnyckelGuestsCard extends HTMLElement {
     return row;
   }
 
+  _badges(guest) {
+    /* What the slot holds, in the app's method words: Kod and Fingeravtryck.
+       RFID is deliberately absent - the lock never reports a tag use. */
+    const marks = [];
+    if (guest.has_pin || (guest.credentials || []).includes("pin")) {
+      marks.push(["mdi:key-variant", "Kod"]);
+    }
+    if (guest.has_finger || (guest.credentials || []).includes("fingerprint")) {
+      marks.push(["mdi:fingerprint", "Fingeravtryck"]);
+    }
+    if (!marks.length) return "";
+    return `<div class="badges">${marks
+      .map(
+        ([icon, label]) =>
+          `<span class="badge"><ha-icon icon="${icon}"></ha-icon>${label}</span>`
+      )
+      .join("")}</div>`;
+  }
+
   _pill(guest) {
+    if (guest.kind === "slot") {
+      return `<span class="pill active">Upptagen</span>`;
+    }
     if (guest.kind === "recurring") {
       if (guest.paused) return `<span class="pill paused">Pausad</span>`;
       if (guest.in_window) return `<span class="pill active">Aktiv</span>`;
@@ -566,6 +725,9 @@ class HemnyckelGuestsCard extends HTMLElement {
   }
 
   _meta(guest) {
+    if (guest.kind === "slot") {
+      return "Bara i slot-tabellen";
+    }
     if (guest.kind === "recurring") {
       const summary = (guest.summary || "").replace(/mon|tue|wed|thu|fri|sat|sun/g, (day) => {
         const found = DAYS.find(([key]) => key === day);
@@ -607,7 +769,7 @@ class HemnyckelGuestsCard extends HTMLElement {
       return;
     }
     if (!form.open) {
-      host.innerHTML = `<button class="newbtn" id="new"><ha-icon icon="mdi:plus"></ha-icon> Ny gästkod</button>`;
+      host.innerHTML = `<button class="newbtn" id="new"><ha-icon icon="mdi:plus"></ha-icon> Ny person</button>`;
       host.querySelector("#new").addEventListener("click", () => {
         this._form = this._blankForm();
         this._form.open = true;
@@ -672,6 +834,7 @@ class HemnyckelGuestsCard extends HTMLElement {
         <div class="chips">${durationChips}</div>
         <div class="switch"><span>Engångskod</span>
           <button class="toggle ${form.oneTime ? "on" : ""}" id="onetime"></button></div>
+        <div class="empty">Koden visas bara en gång och sparas inte — den går inte att återställa om låset tappar den. Välj Permanent om koden ska kunna återställas.</div>
       `;
     return `
       <div class="form">
@@ -719,7 +882,7 @@ class HemnyckelGuestsCard extends HTMLElement {
         }" value="${form.code}" />
         ${form.error ? `<div class="error">${this._esc(form.error)}</div>` : ""}
         <button class="submit" id="submit" ${form.busy ? "disabled" : ""}>
-          ${form.busy ? "Sparar…" : editing ? "Spara ändringar" : "Skapa gästkod"}
+          ${form.busy ? "Sparar…" : editing ? "Spara ändringar" : "Skapa person"}
         </button>
         <button class="ghost" id="cancel">Avbryt</button>
       </div>
@@ -809,7 +972,7 @@ class HemnyckelGuestsCard extends HTMLElement {
     const form = this._form;
     const name = form.name.trim();
     if (!name) {
-      form.error = "Ge gästen ett namn.";
+      form.error = "Ge personen ett namn.";
       this._renderForm();
       return;
     }
@@ -822,7 +985,7 @@ class HemnyckelGuestsCard extends HTMLElement {
       return;
     }
     if (editing && recurring && form.editKind === "simple" && !form.code.trim()) {
-      form.error = "En återkommande gäst behöver en kod — fyll i kodfältet.";
+      form.error = "En återkommande person behöver en kod — fyll i kodfältet.";
       this._renderForm();
       return;
     }
@@ -848,7 +1011,7 @@ class HemnyckelGuestsCard extends HTMLElement {
         await this._callServiceWS(
           "hemnyckel",
           "update_guest",
-          this._lockData(changes)
+          this._lockData(changes, form.editEntry)
         );
         const failed = editingGuest
           ? await this._fanOut("update_guest", editingGuest, (target) => ({
@@ -938,7 +1101,7 @@ class HemnyckelGuestsCard extends HTMLElement {
       form.busy = false;
       form.error = editing
         ? "Kunde inte spara ändringen."
-        : "Kunde inte skapa koden. Försök igen.";
+        : "Kunde inte skapa personen. Försök igen.";
       this._renderForm();
     }
   }
@@ -949,8 +1112,8 @@ class HemnyckelGuestsCard extends HTMLElement {
       : result.permanent
       ? "Permanent · koden är sparad och kan återställas"
       : result.until
-      ? `Giltig till ${this._niceTime(result.until)}`
-      : "Tills vidare";
+      ? `Visas bara en gång · giltig till ${this._niceTime(result.until)}`
+      : "Visas bara en gång · tills vidare";
     const text = encodeURIComponent(
       `Din kod till ytterdörren: ${result.code} (${valid})`
     );
@@ -970,7 +1133,7 @@ class HemnyckelGuestsCard extends HTMLElement {
         : "";
     return `
       <div class="result">
-        <div class="lead">Gästkoden är klar</div>
+        <div class="lead">Koden är klar</div>
         <div class="who">${this._esc(result.name)}</div>
         <div class="code">${this._esc(result.code)}</div>
         <div class="validity">${valid}</div>
@@ -1046,6 +1209,6 @@ customElements.define("hemnyckel-guests-card", HemnyckelGuestsCard);
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "hemnyckel-guests-card",
-  name: "Hemnyckel Gästkoder",
-  description: "Skapa och hantera gästkoder — tillfälliga, återkommande och permanenta.",
+  name: "Hemnyckel Personer",
+  description: "Skapa och hantera personer och deras koder — tillfälliga, återkommande och permanenta.",
 });

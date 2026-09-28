@@ -175,6 +175,98 @@ check(
 );
 check("row tooltip lists the other lock", row.innerHTML.includes("Källarlås"));
 
+// -- the list reads the person records and the slot table ----------------
+// The dashboard card is added with no `entity` at all, which is where the
+// bug lived: the old card read hass.states[""] and stayed empty. This is
+// exactly that card.
+const liveStates = {
+  "sensor.door_a_guests": {
+    entity_id: "sensor.door_a_guests",
+    attributes: {
+      entry_id: "entry-a",
+      lock: "Ytterdörren",
+      guests: [
+        { slot: 3, name: "Claes", kind: "permanent", group: "grp-x", restorable: true, has_code: true },
+      ],
+    },
+  },
+  "sensor.door_a_slots": {
+    entity_id: "sensor.door_a_slots",
+    attributes: {
+      entry_id: "entry-a",
+      lock: "Ytterdörren",
+      slots: [
+        { slot: 3, name: "Claes", has_pin: true, has_fingerprint: true, credentials: ["pin", "fingerprint"] },
+        { slot: 4, name: "Städfirma", has_pin: true, has_fingerprint: false, credentials: ["pin"] },
+        { slot: 5, name: "Alva", has_pin: false, has_fingerprint: true, credentials: ["fingerprint"] },
+      ],
+    },
+  },
+  "sensor.door_b_guests": {
+    entity_id: "sensor.door_b_guests",
+    attributes: {
+      entry_id: "entry-b",
+      lock: "Källardörren",
+      guests: [
+        { slot: 3, name: "Claes", kind: "permanent", group: "grp-x", restorable: true, has_code: true },
+      ],
+    },
+  },
+  "sensor.door_b_slots": {
+    entity_id: "sensor.door_b_slots",
+    attributes: {
+      entry_id: "entry-b",
+      lock: "Källardörren",
+      slots: [
+        { slot: 3, name: "Claes", has_pin: true, has_fingerprint: false, credentials: ["pin"] },
+      ],
+    },
+  },
+};
+const listCard = new global.__Card();
+listCard._config = {}; // exactly how the dashboard adds it
+listCard._hass = { states: liveStates };
+const people = listCard._buildGuests();
+check(
+  "an unconfigured card lists the person it can see",
+  people.some((p) => p.name === "Claes"),
+  JSON.stringify(people.map((p) => p.name))
+);
+check(
+  "the same person across two locks is listed once",
+  people.filter((p) => p.name === "Claes").length === 1,
+  JSON.stringify(people.map((p) => [p.name, p.entry_id]))
+);
+const claes = people.find((p) => p.name === "Claes");
+check("the person carries its slot", claes.slot === 3, String(claes && claes.slot));
+check(
+  "the person shows what the slot holds (PIN)",
+  claes.has_pin === true && claes.credentials.includes("pin"),
+  JSON.stringify(claes && claes.credentials)
+);
+check(
+  "a slot-only credential is listed too",
+  people.some((p) => p.name === "Städfirma" && p.kind === "slot"),
+  JSON.stringify(people.map((p) => p.name))
+);
+check(
+  "a finger is read from the slot table",
+  people.find((p) => p.name === "Alva").has_finger === true
+);
+check(
+  "a person's credentials are the union across their doors",
+  people.find((p) => p.name === "Claes").has_finger === true,
+  JSON.stringify(people.find((p) => p.name === "Claes").credentials)
+);
+const claesRow = listCard._guestRow(claes).innerHTML;
+check("the row shows the Kod badge", claesRow.includes(">Kod<"), claesRow.slice(0, 260));
+check("the row shows the slot number", claesRow.includes("Slot 3"));
+check(
+  "the Fingeravtryck badge comes from the slot",
+  listCard._guestRow(people.find((p) => p.name === "Alva")).innerHTML.includes(">Fingeravtryck<")
+);
+check("no RFID/tag badge is ever rendered", !claesRow.includes("Bricka"));
+
 // -- create across locks ------------------------------------------------
 (async () => {
   const calls = [];
