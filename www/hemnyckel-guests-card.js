@@ -243,6 +243,17 @@ class HemnyckelGuestsCard extends HTMLElement {
     /* The app's guest users: identities created in the vendor app. The
        integration answers with each guest's accesses per lock, so the card can
        tell what actually lives on this door, on another door, or nowhere. */
+    /* The vendor cloud is gone, so the panel that compared its guests with the
+       lock's slots has nothing to compare. When the service is not there - it
+       never is now - the panel stays empty instead of reporting an error. */
+    if (!this._hass || !this._hass.services || !this._hass.services.hemnyckel
+        || !this._hass.services.hemnyckel.cloud_guests) {
+      this._cloudGuests = null;
+      this._cloudLoaded = true;
+      this._cloudError = "";
+      this._renderCloud();
+      return;
+    }
     this._cloudLoading = true;
     this._cloudError = "";
     try {
