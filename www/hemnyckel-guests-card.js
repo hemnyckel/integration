@@ -201,8 +201,10 @@ const STYLE = `
   .doorchip {
     display: inline-flex; align-items: center; gap: 4px; font-size: 12px;
     color: var(--secondary-text-color); background: var(--secondary-background-color);
-    border-radius: 8px; padding: 3px 8px;
+    border-radius: 8px; padding: 3px 8px; border: none; cursor: pointer;
+    font-family: inherit;
   }
+  .doorchip:hover { color: var(--primary-text-color); }
   .doorchip.ok { color: var(--success-color, #43a047); }
   .doorchip.off { opacity: .6; }
   .fingerbox {
@@ -444,24 +446,23 @@ class HemnyckelGuestsCard extends HTMLElement {
     return FINGER_NAMES[key] || label || "";
   }
 
-  _toggleFingerPicker(guest) {
+  _toggleFingerPicker(guest, door) {
     /* Step one of any enrolment is choosing the finger, so the reader is never
-       lit before that choice is made. Tapping the fingerprint button opens the
-       per-door picker rather than starting an enrolment blind. */
+       lit before that choice is made. Tapping a door's chip opens the picker
+       with that door chosen; the row button opens it on the first door. */
     const key = this._key(guest);
-    if (this._fingerKey === key) {
+    const chosen =
+      door ||
+      (guest.doors && guest.doors[0] && guest.doors[0].entry_id) ||
+      guest.entry_id ||
+      "";
+    if (this._fingerKey === key && this._fingerPick.door === chosen) {
       this._fingerKey = null;
       this._renderList();
       return;
     }
     this._fingerKey = key;
-    this._fingerPick = {
-      door:
-        (guest.doors && guest.doors[0] && guest.doors[0].entry_id) ||
-        guest.entry_id ||
-        "",
-      finger: "",
-    };
+    this._fingerPick = { door: chosen, finger: "" };
     this._actionError = "";
     this._actionNotice = "";
     this._renderList();
@@ -789,6 +790,11 @@ class HemnyckelGuestsCard extends HTMLElement {
     row.querySelector('[data-act="finger"]').addEventListener("click", () =>
       this._toggleFingerPicker(guest)
     );
+    row.querySelectorAll("[data-open-finger]").forEach((button) =>
+      button.addEventListener("click", () => {
+        this._toggleFingerPicker(guest, button.dataset.openFinger);
+      })
+    );
     row.querySelectorAll("[data-finger-door]").forEach((button) =>
       button.addEventListener("click", () => {
         this._fingerPick.door = button.dataset.fingerDoor;
@@ -886,9 +892,11 @@ class HemnyckelGuestsCard extends HTMLElement {
         : door.has_finger
         ? "finger utan etikett"
         : "inget finger";
-      return `<span class="doorchip ${
+      return `<button class="doorchip ${
         door.has_finger ? "ok" : "off"
-      }">${this._esc(door.lock)} · ${this._esc(shown)}</span>`;
+      }" data-open-finger="${this._esc(door.entry_id)}" title="Välj finger för ${
+        this._esc(door.lock)
+      }">${this._esc(door.lock)} · ${this._esc(shown)}</button>`;
     });
     return `<div class="doors">${chips.join("")}</div>`;
   }

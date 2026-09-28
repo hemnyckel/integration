@@ -295,6 +295,12 @@ check(
   claesRow.includes("Vänster pekfinger") && claesRow.includes("inget finger"),
   claesRow.slice(-400)
 );
+check(
+  "each door's chip can start that door's enrolment",
+  claesRow.includes('data-open-finger="entry-a"') &&
+    claesRow.includes('data-open-finger="entry-b"'),
+  claesRow.slice(-400)
+);
 listCard._fingerKey = claes.key;
 listCard._fingerPick = { door: claes.doors[1].entry_id, finger: "left index" };
 const picker = listCard._fingerPickerHtml(claes);
