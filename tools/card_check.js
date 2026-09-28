@@ -196,7 +196,16 @@ const liveStates = {
       entry_id: "entry-a",
       lock: "Ytterdörren",
       slots: [
-        { slot: 3, name: "Claes", has_pin: true, has_fingerprint: true, credentials: ["pin", "fingerprint"] },
+        {
+          slot: 3,
+          name: "Claes",
+          has_pin: true,
+          has_fingerprint: true,
+          credentials: ["pin", "fingerprint"],
+          finger_used: false,
+          finger_state: "claimed",
+          fingers: [{ label: "left index", enrolled: "2026-09-28T10:00:00+00:00" }],
+        },
         { slot: 4, name: "Städfirma", has_pin: true, has_fingerprint: false, credentials: ["pin"] },
         { slot: 5, name: "Alva", has_pin: false, has_fingerprint: true, credentials: ["fingerprint"] },
       ],
@@ -266,6 +275,58 @@ check(
   listCard._guestRow(people.find((p) => p.name === "Alva")).innerHTML.includes(">Fingeravtryck<")
 );
 check("no RFID/tag badge is ever rendered", !claesRow.includes("Bricka"));
+
+// -- per-door finger truth and the mandatory picker ----------------------
+// A person across two doors keeps one row, but the row tells the truth per
+// door: here Ytterdörren has the left index and Källardörren has none. The
+// finger is chosen (all ten) before the reader may be started, per door.
+check(
+  "a two-door person carries both doors",
+  (claes.doors || []).length === 2,
+  JSON.stringify((claes.doors || []).map((d) => d.lock))
+);
+check(
+  "the row shows both doors",
+  claesRow.includes("Ytterdörren ·") && claesRow.includes("Källardörren ·"),
+  claesRow.slice(-400)
+);
+check(
+  "the per-door finger state differs (has one / has none)",
+  claesRow.includes("Vänster pekfinger") && claesRow.includes("inget finger"),
+  claesRow.slice(-400)
+);
+listCard._fingerKey = claes.key;
+listCard._fingerPick = { door: claes.doors[1].entry_id, finger: "left index" };
+const picker = listCard._fingerPickerHtml(claes);
+check(
+  "the picker offers the ten fingers",
+  picker.includes("Vänster tumme") && picker.includes("Höger lillfinger") &&
+    (picker.match(/data-finger=/g) || []).length === 10,
+  String((picker.match(/data-finger=/g) || []).length)
+);
+check(
+  "the picker offers each door",
+  picker.includes("Ytterdörren") && picker.includes("Källardörren"),
+  picker.slice(0, 300)
+);
+check("a chosen door and finger enable the reader", picker.includes("Starta läsaren") && !picker.includes("disabled"));
+listCard._fingerPick = { door: claes.doors[1].entry_id, finger: "" };
+const pickerEmpty = listCard._fingerPickerHtml(claes);
+check(
+  "the reader is disabled until a finger is chosen",
+  pickerEmpty.includes("Välj finger först") && pickerEmpty.includes("disabled")
+);
+check(
+  "a door with no finger has a per-door target slot",
+  listCard._fingerTargetSlot(claes, "entry-b", 3) === 3,
+  String(listCard._fingerTargetSlot(claes, "entry-b", 3))
+);
+check(
+  "a door whose slot already holds a finger gets the next free slot",
+  listCard._fingerTargetSlot(claes, "entry-a", 3) === 6,
+  String(listCard._fingerTargetSlot(claes, "entry-a", 3))
+);
+listCard._fingerKey = null;
 
 // -- create across locks ------------------------------------------------
 (async () => {

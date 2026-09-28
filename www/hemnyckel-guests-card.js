@@ -33,6 +33,24 @@ const DURATIONS = [
   ["none", "Tills vidare", 0],
 ];
 
+/* The ten fingers, fixed: the stored label is the integration's canonical
+   English word (so the same finger reads the same on every lock), and what the
+   household sees is the Swedish name. The lock never reports the finger, so
+   this is a claim the owner makes at enrolment. */
+const FINGERS = [
+  ["left thumb", "Vänster tumme"],
+  ["left index", "Vänster pekfinger"],
+  ["left middle", "Vänster långfinger"],
+  ["left ring", "Vänster ringfinger"],
+  ["left little", "Vänster lillfinger"],
+  ["right thumb", "Höger tumme"],
+  ["right index", "Höger pekfinger"],
+  ["right middle", "Höger långfinger"],
+  ["right ring", "Höger ringfinger"],
+  ["right little", "Höger lillfinger"],
+];
+const FINGER_NAMES = Object.fromEntries(FINGERS);
+
 /* Empty on purpose: the card discovers every lock from the guests sensors.
    Pin one entity here to make that door this card's own. */
 const DEFAULT_ENTITY = "";
@@ -179,6 +197,21 @@ const STYLE = `
   .mark ha-icon { --mdc-icon-size: 16px; }
   .mark.ok { color: var(--success-color, #43a047); }
   .mark.off { opacity: .55; }
+  .doors { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .doorchip {
+    display: inline-flex; align-items: center; gap: 4px; font-size: 12px;
+    color: var(--secondary-text-color); background: var(--secondary-background-color);
+    border-radius: 8px; padding: 3px 8px;
+  }
+  .doorchip.ok { color: var(--success-color, #43a047); }
+  .doorchip.off { opacity: .6; }
+  .fingerbox {
+    margin-top: 10px; display: flex; flex-direction: column; gap: 8px;
+    padding: 10px; border: 1px solid var(--divider-color); border-radius: 10px;
+    background: var(--secondary-background-color);
+  }
+  .fingerbox .hint { font-size: 12px; color: var(--secondary-text-color); }
+  .fingerbox button.submit { padding: 9px; font-size: 14px; }
 `;
 
 class HemnyckelGuestsCard extends HTMLElement {
@@ -194,6 +227,11 @@ class HemnyckelGuestsCard extends HTMLElement {
     this._actionError = "";
     this._actionNotice = "";
     this._actionTimer = null;
+    /* Which person's per-door finger picker is open, and what is chosen in it.
+       The finger is a required choice: the reader is only started once one of
+       the ten is picked. */
+    this._fingerKey = null;
+    this._fingerPick = { door: "", finger: "" };
   }
 
   setConfig(config) {
@@ -214,6 +252,15 @@ class HemnyckelGuestsCard extends HTMLElement {
         g.until,
         g.summary,
         g.credentials,
+        /* The per-door finger truth has to be part of the fingerprint, or a
+           label that changes without a credential changing would not repaint. */
+        (g.doors || []).map((door) => [
+          door.entry_id,
+          door.slot,
+          door.has_finger,
+          door.finger_used,
+          door.fingers,
+        ]),
       ])
     );
     if (fingerprint !== this._fingerprint) {
@@ -255,6 +302,7 @@ class HemnyckelGuestsCard extends HTMLElement {
       : [];
     const hasPin = credentials.includes("pin") || Boolean(row.has_code);
     const hasFinger = credentials.includes("fingerprint");
+    const fingers = Array.isArray(data.fingers) ? data.fingers : [];
     return {
       ...row,
       entry_id: lock.entry_id,
@@ -263,7 +311,33 @@ class HemnyckelGuestsCard extends HTMLElement {
       has_pin: hasPin,
       has_finger: hasFinger,
       finger_restorable: hasFinger,
+      finger_used: Boolean(data.finger_used),
+      finger_state: data.finger_state || "",
+      fingers,
     };
+  }
+
+  _doorRef(row) {
+    /* One door's own truth about a person: its entry id, its slot, and what
+       that slot holds. Kept per door so a person across two locks is shown,
+       and can be acted on, door by door. */
+    return {
+      entry_id: row.entry_id,
+      lock: row.lock,
+      slot: row.slot,
+      has_pin: row.has_pin,
+      has_finger: row.has_finger,
+      finger_used: row.finger_used,
+      finger_state: row.finger_state,
+      fingers: row.fingers || [],
+      credentials: row.credentials,
+    };
+  }
+
+  _key(guest) {
+    if (!guest) return "";
+    if (guest.group) return `g:${guest.group}`;
+    return `s:${guest.entry_id || ""}:${guest.slot}`;
   }
 
   _buildGuests() {
@@ -308,8 +382,11 @@ class HemnyckelGuestsCard extends HTMLElement {
         if (row.group) {
           const existing = out.find((item) => item.group === row.group);
           if (existing) {
-            /* The same person on another door: one row, holding whatever the
-               slots on any of their doors hold. */
+            /* The same person on another door: still one row, but each door
+               keeps its own slot, its own credentials and its own fingers, so
+               the row can tell the truth per door instead of pretending the
+               person can be enrolled on both at once. */
+            existing.doors.push(this._doorRef(row));
             const union = new Set([
               ...(existing.credentials || []),
               ...(row.credentials || []),
@@ -322,6 +399,8 @@ class HemnyckelGuestsCard extends HTMLElement {
             continue;
           }
         }
+        row.doors = [this._doorRef(row)];
+        row.key = this._key(row);
         out.push(row);
       }
     }
@@ -360,19 +439,86 @@ class HemnyckelGuestsCard extends HTMLElement {
     };
   }
 
-  async _startFingerEnroll(guest) {
-    /* The reader lights up for the person at the door; a template only exists
-       once that finger has really opened the door (the lock reports nothing
-       while enrolling). */
+  _fingerName(label) {
+    const key = String(label || "").trim().toLowerCase();
+    return FINGER_NAMES[key] || label || "";
+  }
+
+  _toggleFingerPicker(guest) {
+    /* Step one of any enrolment is choosing the finger, so the reader is never
+       lit before that choice is made. Tapping the fingerprint button opens the
+       per-door picker rather than starting an enrolment blind. */
+    const key = this._key(guest);
+    if (this._fingerKey === key) {
+      this._fingerKey = null;
+      this._renderList();
+      return;
+    }
+    this._fingerKey = key;
+    this._fingerPick = {
+      door:
+        (guest.doors && guest.doors[0] && guest.doors[0].entry_id) ||
+        guest.entry_id ||
+        "",
+      finger: "",
+    };
+    this._actionError = "";
+    this._actionNotice = "";
+    this._renderList();
+  }
+
+  _fingerTargetSlot(guest, doorEntryId, doorSlot) {
+    /* The slot stays automatic: the person's own slot on that door when it has
+       no fingerprint yet, otherwise the first free user slot, named for them.
+       Templates never go below slot 3 (the masters 0-2 are the lock's own). */
+    const slots = this._slotsFor(doorEntryId);
+    const own =
+      doorSlot === null || doorSlot === undefined ? null : slots[String(doorSlot)];
+    if (own && !own.has_fingerprint && !(own.fingers || []).length) {
+      return doorSlot;
+    }
+    const occupied = new Set(
+      Object.values(slots)
+        .filter(
+          (row) =>
+            row &&
+            (row.name ||
+              (Array.isArray(row.credentials) && row.credentials.length))
+        )
+        .map((row) => Number(row.slot))
+    );
+    let slot = 3;
+    while (occupied.has(slot)) slot += 1;
+    return slot;
+  }
+
+  async _startFingerEnroll(guest, doorEntryId, finger) {
+    /* Light the chosen door's reader for the chosen finger. One door at a
+       time: nobody stands at two doors at once, and a template lives in one
+       lock. The label is stored as a claim; the lock reports nothing while
+       enrolling and only a real use confirms it. */
+    const door = (guest.doors || []).find((item) => item.entry_id === doorEntryId);
+    if (!door || !finger) return;
     this._actionError = "";
     this._actionNotice = "";
     try {
-      await this._callServiceWS(
-        "hemnyckel",
-        "enroll_fingerprint",
-        this._lockData({ slot: guest.slot }, guest.entry_id)
-      );
-      this._actionNotice = `Läsaren är öppen — lägg ${guest.name || "personens"} finger på låset nu.`;
+      const target = this._fingerTargetSlot(guest, doorEntryId, door.slot);
+      if (target !== door.slot) {
+        await this._callServiceWS("hemnyckel", "set_slot_name", {
+          slot: target,
+          name: guest.name,
+          entry_id: doorEntryId,
+        });
+      }
+      await this._callServiceWS("hemnyckel", "enroll_fingerprint", {
+        slot: target,
+        entry_id: doorEntryId,
+        finger,
+      });
+      this._fingerKey = null;
+      this._actionNotice = `Läsaren är öppen på ${door.lock} — lägg fingret på låset nu. "${this._fingerName(
+        finger
+      )}" sparas som ett påstående; låset bekräftar först när ett finger i platsen öppnat dörren.`;
       clearTimeout(this._actionTimer);
       this._actionTimer = setTimeout(() => {
         this._actionNotice = "";
@@ -606,6 +752,8 @@ class HemnyckelGuestsCard extends HTMLElement {
       }${sibBadge}${this._pill(guest)}</div>
         <div class="meta">${this._esc(slotText + meta)}</div>
         ${this._badges(guest)}
+        ${this._fingerDoors(guest)}
+        ${this._fingerKey === guest.key ? this._fingerPickerHtml(guest) : ""}
       </div>
       <div class="actions">
         ${
@@ -639,8 +787,23 @@ class HemnyckelGuestsCard extends HTMLElement {
       </div>
     `;
     row.querySelector('[data-act="finger"]').addEventListener("click", () =>
-      this._startFingerEnroll(guest)
+      this._toggleFingerPicker(guest)
     );
+    row.querySelectorAll("[data-finger-door]").forEach((button) =>
+      button.addEventListener("click", () => {
+        this._fingerPick.door = button.dataset.fingerDoor;
+        this._renderList();
+      })
+    );
+    row.querySelectorAll("[data-finger]").forEach((button) =>
+      button.addEventListener("click", () => {
+        this._fingerPick.finger = button.dataset.finger;
+        this._renderList();
+      })
+    );
+    row.querySelector("#finger-start")?.addEventListener("click", () => {
+      this._startFingerEnroll(guest, this._fingerPick.door, this._fingerPick.finger);
+    });
     row.querySelector('[data-act="edit"]')?.addEventListener("click", () =>
       this._startEdit(guest)
     );
@@ -706,6 +869,64 @@ class HemnyckelGuestsCard extends HTMLElement {
           `<span class="badge"><ha-icon icon="${icon}"></ha-icon>${label}</span>`
       )
       .join("")}</div>`;
+  }
+
+  _fingerDoors(guest) {
+    /* Per-door truth for a person who spans more than one lock: each door's
+       own slot and its own finger. The badge above is the union; this is what
+       is actually true at each door. A door with no finger says so. */
+    const doors = guest.doors || [];
+    if (doors.length < 2) return "";
+    const chips = doors.map((door) => {
+      const labels = (door.fingers || [])
+        .map((item) => this._fingerName(item.label))
+        .filter(Boolean);
+      const shown = labels.length
+        ? labels.join(", ")
+        : door.has_finger
+        ? "finger utan etikett"
+        : "inget finger";
+      return `<span class="doorchip ${
+        door.has_finger ? "ok" : "off"
+      }">${this._esc(door.lock)} · ${this._esc(shown)}</span>`;
+    });
+    return `<div class="doors">${chips.join("")}</div>`;
+  }
+
+  _fingerPickerHtml(guest) {
+    /* The reader is only enabled once a finger is chosen, and the finger is
+       enrolled one door at a time: a template lives in one lock, and nobody
+       stands at two doors at once. */
+    const doors = guest.doors || [];
+    const doorChips = doors
+      .map(
+        (door) =>
+          `<button class="chip ${
+            this._fingerPick.door === door.entry_id ? "on" : ""
+          }" data-finger-door="${this._esc(door.entry_id)}">${this._esc(
+            door.lock
+          )}</button>`
+      )
+      .join("");
+    const fingerChips = FINGERS.map(
+      ([key, label]) =>
+        `<button class="chip ${
+          this._fingerPick.finger === key ? "on" : ""
+        }" data-finger="${key}">${label}</button>`
+    ).join("");
+    const ready = Boolean(this._fingerPick.door && this._fingerPick.finger);
+    return `
+      <div class="fingerbox">
+        <div class="label">Dörr</div>
+        <div class="chips">${doorChips}</div>
+        <div class="label">Finger</div>
+        <div class="chips">${fingerChips}</div>
+        <div class="hint">Fingret sparas som ett påstående — låset berättar aldrig vilket finger som öppnade.</div>
+        <button class="submit" id="finger-start" ${
+          ready ? "" : "disabled"
+        }>${ready ? "Starta läsaren" : "Välj finger först"}</button>
+      </div>
+    `;
   }
 
   _pill(guest) {
