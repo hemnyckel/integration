@@ -148,3 +148,7 @@ Security reports: [SECURITY.md](SECURITY.md).
 
 The integration is licensed under **Apache-2.0** ([LICENSE](LICENSE)); the
 bundled Lovelace card is under the same MIT terms as the project. See [NOTICE](NOTICE).
+
+> Note to ourselves: for an options flow, `POST /api/config/config_entries/options/flow`
+> takes the config **entry id** as `handler` — the domain name 500s before any integration
+> code runs. Cost us one wrong diagnosis.
