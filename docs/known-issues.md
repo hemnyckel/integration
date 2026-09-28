@@ -12,6 +12,30 @@ The lock reports nothing while an enrollment runs; there is no way to ask
   proof: re-record a finger only when it has really opened the door, and a
   revocation sends an explicit clear.
 
+## Re-enrolment into a "cleared" slot was refused (fixed)
+
+The lock blinks red and refuses a second enrolment into a slot that already
+holds a template, and `hemnyckel.clear_slot` cleared only the PIN — the
+fingerprint clear (`0x72`) was never sent. A slot the household considered free
+therefore still held a template and the next enrolment failed at the reader: the
+refusal was our own bug, not the lock's.
+
+- **We do** clear both credentials now: `clear_slot` sends the PIN clear and the
+  fingerprint clear, and `hemnyckel.clear_fingerprint` sends `0x72` alone. The
+  master slots 0–2 are still never touched. (Steps 1–3 of
+  [fingerprints.md](fingerprints.md).)
+
+## The slots sensor never carried `finger_used` (fixed)
+
+`finger_used` — the only proof that a finger in a slot has really opened the
+door — lived in the slot table but was never emitted on the slots sensor, so the
+app's `LockSlot.fingerUsed` was always false and a confirmed finger could not be
+shown.
+
+- **We do** emit `finger_used` and the per-slot `fingers` labels on both the
+  slots sensor and the per-slot sensors; the slot table records the owner's
+  label for each finger as a claim, confirmed only by a real use.
+
 ## RFID is deliberately unsupported
 
 Measured 2026-09-23: enrolling a tag sends only the credential id over Zigbee

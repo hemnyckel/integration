@@ -8,10 +8,10 @@ It is a design, not a description of what exists. Two things must be said up
 front, because everything below depends on them:
 
 1. **The physical test in [§2](#2-the-one-physical-test-that-decides-the-model)
-   has not been run.** It decides whether a slot can hold one template or
-   several, and that single answer decides how fingers are stored. The design is
-   written so both outcomes implement the same household model; only the
-   storage rule and the capacity arithmetic change.
+   has been answered — by the lock itself.** Re-enrolling a finger on a slot
+   that already held one makes the reader blink red and refuse, so **one slot
+   holds one template** (`TEMPLATES_PER_SLOT = 1`, branch A). Several fingers
+   per person therefore means several slots, each with its own label.
 2. **The lock never reports which finger was used — only which slot.** No
    amount of software changes that. "Which finger" is a **label we keep**, and
    the document treats it as a claim, never as a measurement.
@@ -109,10 +109,12 @@ index opened the door". The UI must word it accordingly ([§4](#4-which-finger-i
 - Vendor command **`0x72`** (`ZCL_CMD_FP_CLEAR`) clears a slot's fingerprint.
   Today it is sent **only by the whole-lock `wipe`** (`coordinator.async_wipe_credentials`),
   which sweeps every user slot above the master floor.
-- `hemnyckel.clear_slot` clears the **PIN** (`ClearPINCode`, `0x07`) and forgets
-  the slot locally — it does **not** send `0x72`, so a fingerprint template
-  stays on the lock while Home Assistant forgets it. That is a real gap for
-  re-enrolment ([§5](#5-re-enrolment)) and must be fixed.
+- `hemnyckel.clear_slot` used to clear only the **PIN** (`ClearPINCode`, `0x07`)
+  and forget the slot locally, without sending `0x72`: a fingerprint template
+  stayed on the lock while Home Assistant forgot it, and the lock then refused
+  the next enrolment into the "free" slot with a red blink. **Fixed in step 3**:
+  `clear_slot` clears both, and `hemnyckel.clear_fingerprint` sends `0x72` on
+  its own ([§5](#5-re-enrolment)).
 - The slot table is per lock, stored in that entry's options under `slots`:
   `name`, `has_pin`, `has_fingerprint`, `has_rfid`, `finger_used`. There is no
   finger label anywhere today.
@@ -143,8 +145,15 @@ index opened the door". The UI must word it accordingly ([§4](#4-which-finger-i
 
 ## 2. The one physical test that decides the model
 
-**Status: not run.** It is one action by the owner at a lock, and it decides
-everything about how fingers are stored.
+**Status: answered by the lock's own refusal.** The owner tried to re-enrol a
+finger on a slot that already held one, from both the app and Home Assistant.
+The reader blinks red and refuses the second enrolment. The lock therefore holds
+**one template per slot**, and the policy constant is set accordingly
+(`TEMPLATES_PER_SLOT = 1`, branch A). A person with several fingers needs
+several slots, each holding one.
+
+What follows is the test as it was planned, and what its two outcomes would have
+meant. Only the first outcome was possible on this hardware.
 
 ### The test
 
@@ -160,8 +169,8 @@ everything about how fingers are stored.
 
 | Outcome | Meaning | Consequence |
 |---|---|---|
-| **Both A and B open the door, and the report still names the same slot** | The slot holds **several templates** (branch B) | One slot is a person's *finger set*; the lock can never say which one was used; removing one finger means clearing the slot and re-enrolling the others. |
-| **A opens, B does not (or the second enrolment replaces A)** | The slot holds **one template** (branch A) | One slot is exactly one finger; "which finger" is the slot's label; a person with several fingers needs several slots. |
+| **The reader blinks red and refuses the second enrolment** | The slot holds **one template** (branch A) — **the observed answer** | One slot is exactly one finger; "which finger" is the slot's label, and a person with several fingers needs several slots. |
+| Both A and B open the door, and the report still names the same slot | The slot holds **several templates** (branch B) — not reachable on this hardware | One slot would be a person's *finger set*; the lock could never say which one was used, and removing one finger would mean clearing and re-enrolling the others. |
 
 ### Why it decides the design
 
@@ -173,8 +182,8 @@ thing distinguishing a person's fingers, and it is unverifiable. The capacity
 arithmetic and the meaning of "clear a finger" also differ completely.
 
 **Everything else below is written to be identical for both branches.** Only one
-policy value and the wording of two UI states change; the physical test chooses
-it.
+policy value and the wording of two UI states changed; the physical test — the
+lock's red blink — chose branch A.
 
 ---
 
@@ -234,8 +243,9 @@ Put the decision in one pure module (`mirror/fingers.py`, no Home Assistant
 imports, loadable by the unit tests like `guests.py` / `pin_rules.py`):
 
 ```python
-# Set from the physical test (§2). One slot holds at most this many templates.
-TEMPLATES_PER_SLOT = None   # None = unbounded (branch B); 1 = branch A
+# Set from the physical test (§2): the reader refuses a second enrolment into
+# an occupied slot, so one slot holds exactly one template (branch A).
+TEMPLATES_PER_SLOT = 1
 ```
 
 - `can_add(slot_data, label) -> str | None` returns a refusal reason when the
@@ -300,7 +310,9 @@ Consequences the implementation must honour:
 
 ## 5. Re-enrolment
 
-"Re-enrol" is really two operations, and the branch decides their cost.
+"Re-enrol" is really two operations, and the branch decides their cost. The
+branch is decided — branch A (§2) — so the first block below is the live path;
+the second records what branch B would have cost.
 
 ### 5.1 Changing a finger (a thumb for an index)
 
@@ -325,8 +337,9 @@ your fingers"), not a one-finger edit.
 
 - **The slot.** Sending `0x72` on a user slot clears that slot's fingerprint
   template(s). It must never touch slots 0–2 ([§8](#8-what-must-not-change)).
-  Today only `wipe` sends `0x72`; a **fingerprint-only clear must be added**, and
-  `clear_slot` must stop leaving a template behind.
+  Only `wipe` used to send `0x72`; the **fingerprint-only clear was added** in
+  step 3 (`hemnyckel.clear_fingerprint`), and `clear_slot` no longer leaves a
+  template behind.
 - **The label.** Clearing the fingerprint removes the slot's `fingers` entries
   and `has_fingerprint` / `finger_used`; if the slot keeps a PIN, the slot and
   its name stay. A **rename of just the label** (a finger's name was wrong) is a
@@ -392,11 +405,11 @@ separate space is **unknown** and is one of the things to confirm.
 
 So the budget is shown as arithmetic with the assumption made explicit:
 
-- **Branch A:** a person with **5 fingers on 3 locks** costs up to
+- **Branch A (in force):** a person with **5 fingers on 3 locks** costs up to
   **5 slots per lock = 15 enrolments**, i.e. 5 of this lock's usable slots. A
   family of 5 doing the same costs 25 of 47 — visible and finite.
-- **Branch B:** **one slot per person per lock** regardless of finger count; 5
-  fingers cost 3 slots (one per door) total.
+- **Branch B (rejected):** **one slot per person per lock** regardless of finger
+  count; 5 fingers cost 3 slots (one per door) total.
 
 The UI shows, per lock, `used / usable` and, per person, "this person takes N of
 this door's slots"; and it refuses to start an enrolment when
@@ -418,9 +431,10 @@ failing at the ZCL layer.
   person; each door resolves independently into present/confirmed.
 - **`has_fingerprint` vs `finger_used`** are two different row treatments, as
   the card already intends: *enrolled, not yet used* vs *used to open*. The app's
-  `LockSlot.fingerUsed` is currently **always false** because the integration's
-  slots sensor never emits `finger_used` — the relay reads it from the sensor, so
-  this must be fixed before the app can show confirmation (step 1 below).
+  `LockSlot.fingerUsed` used to be **always false** because the integration's
+  slots sensor never emitted `finger_used`; **fixed in step 1** — the slots and
+  per-slot sensors now emit `finger_used` (and the `fingers` labels), so the
+  relay and the app can show confirmation.
 - **An owner driving it for someone else** sees the same sheet with the person
   pre-chosen; nothing special.
 - **Re-enrolment**: a "change finger" action that explains the branch's cost
@@ -430,9 +444,10 @@ failing at the ZCL layer.
 
 ### 7.2 Home Assistant
 
-- **The slots sensor** (`sensor.<lock>_slots`) gains `finger_used` (missing
-  today) and a `fingers` list per row, so automations and the card can see the
-  labels. The per-slot sensors (`sensor.<lock>_slot_N`) get the same.
+- **The slots sensor** (`sensor.<lock>_slots`) gained `finger_used` (it never
+  emitted it before step 1) and a `fingers` list per row, so automations and the
+  card can see the labels. The per-slot sensors (`sensor.<lock>_slot_N`) got the
+  same.
 - **The Personer card** (`www/hemnyckel-guests-card.js`) folds the per-lock
   slots and guest records together already; it gains a per-person finger list
   with the per-door state, using the same present/missing/unknown words, and an
@@ -445,8 +460,9 @@ failing at the ZCL layer.
   *entity*, that is a new deliberate topic and a new row in the bridge document,
   not a quiet addition here.
 - **A new `hemnyckel.clear_fingerprint` service** (and a `finger` argument on
-  `enroll_fingerprint`) is required; `services.yaml` and both translation files
-  gain the keys.
+  `enroll_fingerprint`, plus `hemnyckel.relabel_fingerprint` for the label-only
+  rename) was added in step 3; `services.yaml` and both translation files carry
+  the keys.
 
 ### 7.3 The relay
 
@@ -497,30 +513,29 @@ build/test.
 
 | # | Step | Repo | Checks | Risk | Physical |
 |---|---|---|---|---|---|
-| 0 | **Run the physical test (§2)** and set `TEMPLATES_PER_SLOT` | bench | — | none — it is a measurement | **owner: enrol finger A then finger B in one slot, try both** |
-| 1 | **Expose the truth that already exists**: emit `finger_used` on the slots sensor and the per-slot sensors; add a `fingers` list to the slot table and show it | integration | compileall, unittest, check_pii | **cheap**, pure additive; the `fingers` list has no writers yet | none |
-| 2 | **Pure finger policy** (`mirror/fingers.py`): `can_add`, `finger_state`, `plan_slots`, with the branch constant | integration | unittest (new `test_fingers.py`, loaded by path like `test_guests.py`) | **cheap**, no HA imports, no device I/O | none |
-| 3 | **Services**: `enroll_fingerprint` takes `finger` and records it; new `clear_fingerprint` sends `0x72`; `clear_slot` also clears the template; journal entries `finger_enrolled` / `finger_cleared` / `finger_relabelled` | integration | compileall, unittest, check_pii; hardware via `tools/sync_to_ha.sh` | **genuine change to the model** — a new write path to the lock; must be verified on hardware before trusting | owner: one clear + one enrol on a spare slot |
+| 0 | **Done — the physical test (§2)**: the lock refuses a second enrolment into an occupied slot, so `TEMPLATES_PER_SLOT = 1` | bench | — | none — it was a measurement | **answered by the lock's red blink** |
+| 1 | **Done** — expose the truth that already exists: emit `finger_used` on the slots sensor and the per-slot sensors; add a `fingers` list to the slot table and show it | integration | compileall, unittest, check_pii | cheap, pure additive | none |
+| 2 | **Done** — pure finger policy (`mirror/fingers.py`): `can_add`, `finger_state`, `plan_slots`, with the branch constant | integration | unittest (new `test_fingers.py`, loaded by path like `test_guests.py`) | cheap, no HA imports, no device I/O | none |
+| 3 | **Done** — services: `enroll_fingerprint` takes `finger` and records it; new `clear_fingerprint` sends `0x72`; `clear_slot` also clears the template; journal entries `finger_enrolled` / `finger_cleared` / `finger_relabelled` | integration | compileall, unittest, check_pii; hardware via `tools/sync_to_ha.sh` | the new write path is verified live; the enrolment itself awaits the owner's finger | owner: one clear + one enrol on a spare slot |
 | 4 | **HA surfaces**: slots sensor rows, the Personer card finger section, and the translations | integration | compileall, unittest, check_pii | low; UI only, but the card is shipped so it must be copied to HA | none |
 | 5 | **Relay pass-through**: `/slots` carries `fingers` + `finger_used`; `POST /slots/{slot}/finger` takes `finger`; `DELETE /slots/{slot}/finger` | addon | `ruff`, `pytest` (`test_slots.py` patterns) | low; the relay stores nothing new, so no migration | none |
 | 6 | **App**: group Koder by person, the which-finger picker, present/missing/unknown states, the "also update other doors" re-enrolment sheet | app | iOS CI (`xcodegen`, build, test) | medium; this is where the branch's wording must be honest | owner: an end-to-end enrolment at a door |
 | 7 | **Docs**: update `docs/guests.md`, `docs/architecture.md`, `docs/known-issues.md` (the current `clear_slot` template gap), and the card's on-screen words | integration | check_pii | cheap | none |
 
-The cheap steps are **1, 2, 7**; the genuine model changes are **3** (a new
-write path to the lock) and, if the answer is branch B, the framing in **6**.
-Until step 0 is done, step 2's constant is `None` (unbounded) and the UI says
-"we do not yet know whether one slot can hold several fingers" — the code must
-not pretend either way.
+The cheap steps are **1, 2, 7**; the genuine model change was **3** (a new
+write path to the lock). Step 0 is done (branch A), so step 2's constant is `1`:
+one slot, one labelled finger, and several slots for several fingers.
 
 ---
 
 ## 10. What we could not determine
 
-These are open because they need the lock, the owner's hands, or vendor
-documentation — not because the software is unfinished:
+These needed the lock, the owner's hands, or vendor documentation — not the
+software. The first is now answered; the rest remain open:
 
-- **One template per slot or several** — the physical test; decides the model
-  and the capacity arithmetic.
+- **One template per slot** — answered: the lock refuses a second enrolment
+  into an occupied slot (a red blink), so branch A is in force and the capacity
+  arithmetic is the branch-A one in [§6.4](#64-the-capacity-budget).
 - **The fingerprint capacity** — the lock reports no fingerprint attribute. Is
   it the 100 total, the 50 PIN, or separate? The arithmetic in
   [§6.4](#64-the-capacity-budget) states its assumption rather than hiding it.

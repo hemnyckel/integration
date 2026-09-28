@@ -114,13 +114,40 @@ but only when it is given a code — a temporary person never stored its own. A
 permanent person keeps its code: rename it or change the code the same way, and
 it never expires on its own.
 
-## Fingerprint enrollment from Home Assistant
+## Fingerprints from Home Assistant
 
-`hemnyckel.enroll_fingerprint` lights the lock's reader for one slot. It is sent
-straight to the lock, and the lock reports nothing while the enrollment runs — a
-template exists only once that finger has really opened the door, which is why
-`finger_used` (not
-the enrollment) is the evidence the catalog trusts. The card's fingerprint
+A fingerprint is a **slot-level** credential: the lock holds **one template per
+slot** — a second enrolment into an occupied slot is refused with a red blink —
+and it reports only the slot a finger opened from, never which finger. "Which
+finger" is therefore a **label the owner chooses**, kept with the slot as a
+claim, not something the lock measured.
+
+```yaml
+# Light the reader for slot 5 and label the finger
+action: hemnyckel.enroll_fingerprint
+data:
+  slot: 5
+  finger: "left index"
+
+# Clear the slot's fingerprint on the lock (0x72) and forget its label
+action: hemnyckel.clear_fingerprint
+data:
+  slot: 5
+
+# Correct a wrong label; writes nothing to the lock
+action: hemnyckel.relabel_fingerprint
+data:
+  slot: 5
+  finger: "left middle"
+```
+
+The lock reports nothing while an enrollment runs, so the label starts as a
+**claim**; only a real finger unlock in that slot (`finger_used`) confirms it.
+`hemnyckel.clear_slot` clears **both** the PIN and the fingerprint template — a
+slot that kept a template would make the lock refuse the next enrolment, which
+is exactly the red blink that used to happen. Several fingers per person means
+several slots, each with its own label; the slots sensor carries `fingers` and
+`finger_used` so the app and automations can see them. The card's fingerprint
 button calls the same service.
 
 The card marks every row twice over. A **key**: solid (green) when the

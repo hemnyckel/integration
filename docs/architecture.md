@@ -55,14 +55,19 @@ The lock's own device name is the source of the integration's device name, so th
 entity ids read like the door — `sensor.ytterdorren_journal` — rather than
 carrying a module prefix.
 
-### The slot table (`mirror/slots.py`)
+### The slot table and the finger policy (`mirror/slots.py`, `mirror/fingers.py`)
 
 The lock has a slot space that Home Assistant writes to directly. The slot table
 records, per slot, the person's name and which credential types it holds (PIN,
-fingerprint, tag). A fingerprint is only trusted once a finger in that slot has
-actually opened the door: an enrollment proves nothing, because the lock reports
-nothing while it runs. When the lock is used with an unnamed slot, the
-integration asks once for a name through a repair instead of guessing.
+fingerprint, tag), plus the owner's **labels** for its fingers. A fingerprint is
+one template per slot (the lock refuses a second enrolment with a red blink),
+and it is only trusted once a finger in that slot has actually opened the door:
+an enrollment proves nothing, because the lock reports nothing while it runs.
+Clearing a slot clears **both** its PIN and its fingerprint template, so the
+slot is really free for the next enrolment. The pure `mirror/fingers.py` holds
+the one-template rule, the display state and the capacity arithmetic. When the
+lock is used with an unnamed slot, the integration asks once for a name through
+a repair instead of guessing.
 
 ### The journal (`mirror/journal.py`)
 
