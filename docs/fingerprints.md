@@ -64,9 +64,11 @@ knows) found:
 The integration's own `FACTS_ATTRIBUTES` (the background refresh) is the same
 user-capacity set; there is nothing fingerprint-specific to refresh.
 
-**Conclusion for 1.1:** the lock tells us how many *users* it supports (100
-total, 50 PIN, 50 RFID) and nothing about fingerprints. Any fingerprint count
-must be measured, not queried.
+**Conclusion for 1.1:** the lock tells us how many *users* it claims to support
+(100 total, 50 PIN, 50 RFID) and nothing about fingerprints. Those claims are
+hints, not limits: the lock accepted PIN slots up to 999 and refused 1000
+([§6.4](#64-the-capacity-budget)), so the capacity attributes must never be used
+as a wall. Any fingerprint count must be measured, not queried.
 
 ### 1.2 What a fingerprint unlock actually reports
 
@@ -396,18 +398,29 @@ The UI must say *"not enrolled here"*, never *"cannot open this door"*.
 
 ### 6.4 The capacity budget
 
-The lock reports **100 total user slots, 50 PIN, 50 RFID**, and **no fingerprint
-count** ([§1.1](#11-what-the-lock-exposes-about-users-and-credentials)). The
-integration today caps *all* user slots at `num_of_pin_users_supported` — i.e.
-slots `3…49`, **47 usable slots** (`pin_rules.pin_capacity`), the masters 0–2
-excluded. Whether fingerprints count against the 50 PIN, the 100 total, or a
-separate space is **unknown** and is one of the things to confirm.
+**Measured 2026-09-28.** The lock's standard attributes (`100 total`, `50 PIN`,
+`50 RFID`, no fingerprint count) are **hints, not walls**. On the bench, raw
+`SetPINCode` (ZCL 0x05) to slots **60, 150, 500 and 999** each answered
+`Status.SUCCESS`, while slots **1000 and 65535** answered `Status.FAILURE` — so
+the enforced user range is exactly **003–999**, matching the Touch Pro manual,
+and `NumberOfPINUsersSupported` (50 here) does not describe it. The integration
+therefore uses **997 usable slots** (003–999, masters 000–002 excluded);
+`pin_rules.pin_capacity` treats the reported value as a lower-bound hint only and
+never lets it cap the household. A lock that really reports more keeps its larger
+ceiling.
 
-So the budget is shown as arithmetic with the assumption made explicit:
+The **fingerprint** limit is still a manual claim, not a measurement: no attribute
+anywhere reports fingerprints ([§1.1](#11-what-the-lock-exposes-about-users-and-credentials)),
+and the manuals put fingers in slots **003–199** (199 unique). Proving that
+needs a finger at the reader, so the slot checks keep the PIN range for now;
+an enrolment past 199 would fail at the lock, whose answer we will record when
+the owner tests it.
+
+The budget the UI shows:
 
 - **Branch A (in force):** a person with **5 fingers on 3 locks** costs up to
-  **5 slots per lock = 15 enrolments**, i.e. 5 of this lock's usable slots. A
-  family of 5 doing the same costs 25 of 47 — visible and finite.
+  **5 slots per lock = 15 enrolments**, i.e. 5 of this lock's 997 usable slots.
+  A family of 5 doing the same costs 25 of 997 — visible and finite.
 - **Branch B (rejected):** **one slot per person per lock** regardless of finger
   count; 5 fingers cost 3 slots (one per door) total.
 
@@ -536,9 +549,14 @@ software. The first is now answered; the rest remain open:
 - **One template per slot** — answered: the lock refuses a second enrolment
   into an occupied slot (a red blink), so branch A is in force and the capacity
   arithmetic is the branch-A one in [§6.4](#64-the-capacity-budget).
-- **The fingerprint capacity** — the lock reports no fingerprint attribute. Is
-  it the 100 total, the 50 PIN, or separate? The arithmetic in
-  [§6.4](#64-the-capacity-budget) states its assumption rather than hiding it.
+- **The PIN capacity** — answered: measured 999 (slots 60, 150, 500 and 999
+  accepted, 1000 and 65535 refused), so the standard `50 PIN` attribute is a
+  hint and the manual's 003–999 range holds. See
+  [§6.4](#64-the-capacity-budget).
+- **The fingerprint capacity** — still open: the lock reports no fingerprint
+  attribute anywhere. The manuals say user fingers go in slots 003–199 (199
+  unique); proving it needs a finger at the reader, which the software cannot
+  do.
 - **What `0x72` clears** — the template in one slot, or something wider — and
   whether re-enrolling into an occupied slot adds or replaces. Branch A vs B
   hinges on the second half of this.

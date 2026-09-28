@@ -3,6 +3,40 @@
 Everything here is observed against the lock itself on the bench. Each entry
 says what happens and what we do about it.
 
+## The capacity attributes are hints, not limits (measured)
+
+The lock reports `num_of_total_users_supported = 100`,
+`num_of_pin_users_supported = 50` and `num_of_rfid_users_supported = 50`
+(attribute ids `0x0011`, `0x0012`, `0x0013`), and nothing about fingerprints.
+On 2026-09-28 the lock was asked directly whether those numbers are enforced:
+raw `SetPINCode` (ZCL `0x05`, no Home Assistant guard in the way) to slots
+**60, 150, 500 and 999** each answered `Status.SUCCESS`, while slots **1000 and
+65535** answered `Status.FAILURE`. The enforced user range is therefore exactly
+**003–999** (the Touch Pro manual's range), and the reported `50` does not
+describe PIN slots at all.
+
+- **We do** treat the standard capacity attributes as hints: `pin_rules.pin_capacity`
+  never lets a reported value below the manual range cap the household, and
+  honours one above it. The master slots 000–002 stay reserved. The test slots
+  above were cleared again after the measurement.
+
+## Occupancy cannot be read back either
+
+`GetUserStatus` (`0x0A`) is not answered by the lock (it times out), so the
+integration cannot ask whether a slot is occupied, so the slot table is still
+only a map; `wipe` still sweeps the whole user range because of it. With the range
+now 003–999 that sweep is up to 997 slots, which is a slow but deliberate
+operation; the alternative (a lock-wide clear-all command) is not used because it
+may take the master codes with it.
+
+## The fingerprint slot limit is unverified
+
+No attribute anywhere reports fingerprints, and the manufacturer-specific cluster
+(`0xFEA2`) answers nothing readable. The manuals put user fingers in slots
+**003–199** (199 unique), but the only way to confirm the bound is a finger at
+the reader. Until the owner tests it, the slot checks use the PIN range and the
+manual's 199 is a claim, not a measurement.
+
 ## Fingerprints cannot be read back
 
 The lock reports nothing while an enrollment runs; there is no way to ask
