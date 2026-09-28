@@ -109,6 +109,27 @@ class HemnyckelOptionsFlow(config_entries.OptionsFlow):
     def _mirror(self) -> Any:
         return self.hass.data[DOMAIN][self.config_entry.entry_id]
 
+    def _slot_rows(self) -> list[str]:
+        coordinator = self._mirror()
+        rows = []
+        for slot, data in coordinator.slots.items():
+            name = str(data.get("name") or "unnamed")
+            creds = ", ".join(coordinator.slots.credentials(slot)) or "no credential seen"
+            rows.append(f"Slot {slot}: **{name}** - {creds}")
+        return rows
+
+
+    def _slot_options(self, *, only_occupied: bool = False) -> dict[str, str]:
+        coordinator = self._mirror()
+        options: dict[str, str] = {}
+        for slot, data in coordinator.slots.items():
+            if only_occupied and not coordinator.slots.occupied(slot):
+                continue
+            name = str(data.get("name") or "unnamed")
+            creds = ", ".join(coordinator.slots.credentials(slot)) or "no credentials seen"
+            options[str(slot)] = f"Slot {slot}: {name} ({creds})"
+        return options
+
     async def async_step_slots(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
