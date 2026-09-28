@@ -27,6 +27,8 @@ SERVICE_FETCH_JOURNAL = "fetch_journal"
 SERVICE_CREATE_GUEST = "create_guest_code"
 SERVICE_CREATE_RECURRING_GUEST = "create_recurring_guest"
 SERVICE_ENROLL_FINGERPRINT = "enroll_fingerprint"
+SERVICE_CLEAR_FINGERPRINT = "clear_fingerprint"
+SERVICE_RELABEL_FINGERPRINT = "relabel_fingerprint"
 SERVICE_UPDATE_GUEST = "update_guest"
 SERVICE_REVOKE_GUEST = "revoke_guest_code"
 SERVICE_LIST_GUESTS = "list_guests"
@@ -106,7 +108,24 @@ FETCH_JOURNAL_SCHEMA = vol.Schema(
 ENROLL_FINGER_SCHEMA = vol.Schema(
     {
         vol.Required("slot"): vol.Coerce(int),
+        vol.Optional("finger"): cv.string,
         vol.Optional("mode", default="auto"): vol.In(["auto", "local"]),
+        vol.Optional("entry_id"): cv.string,
+    }
+)
+
+CLEAR_FINGERPRINT_SCHEMA = vol.Schema(
+    {
+        vol.Required("slot"): vol.Coerce(int),
+        vol.Optional("entry_id"): cv.string,
+    }
+)
+
+RELABEL_FINGERPRINT_SCHEMA = vol.Schema(
+    {
+        vol.Required("slot"): vol.Coerce(int),
+        vol.Required("finger"): cv.string,
+        vol.Optional("previous"): cv.string,
         vol.Optional("entry_id"): cv.string,
     }
 )
@@ -323,9 +342,36 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             )
         coord = coordinators[0]
         result = await coord.async_start_finger_enroll(
-            int(call.data["slot"]), str(call.data.get("mode") or "auto")
+            int(call.data["slot"]),
+            str(call.data.get("mode") or "auto"),
+            call.data.get("finger"),
         )
         return {coord.entry.entry_id: result}
+
+    async def _async_handle_clear_fingerprint(call: ServiceCall) -> None:
+        entry_id = call.data.get("entry_id")
+        slot = int(call.data["slot"])
+        coordinators = _coordinators(hass, entry_id, "async_clear_fingerprint")
+        if not coordinators:
+            _LOGGER.error("clear_fingerprint: no matching mirror (%s)", entry_id)
+            return
+        for coord in coordinators:
+            await coord.async_clear_fingerprint(slot)
+
+    async def _async_handle_relabel_fingerprint(call: ServiceCall) -> dict[str, Any]:
+        entry_id = call.data.get("entry_id")
+        slot = int(call.data["slot"])
+        coordinators = _coordinators(hass, entry_id, "async_relabel_finger")
+        if not coordinators:
+            return {"error": "no matching mirror"}
+        results: dict[str, Any] = {}
+        for coord in coordinators:
+            results[coord.entry.entry_id] = await coord.async_relabel_finger(
+                slot,
+                str(call.data["finger"]),
+                call.data.get("previous"),
+            )
+        return results
 
     async def _async_handle_create_guest(call: ServiceCall) -> dict[str, Any]:
         entry_id = call.data.get("entry_id")
@@ -468,6 +514,19 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN,
+        SERVICE_CLEAR_FINGERPRINT,
+        _validated(_async_handle_clear_fingerprint),
+        schema=CLEAR_FINGERPRINT_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_RELABEL_FINGERPRINT,
+        _validated(_async_handle_relabel_fingerprint),
+        schema=RELABEL_FINGERPRINT_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_CREATE_RECURRING_GUEST,
         _validated(_async_handle_create_recurring_guest),
         schema=CREATE_RECURRING_GUEST_SCHEMA,
@@ -511,3 +570,6 @@ async def async_unload_services(hass: HomeAssistant) -> None:
     hass.services.async_remove(DOMAIN, SERVICE_UPDATE_GUEST)
     hass.services.async_remove(DOMAIN, SERVICE_REVOKE_GUEST)
     hass.services.async_remove(DOMAIN, SERVICE_LIST_GUESTS)
+    hass.services.async_remove(DOMAIN, SERVICE_ENROLL_FINGERPRINT)
+    hass.services.async_remove(DOMAIN, SERVICE_CLEAR_FINGERPRINT)
+    hass.services.async_remove(DOMAIN, SERVICE_RELABEL_FINGERPRINT)

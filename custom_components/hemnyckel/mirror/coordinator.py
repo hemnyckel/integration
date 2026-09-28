@@ -55,6 +55,7 @@ from ..const import (
 )
 
 from .facts import placeholder_slot_name
+from .fingers import can_add, normalise_label
 from .identity import (
     entity_id_on_serial,
     normalise_serial,
@@ -524,13 +525,76 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_set_pin(slot, code)
 
     async def async_clear_slot(self, slot: int) -> None:
-        """Clear a slot's credential on the real lock and forget it locally."""
+        """Clear every credential in a slot on the lock and forget it locally.
+
+        Both the PIN and the fingerprint template are cleared. Clearing only the
+        PIN used to leave the fingerprint template on the lock while Home
+        Assistant forgot it, and the lock then refused the next enrolment into
+        the "free" slot with a red blink (the bug this closes).
+        """
         await self._async_clear_pin(slot)
+        await self.async_clear_fingerprint(slot)
         self.slots.clear(slot)
         # The repairs that asked for a name point at a slot that no longer
         # holds anything.
         ir.async_delete_issue(self.hass, DOMAIN, self._issue_id(f"new_slot_{slot}"))
         self._publish_snapshot()
+
+    async def async_clear_fingerprint(self, slot: int) -> None:
+        """Clear a slot's fingerprint template on the lock and forget its claim.
+
+        Vendor command 0x72; the master slots 0-2 are refused by the slot rules
+        before anything is sent.
+        """
+        if self.zha is None:
+            raise RuntimeError("the ZHA link is not ready")
+        reason = check_credential_slot(slot, self.lock_facts)
+        if reason is not None:
+            raise RuntimeError(reason)
+        labels = self.slots.finger_labels(slot)
+        await self._async_zcl(ZCL_CMD_FP_CLEAR, slot)
+        self.slots.clear_fingers(slot)
+        await self._async_journal_add(
+            make_entry(
+                action="finger_cleared",
+                time=dt_util.utcnow().isoformat(),
+                origin=ORIGIN_HA,
+                slot=slot,
+                name=self.slots.name(slot, fallback=False) or None,
+                detail=", ".join(labels) if labels else None,
+            )
+        )
+        self._publish_snapshot()
+
+    async def async_relabel_finger(
+        self, slot: int, label: str, previous: str | None = None
+    ) -> dict[str, Any]:
+        """Rename a recorded finger; writes nothing to the lock.
+
+        A wrong label is our bookkeeping error, not a credential change, so the
+        template is left exactly where it is and only the history grows.
+        """
+        reason = check_credential_slot(slot, self.lock_facts)
+        if reason is not None:
+            raise RuntimeError(reason)
+        new_label = normalise_label(label)
+        if not new_label:
+            raise RuntimeError("a finger label is required")
+        old_label = normalise_label(previous) if previous else None
+        if not self.slots.relabel_finger(slot, new_label, old_label):
+            raise RuntimeError(f"no matching finger is recorded in slot {slot}")
+        await self._async_journal_add(
+            make_entry(
+                action="finger_relabelled",
+                time=dt_util.utcnow().isoformat(),
+                origin=ORIGIN_HA,
+                slot=slot,
+                name=self.slots.name(slot, fallback=False) or None,
+                detail=f"{old_label or 'unlabelled'} -> {new_label}",
+            )
+        )
+        self._publish_snapshot()
+        return {"slot": slot, "finger": new_label}
 
     async def async_wipe_credentials(
         self, *, dry_run: bool, confirm: str | None
@@ -569,14 +633,26 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ]
         if not dry_run:
             for slot in range(floor, capacity):
+                # Both credential types are cleared per slot; the errors are
+                # reported per command so a failing PIN clear does not hide a
+                # fingerprint clear. clear_slot is not reused here: its
+                # all-or-nothing result would stop the sweep at the first
+                # unreachable slot, and the sweep is exactly what must not.
+                errors: list[str] = []
                 try:
-                    await self.async_clear_slot(slot)
+                    await self._async_clear_pin(slot)
                 except Exception as err:  # noqa: BLE001
-                    report["errors"].append(f"slot {slot} pin: {err}")
+                    errors.append(f"slot {slot} pin: {err}")
                 try:
                     await self._async_zcl(ZCL_CMD_FP_CLEAR, slot)
                 except Exception as err:  # noqa: BLE001
-                    report["errors"].append(f"slot {slot} finger: {err}")
+                    errors.append(f"slot {slot} finger: {err}")
+                report["errors"].extend(errors)
+                if not errors:
+                    self.slots.clear(slot)
+                    ir.async_delete_issue(
+                        self.hass, DOMAIN, self._issue_id(f"new_slot_{slot}")
+                    )
 
         # A tag is keyed by the vendor id its enroll flow journaled; sweep the
         # ones we can prove were ever enrolled.
@@ -1398,19 +1474,30 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         await self._async_journal_add(entry)
 
-    async def async_start_finger_enroll(self, slot: int, mode: str = "auto") -> dict[str, Any]:
+    async def async_start_finger_enroll(
+        self, slot: int, mode: str = "auto", finger: str | None = None
+    ) -> dict[str, Any]:
         """Start a fingerprint enrollment for one slot.
 
-        The lock reports nothing while an enrollment runs — a template exists
-        only once someone has really opened the door with that finger — so this
+        The lock reports nothing while an enrollment runs - a template exists
+        only once someone has really opened the door with that finger - so this
         lights the reader and leaves the touch to the person at the door.
         ``mode`` is ``auto`` or ``local``; both enroll locally.
+
+        ``finger`` is the owner's label for the finger being enrolled. Because
+        the lock reports nothing, the label is recorded as a **claim**; only a
+        real use (``finger_used``) ever confirms it. The policy refuses a second
+        template in a slot *before* the lock can blink red.
         """
         if self.zha is None:
             raise RuntimeError("the ZHA link is not ready")
         reason = check_credential_slot(slot, self.lock_facts)
         if reason is not None:
             raise RuntimeError(reason)
+        label = normalise_label(finger) if finger else None
+        refusal = can_add(self.slots.get(slot), label)
+        if refusal is not None:
+            raise RuntimeError(refusal)
         guest = self.guests.get(str(slot))
         name = (guest or {}).get("name") or self.slots.name(slot, fallback=False)
 
@@ -1425,8 +1512,20 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 detail="local",
             )
         )
+        if label:
+            self.slots.add_finger(slot, label, dt_util.utcnow().isoformat())
+            await self._async_journal_add(
+                make_entry(
+                    action="finger_enrolled",
+                    time=dt_util.utcnow().isoformat(),
+                    origin=ORIGIN_HA,
+                    slot=slot,
+                    name=name,
+                    detail=label,
+                )
+            )
         self._publish_snapshot()
-        return {"slot": slot, "name": name, "via": "local"}
+        return {"slot": slot, "name": name, "via": "local", "finger": label}
 
     async def _async_zcl(self, command: int, arg: int) -> None:
         if self.zha is None:

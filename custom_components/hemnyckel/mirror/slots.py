@@ -26,6 +26,20 @@ _CREDENTIAL_KEYS = {
 }
 
 
+def _record(data: dict[str, Any] | None = None) -> dict[str, Any]:
+    """A slot record with its own copy of the fingerprint labels.
+
+    ``DEFAULT_SLOT`` carries an empty list; a list shared between slots would
+    let one slot's labels leak into every other, so each record gets a fresh
+    list and each label a fresh dict.
+    """
+    merged = {**DEFAULT_SLOT, **(data or {})}
+    merged["fingers"] = [
+        dict(item) for item in (merged.get("fingers") or []) if isinstance(item, dict)
+    ]
+    return merged
+
+
 class SlotTable:
     """Slot data for one lock: name and credential types per slot."""
 
@@ -39,7 +53,7 @@ class SlotTable:
     def _load(self) -> None:
         stored = self.entry.options.get(SLOTS_OPTION) or {}
         self._slots = {
-            str(slot): {**DEFAULT_SLOT, **data} for slot, data in stored.items()
+            str(slot): _record(data) for slot, data in stored.items()
         }
 
     def _save(self) -> None:
@@ -49,7 +63,7 @@ class SlotTable:
             self.entry,
             options={
                 **self.entry.options,
-                SLOTS_OPTION: {slot: dict(data) for slot, data in self._slots.items()},
+                SLOTS_OPTION: {slot: _record(data) for slot, data in self._slots.items()},
             },
         )
 
@@ -65,7 +79,7 @@ class SlotTable:
     # -- data access --------------------------------------------------------
 
     def get(self, slot: int) -> dict[str, Any]:
-        return {**DEFAULT_SLOT, **self._slots.get(str(slot), {})}
+        return _record(self._slots.get(str(slot)))
 
     def name(self, slot: int, *, fallback: bool = True) -> str:
         name = str(self.get(slot).get("name") or "")
@@ -92,22 +106,22 @@ class SlotTable:
     # -- mutations ----------------------------------------------------------
 
     def set_name(self, slot: int, name: str) -> None:
-        self._slots.setdefault(str(slot), {**DEFAULT_SLOT})["name"] = name
+        self._slots.setdefault(str(slot), _record())["name"] = name
         self._save()
         self._notify()
 
     def mark_pin(self, slot: int, present: bool) -> None:
-        self._slots.setdefault(str(slot), {**DEFAULT_SLOT})["has_pin"] = present
+        self._slots.setdefault(str(slot), _record())["has_pin"] = present
         self._save()
         self._notify()
 
     def mark_rfid(self, slot: int, present: bool) -> None:
-        self._slots.setdefault(str(slot), {**DEFAULT_SLOT})["has_rfid"] = present
+        self._slots.setdefault(str(slot), _record())["has_rfid"] = present
         self._save()
         self._notify()
 
     def mark_fingerprint(self, slot: int, present: bool) -> None:
-        self._slots.setdefault(str(slot), {**DEFAULT_SLOT})["has_fingerprint"] = present
+        self._slots.setdefault(str(slot), _record())["has_fingerprint"] = present
         self._save()
         self._notify()
 
@@ -116,7 +130,7 @@ class SlotTable:
         key = _CREDENTIAL_KEYS.get(kind)
         if key is None:
             return False
-        data = self._slots.setdefault(str(slot), {**DEFAULT_SLOT})
+        data = self._slots.setdefault(str(slot), _record())
         if kind == "fingerprint":
             # A used finger is the only proof that its template exists.
             data["finger_used"] = True
@@ -131,6 +145,63 @@ class SlotTable:
         """True only when a finger in this slot has actually opened the door."""
         return bool(self.get(slot).get("finger_used"))
 
+    def finger_labels(self, slot: int) -> list[str]:
+        """The labels recorded in a slot, in enrolment order."""
+        return [
+            str(item.get("label"))
+            for item in (self.get(slot).get("fingers") or [])
+            if item.get("label")
+        ]
+
+    def add_finger(self, slot: int, label: str, enrolled: str) -> None:
+        """Record a claimed finger for a slot.
+
+        An enrolment is a claim, never a proof: the lock reports nothing while
+        it runs, so only a later real use (``mark_credential``) confirms it.
+        """
+        data = self._slots.setdefault(str(slot), _record())
+        data.setdefault("fingers", []).append(
+            {"label": str(label), "enrolled": str(enrolled)}
+        )
+        data["has_fingerprint"] = True
+        self._save()
+        self._notify()
+
+    def clear_fingers(self, slot: int) -> None:
+        """Forget a slot's fingerprint claim after the template was cleared."""
+        key = str(slot)
+        data = self._slots.get(key)
+        if data is None:
+            return
+        data["fingers"] = []
+        data["has_fingerprint"] = False
+        data["finger_used"] = False
+        # A slot that holds nothing else (no name, PIN or tag) leaves the table:
+        # an empty record would only surface as a vacant slot everywhere.
+        if (
+            not data.get("name")
+            and not data.get("has_pin")
+            and not data.get("has_rfid")
+        ):
+            self._slots.pop(key, None)
+        self._save()
+        self._notify()
+
+    def relabel_finger(
+        self, slot: int, label: str, previous: str | None = None
+    ) -> bool:
+        """Rename a recorded finger; writes nothing to the lock."""
+        data = self._slots.get(str(slot))
+        if data is None:
+            return False
+        for item in data.get("fingers") or []:
+            if previous is None or item.get("label") == previous:
+                item["label"] = str(label)
+                self._save()
+                self._notify()
+                return True
+        return False
+
     def clear(self, slot: int) -> None:
         """Forget everything local about a slot (after its credential is cleared)."""
         if self._slots.pop(str(slot), None) is not None:
@@ -138,14 +209,19 @@ class SlotTable:
             self._notify()
 
     def correct_fingerprints(self) -> int:
-        """Drop fingerprint marks that no usage ever confirmed.
+        """Drop fingerprint hints that no usage ever confirmed *and* no label.
 
-        An enrollment marks nothing by itself, so a mark is only trusted when a
-        finger in that slot has actually been used. Returns slots corrected.
+        A labelled enrolment is a deliberate claim and survives a restart; only
+        a bare ``has_fingerprint`` mark from before labels existed is dropped
+        when no use ever confirmed it. Returns slots corrected.
         """
         corrected = 0
         for data in self._slots.values():
-            if data.get("has_fingerprint") and not data.get("finger_used"):
+            if (
+                data.get("has_fingerprint")
+                and not data.get("finger_used")
+                and not data.get("fingers")
+            ):
                 data["has_fingerprint"] = False
                 corrected += 1
         if corrected:
@@ -167,7 +243,7 @@ class SlotTable:
             for slot, data in stored.items():
                 if str(slot) in self._slots:
                     continue
-                merged = {**DEFAULT_SLOT, **data}
+                merged = _record(data)
                 if any(
                     merged.get(key)
                     for key in ("name", "has_pin", "has_fingerprint", "has_rfid")

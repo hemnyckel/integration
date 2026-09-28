@@ -15,6 +15,7 @@ from ..const import DOMAIN
 from .coordinator import MirrorCoordinator
 from .entity import MirrorEntity
 from .facts import capability_summary
+from .fingers import finger_state
 
 
 async def async_setup_entry(
@@ -102,6 +103,9 @@ class MirrorSlots(MirrorEntity, SensorEntity):
                     "has_pin": bool(data.get("has_pin")),
                     "has_fingerprint": bool(data.get("has_fingerprint")),
                     "has_rfid": bool(data.get("has_rfid")),
+                    "finger_used": bool(data.get("finger_used")),
+                    "finger_state": finger_state(data),
+                    "fingers": [dict(item) for item in (data.get("fingers") or [])],
                     "credentials": self.coordinator.slots.credentials(slot),
                 }
             )
@@ -135,6 +139,9 @@ class SlotSensor(MirrorEntity, SensorEntity):
             "has_pin": bool(data.get("has_pin")),
             "has_fingerprint": bool(data.get("has_fingerprint")),
             "has_rfid": bool(data.get("has_rfid")),
+            "finger_used": bool(data.get("finger_used")),
+            "finger_state": finger_state(data),
+            "fingers": [dict(item) for item in (data.get("fingers") or [])],
             "credentials": self.coordinator.slots.credentials(self.slot),
         }
 

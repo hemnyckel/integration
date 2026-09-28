@@ -46,7 +46,7 @@
       },
       "slot_clear": {
         "title": "Clear a slot",
-        "description": "Clears the credential on the lock and forgets the slot's local data.",
+        "description": "Clears both the PIN and the fingerprint template on the lock and forgets the slot's local data.",
         "data": {
           "slot": "Slot"
         }
@@ -124,7 +124,7 @@
     },
     "clear_slot": {
       "name": "Clear a lock slot",
-      "description": "Clears the credential on the lock and forgets the slot's local data.",
+      "description": "Clears both the PIN and the fingerprint template on the lock and forgets the slot's local data.",
       "fields": {
         "slot": {
           "name": "Slot",
@@ -356,15 +356,55 @@
     },
     "enroll_fingerprint": {
       "name": "Start fingerprint enrollment",
-      "description": "Lights the lock's fingerprint reader for one slot so the person at the door can enroll a finger. The lock reports nothing while enrolling: a template only exists once that finger has really opened the door.",
+      "description": "Lights the lock's fingerprint reader for one slot so the person at the door can enroll a finger. The lock reports nothing while enrolling: the label is a claim, and a template only counts once that finger has really opened the door. One slot holds one finger; clear the slot first to change it.",
       "fields": {
         "slot": {
           "name": "Slot",
           "description": "The slot the finger belongs to."
         },
+        "finger": {
+          "name": "Finger",
+          "description": "The owner's label for this finger, for example \"left index\". Stored as a claim, never reported by the lock."
+        },
         "mode": {
           "name": "Path",
           "description": "auto (default) or local."
+        },
+        "entry_id": {
+          "name": "Lock",
+          "description": "Which lock; needed when several are configured."
+        }
+      }
+    },
+    "clear_fingerprint": {
+      "name": "Clear a fingerprint",
+      "description": "Sends the fingerprint clear (0x72) to one slot on the lock and forgets its label. The slot's PIN, its name and the master slots 0-2 are untouched.",
+      "fields": {
+        "slot": {
+          "name": "Slot",
+          "description": "The slot whose fingerprint template is cleared."
+        },
+        "entry_id": {
+          "name": "Lock",
+          "description": "Which lock; needed when several are configured."
+        }
+      }
+    },
+    "relabel_fingerprint": {
+      "name": "Rename a fingerprint label",
+      "description": "Changes the stored label of a finger without touching the lock - a wrong label is corrected, not re-enrolled.",
+      "fields": {
+        "slot": {
+          "name": "Slot",
+          "description": "The slot the finger lives in."
+        },
+        "finger": {
+          "name": "New label",
+          "description": "The corrected finger label."
+        },
+        "previous": {
+          "name": "Previous label",
+          "description": "The label to rename, if a slot could hold several. Leave out when the slot holds one."
         },
         "entry_id": {
           "name": "Lock",

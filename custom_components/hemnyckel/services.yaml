@@ -12,6 +12,8 @@ fetch_journal:
 create_guest_code:
 create_recurring_guest:
 enroll_fingerprint:
+clear_fingerprint:
+relabel_fingerprint:
 update_guest:
 revoke_guest_code:
 list_guests:

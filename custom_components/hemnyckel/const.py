@@ -73,6 +73,11 @@ DEFAULT_SLOT: dict[str, Any] = {
     # A fingerprint is only trusted once a finger actually opened the door with
     # it; an enrollment proves nothing (the lock reports nothing while it runs).
     "finger_used": False,
+    # The owner's finger labels for this slot, one record per enrolment:
+    # {"label": "left index", "enrolled": "<iso>"}. A label is a claim, never a
+    # measurement - the lock reports only the slot. Slots carry their own list;
+    # see mirror/slots.py, which copies it rather than sharing this one.
+    "fingers": [],
 }
 
 

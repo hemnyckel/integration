@@ -46,7 +46,7 @@
       },
       "slot_clear": {
         "title": "Rensa en slot",
-        "description": "Rensar uppgiften på låset och glömmer slotens lokala data.",
+        "description": "Rensar både PIN-koden och fingeravtrycksmallen på låset och glömmer slotens lokala data.",
         "data": {
           "slot": "Slot"
         }
@@ -124,7 +124,7 @@
     },
     "clear_slot": {
       "name": "Rensa en låsslot",
-      "description": "Rensar uppgiften på låset och glömmer slotens lokala data.",
+      "description": "Rensar både PIN-koden och fingeravtrycksmallen på låset och glömmer slotens lokala data.",
       "fields": {
         "slot": {
           "name": "Slot",
@@ -356,15 +356,55 @@
     },
     "enroll_fingerprint": {
       "name": "Starta finger-enroll",
-      "description": "Tänder låsets fingerläsare för en slot så att personen vid dörren kan registrera ett finger. Låset rapporterar inget under enrolleringen: en mall finns först när fingret faktiskt öppnat dörren.",
+      "description": "Tänder låsets fingerläsare för en slot så att personen vid dörren kan registrera ett finger. Låset rapporterar inget under enrolleringen: etiketten är ett påstående, och en mall räknas först när fingret faktiskt öppnat dörren. En slot håller ett finger; rensa sloten först för att byta.",
       "fields": {
         "slot": {
           "name": "Slot",
           "description": "Sloten fingret hör till."
         },
+        "finger": {
+          "name": "Finger",
+          "description": "Ägarens etikett för fingret, till exempel \"vänster pekfinger\". Sparas som ett påstående, rapporteras aldrig av låset."
+        },
         "mode": {
           "name": "Väg",
           "description": "auto (standard) eller local."
+        },
+        "entry_id": {
+          "name": "Lås",
+          "description": "Vilket lås; krävs när flera är konfigurerade."
+        }
+      }
+    },
+    "clear_fingerprint": {
+      "name": "Rensa ett fingeravtryck",
+      "description": "Skickar finger-rensningen (0x72) till en slot på låset och glömmer dess etikett. Slotens PIN, dess namn och master-slotsen 0-2 rörs inte.",
+      "fields": {
+        "slot": {
+          "name": "Slot",
+          "description": "Sloten vars fingeravtrycksmall rensas."
+        },
+        "entry_id": {
+          "name": "Lås",
+          "description": "Vilket lås; krävs när flera är konfigurerade."
+        }
+      }
+    },
+    "relabel_fingerprint": {
+      "name": "Byt etikett på ett fingeravtryck",
+      "description": "Ändrar den sparade etiketten för ett finger utan att röra låset — en felaktig etikett rättas, inte registreras om.",
+      "fields": {
+        "slot": {
+          "name": "Slot",
+          "description": "Sloten fingret finns i."
+        },
+        "finger": {
+          "name": "Ny etikett",
+          "description": "Den rättade fingeretiketten."
+        },
+        "previous": {
+          "name": "Tidigare etikett",
+          "description": "Etiketten som ska bytas, om en slot kan hålla flera. Utelämna när sloten håller ett."
         },
         "entry_id": {
           "name": "Lås",
