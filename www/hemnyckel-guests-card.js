@@ -509,7 +509,7 @@ class HemnyckelGuestsCard extends HTMLElement {
           slot: target,
           name: guest.name,
           entry_id: doorEntryId,
-        });
+        }, false);
       }
       await this._callServiceWS("hemnyckel", "enroll_fingerprint", {
         slot: target,
@@ -640,9 +640,12 @@ class HemnyckelGuestsCard extends HTMLElement {
 
   _siblings(guest) {
     /* The same person on other locks: one group marker, when the guests were
-       created together through this card. */
+       created together through this card. "Mine" is the row's own lock, from
+       the row itself (the card is usually unpinned, so _entryId() is empty and
+       the old check never skipped a lock — every fan-out then hit the row's own
+       door a second time). */
     if (!guest) return [];
-    const mine = this._entryId();
+    const mine = guest.entry_id || this._entryId();
     const group = guest.group || null;
     const out = [];
     for (const lock of this._locks()) {
@@ -672,6 +675,57 @@ class HemnyckelGuestsCard extends HTMLElement {
       }
     }
     return failed;
+  }
+
+  async _deleteGuest(guest) {
+    /* Remove a person, or a slot-only row, on every lock it exists on. The
+       guest record is revoked when there is one; the slot itself is always
+       cleared, because revoke_guest_code only clears the PIN and a slot can
+       also hold a fingerprint template — the relay's own DELETE
+       /api/slots/{slot} clears both, and so must "ta bort". Targets are each
+       lock once, so an unpinned card no longer acts on its own door twice. */
+    const hasRecord = guest.kind !== "slot";
+    const targets = [{ entry_id: guest.entry_id, slot: guest.slot }];
+    for (const sibling of this._siblings(guest)) {
+      targets.push({ entry_id: sibling.lock.entry_id, slot: sibling.slot });
+    }
+    const results = await Promise.allSettled(
+      targets.map((target) => this._deleteOn(target.entry_id, target.slot, hasRecord))
+    );
+    const failed = results.find((result) => result.status === "rejected");
+    this._actionError = failed
+      ? `Kunde inte ta bort ${guest.name || "personen"} — ${this._errorText(failed.reason)}`
+      : "";
+    this._renderList();
+  }
+
+  async _deleteOn(entryId, slot, hasRecord) {
+    /* Both calls are attempted even if the first is refused, so a slot that
+       dropped its code but kept its finger is reported rather than silently
+       left behind. */
+    const errors = [];
+    if (hasRecord) {
+      try {
+        await this._callServiceWS(
+          "hemnyckel",
+          "revoke_guest_code",
+          this._lockData({ slot }, entryId)
+        );
+      } catch (err) {
+        errors.push(err);
+      }
+    }
+    try {
+      await this._callServiceWS(
+        "hemnyckel",
+        "clear_slot",
+        this._lockData({ slot }, entryId),
+        false
+      );
+    } catch (err) {
+      errors.push(err);
+    }
+    if (errors.length) throw errors[0];
   }
 
   _renderShell() {
@@ -841,19 +895,7 @@ class HemnyckelGuestsCard extends HTMLElement {
       }
       clearTimeout(this._confirmTimer);
       this._confirmSlot = null;
-      this._fanOut("revoke_guest_code", guest, (target) => ({
-        slot: target.slot,
-        entry_id: target.entry_id,
-      })).then((failed) => {
-        this._callService(
-          "revoke_guest_code",
-          this._lockData({ slot: guest.slot }, guest.entry_id)
-        );
-        if (failed.length) {
-          this._actionError = `Misslyckades — ${failed.join("; ")}`;
-          this._renderList();
-        }
-      });
+      this._deleteGuest(guest);
     });
     return row;
   }
@@ -1403,16 +1445,20 @@ class HemnyckelGuestsCard extends HTMLElement {
     });
   }
 
-  async _callServiceWS(domain, service, data) {
+  async _callServiceWS(domain, service, data, wantResponse = true) {
     /* Call the service over the WebSocket API: its return_response flag is
        explicit and stable, unlike the positional argument on hass.callService
-       that some frontend versions drop. */
+       that some frontend versions drop. Only services that declare
+       supports_response may be asked for one — clear_slot and set_slot_name do
+       not, and Home Assistant refuses the call outright ("An action which does
+       not return responses can't be called with return_response=True"), so the
+       caller passes false for those. */
     const result = await this._hass.callWS({
       type: "call_service",
       domain,
       service,
       service_data: data,
-      return_response: true,
+      return_response: wantResponse,
     });
     return (result && result.response) || {};
   }

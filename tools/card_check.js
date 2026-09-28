@@ -437,6 +437,65 @@ listCard._fingerKey = null;
   check("fan-out reports no failure", failed.length === 0);
   check("fan-out never touches the card's own lock", !fanCalls.some((c) => c.payload.entry_id === OWN));
 
+  // -- deleting a person and a row --------------------------------------
+  // A delete revokes the person record (where there is one) and clears the
+  // slot itself, so a fingerprint-only row disappears too, exactly as the
+  // relay's DELETE /api/slots/{slot} does. clear_slot does not declare a
+  // response, so it must be called without asking for one. The card here is
+  // the unpinned one, where the old sibling check revisited its own door.
+  const deleteCalls = [];
+  listCard._renderList = () => {};
+  listCard._callServiceWS = async (domain, service, payload, wantResponse) => {
+    deleteCalls.push({ service, payload, wantResponse });
+    return {};
+  };
+  await listCard._deleteGuest(claes);
+  check(
+    "a person delete revokes the record and clears the slot",
+    deleteCalls.some((c) => c.service === "revoke_guest_code") &&
+      deleteCalls.some((c) => c.service === "clear_slot"),
+    JSON.stringify(deleteCalls)
+  );
+  const ownDoorServices = deleteCalls
+    .filter((c) => c.payload.entry_id === "entry-a")
+    .map((c) => c.service)
+    .sort();
+  check(
+    "each door is acted on once, not twice",
+    deleteCalls.length === 4 &&
+      JSON.stringify(ownDoorServices) === JSON.stringify(["clear_slot", "revoke_guest_code"]),
+    JSON.stringify(deleteCalls)
+  );
+  check(
+    "clear_slot is called without asking for a response",
+    deleteCalls
+      .filter((c) => c.service === "clear_slot")
+      .every((c) => c.wantResponse === false),
+    JSON.stringify(deleteCalls)
+  );
+
+  deleteCalls.length = 0;
+  const slotRow = people.find((p) => p.name === "Städfirma" && p.kind === "slot");
+  await listCard._deleteGuest(slotRow);
+  check(
+    "a slot-only row is cleared, not just revoked",
+    deleteCalls.length === 1 &&
+      deleteCalls[0].service === "clear_slot" &&
+      deleteCalls[0].payload.slot === 4,
+    JSON.stringify(deleteCalls)
+  );
+
+  listCard._callServiceWS = async () => {
+    throw new Error("låset svarar inte");
+  };
+  await listCard._deleteGuest(claes);
+  check(
+    "a failed delete is reported with the person's name",
+    listCard._actionError.includes("Claes") &&
+      listCard._actionError.includes("låset svarar inte"),
+    listCard._actionError
+  );
+
   if (failures) {
     console.error(`\n${failures} check(s) failed`);
     process.exit(1);
