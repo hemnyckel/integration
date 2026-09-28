@@ -19,7 +19,7 @@ path never depended on either.
 
 | Part | What it is | Why |
 |---|---|---|
-| `mirror` entry | The local layer: the ZHA link, the slot table, the journal and guest codes. | Everything that must keep working when nothing else does. |
+| `mirror` entry | The local layer: the ZHA link, the slot table, the journal and codes for people. | Everything that must keep working when nothing else does. |
 | The real lock | On ZHA, exactly as any other Zigbee lock. | The truth. |
 
 ```
@@ -72,15 +72,15 @@ time and action instead of stored twice. `hemnyckel_door_event` is fired for
 automations; the file lives in `.hemnyckel/journal_<entry>.jsonl` with a retention of
 5000 entries / 365 days.
 
-### Guest codes and schedules (`mirror/guests.py`, `mirror/schedule.py`)
+### People, codes and schedules (`mirror/guests.py`, `mirror/schedule.py`)
 
 The lock has **no schedules at all** — its own module specification says so, and
 the schedule attributes answer UNSUPPORTED. Home Assistant is the schedule
-keeper instead: a temporary guest code is written when it is created and cleared
-when it expires; a recurring guest keeps **one code forever** and the credential
-is written when a window opens and cleared when it closes, with the startup pass
-repairing whatever a restart missed. A permanent guest is that same kept code
-without any window: written once, never cleared.
+keeper instead: a temporary person's code is written when it is created and
+cleared when it expires; a recurring person keeps **one code forever** and the
+credential is written when a window opens and cleared when it closes, with the
+startup pass repairing whatever a restart missed. A permanent person is that
+same kept code without any window: written once, never cleared.
 
 Keeping one code for years means storing it, which is the deliberate cost of the
 feature: the code lives in the config entry's options and never in an entity
@@ -89,7 +89,7 @@ state or a log line. See [guests.md](guests.md).
 ## Multi-lock
 
 The integration is written for several locks: one mirror entry per lock, repair
-issues and slots and guests all per entry. A second lock is just a second entry.
+issues and slots and people all per entry. A second lock is just a second entry.
 
 ## Known limits
 

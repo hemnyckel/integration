@@ -10,7 +10,7 @@ few of those abilities to the ecosystems people already have in their phones.
 | --- | --- | --- |
 | Lock / unlock | The `lock` entity on ZHA is a standard Matter Door Lock device type; bridge it with the official Matter Bridge. | Works |
 | Locked state, battery, connectivity | ZHA's own sensor and binary_sensor entities; the bridge maps them. | Works |
-| Codes, fingerprints, tags, guest profiles | Not available over Matter today — see below. | Use this integration's services and the guest card |
+| Codes, fingerprints, people | Not available over Matter today — see below. | Use this integration's services and the card |
 
 Bridging is **outsourced on purpose**: a custom integration cannot publish its
 own Matter devices, because Home Assistant's Matter support lives in the Matter
@@ -58,5 +58,5 @@ a future mapping would be a presentation layer, not a new source of truth.
 
 - Bridge the lock (and battery/connectivity) for everyday control from Apple
   Home and friends.
-- Keep guest management in Home Assistant: the guest card and
-  [dashboard.md](dashboard.md) show the lock's own guests.
+- Keep person management in Home Assistant: the card and
+  [dashboard.md](dashboard.md) show the lock's own people.

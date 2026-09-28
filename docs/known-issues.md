@@ -12,14 +12,19 @@ The lock reports nothing while an enrollment runs; there is no way to ask
   proof: re-record a finger only when it has really opened the door, and a
   revocation sends an explicit clear.
 
-## Tag UIDs are never reported
+## RFID is deliberately unsupported
 
 Measured 2026-09-23: enrolling a tag sends only the credential id over Zigbee
 (`0x70`/`0x18` with a 16-bit id); the UID itself never leaves the lock. Scanning
-the tag at the door reports nothing at all.
+the tag at the door reports nothing at all — the lock sends no notification at
+all when it is opened with an RFID tag.
 
-- **We do** keep a tag's UID only when we read it ourselves, and restore by
-  re-enrolling: a tag we never scanned cannot be re-created.
+- **We do** leave RFID out of the family's workflow on purpose. With no report
+  when a tag is used, a tag could never be attributed, shown in the journal or
+  revoked on first use, so the home would never use one. The card has no tag
+  enrolment and no tag mark, and there is no "add tag" path. The lock's own
+  capability report ("50 PIN · 50 RFID · 100 total") is the hardware's fact and
+  stays; so does the fact that a tag we never scanned could not be re-created.
 
 ## ZHA's reconfigure can leave the operation event on a long reporting interval
 

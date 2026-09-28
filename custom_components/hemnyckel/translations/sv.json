@@ -137,8 +137,8 @@
       }
     },
     "wipe": {
-      "name": "Töm låset och alla gäster",
-      "description": "Tömmer alla credential-slots ovanför master-slotsen och tar bort alla gäster, i Home Assistant och på låset. Masters rörs aldrig. Kör som torrkörning först; en riktig körning kräver confirm: WIPE.",
+      "name": "Töm låset och alla personer",
+      "description": "Tömmer alla credential-slots ovanför master-slotsen och tar bort alla personer, i Home Assistant och på låset. Masters rörs aldrig. Kör som torrkörning först; en riktig körning kräver confirm: WIPE.",
       "fields": {
         "entry_id": {
           "name": "Konfigurationspost",
@@ -237,11 +237,11 @@
       }
     },
     "create_guest_code": {
-      "name": "Skapa en gästkod",
+      "name": "Skapa en kod",
       "description": "Skriver en PIN till låset, namnger sloten och minns giltighetsfönstret. Koden returneras en gång och sparas aldrig. Utgången upprätthålls av Home Assistant, så koden fungerar offline under fönstret.",
       "fields": {
         "name": {
-          "name": "Gästnamn",
+          "name": "Namn",
           "description": "Vem koden gäller."
         },
         "code": {
@@ -267,12 +267,12 @@
       }
     },
     "revoke_guest_code": {
-      "name": "Återkalla en gästkod",
-      "description": "Rensar koden nu och glömmer gästens fönster.",
+      "name": "Återkalla en kod",
+      "description": "Rensar koden nu och glömmer personens fönster.",
       "fields": {
         "slot": {
           "name": "Slot",
-          "description": "Gästens slot."
+          "description": "Personens slot."
         },
         "entry_id": {
           "name": "Konfigurationspost",
@@ -281,8 +281,8 @@
       }
     },
     "list_guests": {
-      "name": "Lista gästkoder",
-      "description": "Returnerar aktiva gästfönster (namn, slottar och sluttider — aldrig koderna).",
+      "name": "Lista koder",
+      "description": "Returnerar aktiva fönster (namn, slottar och sluttider — aldrig koderna).",
       "fields": {
         "entry_id": {
           "name": "Konfigurationspost",
@@ -291,16 +291,16 @@
       }
     },
     "create_recurring_guest": {
-      "name": "Skapa en återkommande gäst",
-      "description": "En gäst vars kod aldrig ändras men bara är giltig inom veckoscheman. Home Assistant skriver koden när ett fönster öppnar och rensar den när fönstret stänger.",
+      "name": "Skapa en återkommande kod",
+      "description": "En person vars kod aldrig ändras men bara är giltig inom veckoscheman. Home Assistant skriver koden när ett fönster öppnar och rensar den när fönstret stänger.",
       "fields": {
         "name": {
-          "name": "Gästnamn",
+          "name": "Namn",
           "description": "Vem koden gäller."
         },
         "code": {
           "name": "Kod",
-          "description": "4-8 siffror. Utelämna för en slumpad 6-siffrig kod. Den är densamma så länge gästen finns."
+          "description": "4-8 siffror. Utelämna för en slumpad 6-siffrig kod. Den är densamma så länge personen finns."
         },
         "schedule": {
           "name": "Schema",
@@ -321,15 +321,15 @@
       }
     },
     "update_guest": {
-      "name": "Uppdatera en gäst",
-      "description": "Ändra en gästs namn, kod, schema, paus eller utgång; ändringen träder i kraft direkt.",
+      "name": "Uppdatera en person",
+      "description": "Ändra en persons namn, kod, schema, paus eller utgång; ändringen träder i kraft direkt.",
       "fields": {
         "slot": {
           "name": "Slot",
-          "description": "Gästens slot."
+          "description": "Personens slot."
         },
         "name": {
-          "name": "Gästnamn",
+          "name": "Namn",
           "description": "Det nya namnet."
         },
         "code": {
@@ -338,15 +338,15 @@
         },
         "schedule": {
           "name": "Schema",
-          "description": "Nya fönster (gör en enkel gäst återkommande)."
+          "description": "Nya fönster (gör en enkel person återkommande)."
         },
         "paused": {
           "name": "Pausad",
-          "description": "Pausa eller återuppta en återkommande gäst."
+          "description": "Pausa eller återuppta en återkommande person."
         },
         "until": {
           "name": "Giltig till",
-          "description": "Ny ISO-utgång för en enkel gäst."
+          "description": "Ny ISO-utgång för en enkel person."
         },
         "entry_id": {
           "name": "Konfigurationspost",

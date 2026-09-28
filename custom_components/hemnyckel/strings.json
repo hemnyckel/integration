@@ -137,8 +137,8 @@
       }
     },
     "wipe": {
-      "name": "Wipe the lock and every guest",
-      "description": "Empties every credential slot above the master slots and removes every guest, in Home Assistant and on the lock. Masters are never touched. Runs as a dry run first; a real run needs confirm: WIPE.",
+      "name": "Wipe the lock and every person",
+      "description": "Empties every credential slot above the master slots and removes every person, in Home Assistant and on the lock. Masters are never touched. Runs as a dry run first; a real run needs confirm: WIPE.",
       "fields": {
         "entry_id": {
           "name": "Config entry",
@@ -237,11 +237,11 @@
       }
     },
     "create_guest_code": {
-      "name": "Create a guest code",
+      "name": "Create a code",
       "description": "Writes a PIN to the lock, names the slot and remembers the window. The code is returned once and never stored. Expiry is enforced by Home Assistant, so the code works offline during the window.",
       "fields": {
         "name": {
-          "name": "Guest name",
+          "name": "Name",
           "description": "Who the code is for."
         },
         "code": {
@@ -267,12 +267,12 @@
       }
     },
     "revoke_guest_code": {
-      "name": "Revoke a guest code",
-      "description": "Clears the code now and forgets the guest window.",
+      "name": "Revoke a code",
+      "description": "Clears the code now and forgets the person's window.",
       "fields": {
         "slot": {
           "name": "Slot",
-          "description": "The guest's slot."
+          "description": "The person's slot."
         },
         "entry_id": {
           "name": "Config entry",
@@ -281,8 +281,8 @@
       }
     },
     "list_guests": {
-      "name": "List guest codes",
-      "description": "Returns the active guest windows (names, slots and end times - never the codes).",
+      "name": "List codes",
+      "description": "Returns the active windows (names, slots and end times - never the codes).",
       "fields": {
         "entry_id": {
           "name": "Config entry",
@@ -291,16 +291,16 @@
       }
     },
     "create_recurring_guest": {
-      "name": "Create a recurring guest",
-      "description": "A guest whose code never changes but is only valid inside weekly windows. Home Assistant writes the code when a window opens and clears it when it closes.",
+      "name": "Create a recurring code",
+      "description": "A person whose code never changes but is only valid inside weekly windows. Home Assistant writes the code when a window opens and clears it when it closes.",
       "fields": {
         "name": {
-          "name": "Guest name",
+          "name": "Name",
           "description": "Who the code is for."
         },
         "code": {
           "name": "Code",
-          "description": "4-8 digits. Leave out for a random 6-digit code. It stays the same for as long as the guest exists."
+          "description": "4-8 digits. Leave out for a random 6-digit code. It stays the same for as long as the person exists."
         },
         "schedule": {
           "name": "Schedule",
@@ -321,15 +321,15 @@
       }
     },
     "update_guest": {
-      "name": "Update a guest",
-      "description": "Change a guest's name, code, schedule, pause or expiry; the change takes effect immediately.",
+      "name": "Update a person",
+      "description": "Change a person's name, code, schedule, pause or expiry; the change takes effect immediately.",
       "fields": {
         "slot": {
           "name": "Slot",
-          "description": "The guest's slot."
+          "description": "The person's slot."
         },
         "name": {
-          "name": "Guest name",
+          "name": "Name",
           "description": "The new name."
         },
         "code": {
@@ -338,15 +338,15 @@
         },
         "schedule": {
           "name": "Schedule",
-          "description": "New windows (turns a simple guest into a recurring one)."
+          "description": "New windows (turns a simple person into a recurring one)."
         },
         "paused": {
           "name": "Paused",
-          "description": "Pause or resume a recurring guest."
+          "description": "Pause or resume a recurring person."
         },
         "until": {
           "name": "Valid until",
-          "description": "New ISO expiry for a simple guest."
+          "description": "New ISO expiry for a simple person."
         },
         "entry_id": {
           "name": "Config entry",

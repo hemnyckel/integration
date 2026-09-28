@@ -225,9 +225,11 @@ class MirrorJournal(MirrorEntity, SensorEntity):
 
 
 class MirrorGuests(MirrorEntity, SensorEntity):
-    """Active guest codes: simple windows and recurring schedules."""
+    """The people and their codes: simple windows and recurring schedules."""
 
-    _attr_name = "Guests"
+    # User-facing name only; the entity id stays *_guests (renaming it would
+    # break the dashboard and the app). "Personer" is the app's word.
+    _attr_name = "Personer"
     _attr_icon = "mdi:account-multiple-check"
 
     def __init__(self, coordinator) -> None:
