@@ -392,7 +392,7 @@
     },
     "relabel_fingerprint": {
       "name": "Byt etikett på ett fingeravtryck",
-      "description": "Ändrar den sparade etiketten för ett finger utan att röra låset — en felaktig etikett rättas, inte registreras om.",
+      "description": "Ändrar den sparade etiketten för ett finger utan att röra låset — en felaktig etikett rättas, och ett bekräftat fingeravtryck som saknar etikett namnges, aldrig registreras om.",
       "fields": {
         "slot": {
           "name": "Slot",

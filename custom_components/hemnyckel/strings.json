@@ -392,7 +392,7 @@
     },
     "relabel_fingerprint": {
       "name": "Rename a fingerprint label",
-      "description": "Changes the stored label of a finger without touching the lock - a wrong label is corrected, not re-enrolled.",
+      "description": "Changes the stored label of a finger without touching the lock - a wrong label is corrected, and a confirmed fingerprint that predates labels is named, never re-enrolled.",
       "fields": {
         "slot": {
           "name": "Slot",

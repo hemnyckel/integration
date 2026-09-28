@@ -188,18 +188,44 @@ class SlotTable:
         self._notify()
 
     def relabel_finger(
-        self, slot: int, label: str, previous: str | None = None
+        self,
+        slot: int,
+        label: str,
+        previous: str | None = None,
+        *,
+        enrolled: str | None = None,
     ) -> bool:
-        """Rename a recorded finger; writes nothing to the lock."""
+        """Rename a recorded finger, or give a still-unlabelled template its name.
+
+        Writes nothing to the lock: a wrong label is bookkeeping, and naming an
+        old enrolment that predates labels must never re-enrol anything. A slot
+        with labels is renamed in place; a slot whose fingerprint is real but
+        unlabelled (the ``fingers`` list is empty while ``has_fingerprint`` or
+        ``finger_used`` says a template is there) gains its first label.
+        Returns False only when the slot holds no fingerprint to label.
+        """
         data = self._slots.get(str(slot))
         if data is None:
             return False
-        for item in data.get("fingers") or []:
-            if previous is None or item.get("label") == previous:
-                item["label"] = str(label)
-                self._save()
-                self._notify()
-                return True
+        items = data.get("fingers")
+        if isinstance(items, list) and items:
+            for item in items:
+                if isinstance(item, dict) and (
+                    previous is None or item.get("label") == previous
+                ):
+                    item["label"] = str(label)
+                    self._save()
+                    self._notify()
+                    return True
+            return False
+        if data.get("has_fingerprint") or data.get("finger_used"):
+            record: dict[str, Any] = {"label": str(label)}
+            if enrolled is not None:
+                record["enrolled"] = str(enrolled)
+            data.setdefault("fingers", []).append(record)
+            self._save()
+            self._notify()
+            return True
         return False
 
     def clear(self, slot: int) -> None:

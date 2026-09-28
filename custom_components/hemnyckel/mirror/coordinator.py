@@ -55,7 +55,7 @@ from ..const import (
 )
 
 from .facts import placeholder_slot_name
-from .fingers import can_add, normalise_label
+from .fingers import can_add, can_relabel, normalise_label
 from .identity import (
     entity_id_on_serial,
     normalise_serial,
@@ -569,10 +569,13 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_relabel_finger(
         self, slot: int, label: str, previous: str | None = None
     ) -> dict[str, Any]:
-        """Rename a recorded finger; writes nothing to the lock.
+        """Rename a recorded finger, or name one that never carried a label.
 
         A wrong label is our bookkeeping error, not a credential change, so the
-        template is left exactly where it is and only the history grows.
+        template is left exactly where it is and only the history grows. A slot
+        that already carries a label is renamed by it; a slot whose confirmed
+        fingerprint predates labels gains its first label the same way, so the
+        owner names an old enrolment instead of enrolling a duplicate.
         """
         reason = check_credential_slot(slot, self.lock_facts)
         if reason is not None:
@@ -581,8 +584,11 @@ class MirrorCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not new_label:
             raise RuntimeError("a finger label is required")
         old_label = normalise_label(previous) if previous else None
+        refusal = can_relabel(self.slots.get(slot), old_label)
+        if refusal is not None:
+            raise RuntimeError(refusal)
         if not self.slots.relabel_finger(slot, new_label, old_label):
-            raise RuntimeError(f"no matching finger is recorded in slot {slot}")
+            raise RuntimeError(f"no fingerprint is recorded in slot {slot}")
         await self._async_journal_add(
             make_entry(
                 action="finger_relabelled",

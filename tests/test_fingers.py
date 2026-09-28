@@ -82,6 +82,35 @@ class CanAddTest(unittest.TestCase):
         self.assertIsNone(fingers.can_add("nonsense", "left index"))
 
 
+class CanRelabelTest(unittest.TestCase):
+    def test_a_labelled_finger_is_renamed_by_its_label(self) -> None:
+        self.assertIsNone(fingers.can_relabel(slot("left index"), "left index"))
+        self.assertIsNone(fingers.can_relabel(slot("left index")))
+
+    def test_a_previous_label_the_slot_does_not_carry_is_refused(self) -> None:
+        self.assertIsNotNone(
+            fingers.can_relabel(slot("left index"), "right thumb")
+        )
+
+    def test_an_unlabelled_confirmed_finger_can_be_named(self) -> None:
+        # The case the household hit: the lock has a template (finger_used)
+        # but no label, so it is named, not re-enrolled.
+        self.assertIsNone(
+            fingers.can_relabel(slot(has_fingerprint=True, finger_used=True))
+        )
+        self.assertIsNone(fingers.can_relabel(slot(finger_used=True)))
+
+    def test_an_unconfirmed_hint_can_still_be_named(self) -> None:
+        self.assertIsNone(fingers.can_relabel(slot(has_fingerprint=True)))
+
+    def test_a_slot_with_no_fingerprint_is_refused(self) -> None:
+        self.assertIsNotNone(fingers.can_relabel(slot()))
+
+    def test_missing_or_garbage_slot_data(self) -> None:
+        self.assertIsNotNone(fingers.can_relabel(None))
+        self.assertIsNotNone(fingers.can_relabel("nonsense"))
+
+
 class FingerStateTest(unittest.TestCase):
     def test_no_label(self) -> None:
         self.assertEqual(fingers.finger_state(slot()), "none")

@@ -116,6 +116,32 @@ def can_add(
     return None
 
 
+def can_relabel(
+    slot_data: Mapping[str, Any] | None, previous: Any = None
+) -> str | None:
+    """None when the slot's fingerprint may carry this label, else the reason.
+
+    A labelled slot is renamed in place, and ``previous`` names which label to
+    rename when a slot holds more than one (the branch-B case). A slot whose
+    template is real but still carries no label -- ``fingers`` is empty while
+    ``finger_used`` (or a bare ``has_fingerprint`` hint) says a template is
+    there -- may be labelled for the first time: an old enrolment that predates
+    labels is named, never re-enrolled. A slot with no fingerprint at all has
+    nothing to label, and a label the slot does not carry cannot be renamed.
+    """
+    labels = finger_labels(slot_data)
+    if labels:
+        wanted = normalise_label(previous) if previous is not None else None
+        if wanted is None or wanted in labels:
+            return None
+        return f"'{wanted}' is not enrolled in this slot"
+    if not isinstance(slot_data, Mapping):
+        return "no fingerprint is recorded in this slot"
+    if slot_data.get("finger_used") or slot_data.get("has_fingerprint"):
+        return None
+    return "no fingerprint is recorded in this slot"
+
+
 def finger_state(slot_data: Mapping[str, Any] | None) -> str:
     """The display state of a slot's fingerprint.
 

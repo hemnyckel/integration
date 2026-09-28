@@ -252,6 +252,11 @@ TEMPLATES_PER_SLOT = 1
 
 - `can_add(slot_data, label) -> str | None` returns a refusal reason when the
   policy forbids another template in this slot.
+- `can_relabel(slot_data, previous) -> str | None` returns a refusal reason when
+  a label may not be written to the slot: a labelled slot is renamed by its
+  label, but a confirmed fingerprint that predates labels may still be named
+  (its `fingers` list is empty while `finger_used` or a bare `has_fingerprint`
+  says a template is there). A slot with no fingerprint has nothing to label.
 - `finger_state(slot_data) -> "none" | "claimed" | "confirmed"` derives the
   display state: `none` = no label, `claimed` = labelled but no use ever
   confirmed, `confirmed` = `finger_used`.
@@ -286,7 +291,8 @@ Consequences the implementation must honour:
 - **The UI always shows the label** wherever a finger is shown — the app's
   Koder view, the Personer card, the slots sensor. A slot with a fingerprint but
   no label is shown as *unlabelled finger*, and the owner is offered a way to
-  label it (for slots that predate this feature).
+  label it (for slots that predate this feature): `hemnyckel.relabel_fingerprint`
+  names the confirmed template in place, writing no ZCL at all.
 - **A mismatch between the label and reality cannot be detected.** If the owner
   labels a finger "left index" but really enrolled the left thumb, the door
   event will look identical and nothing in the system can tell. There is no
@@ -345,7 +351,9 @@ your fingers"), not a one-finger edit.
 - **The label.** Clearing the fingerprint removes the slot's `fingers` entries
   and `has_fingerprint` / `finger_used`; if the slot keeps a PIN, the slot and
   its name stay. A **rename of just the label** (a finger's name was wrong) is a
-  separate, cheap operation that writes no ZCL at all.
+  separate, cheap operation that writes no ZCL at all, and the same operation
+  gives a **first** label to a confirmed fingerprint that predates labels: the
+  old, unlabelled enrolment is named in place, never cleared and re-enrolled.
 - **The journal history.** History is **never rewritten**. Each enrolment and
   each clear gets its own entry — `finger_enroll_started` (exists),
   `finger_enrolled` (new, with the label), `finger_cleared` (new),
@@ -474,8 +482,9 @@ failing at the ZCL layer.
   not a quiet addition here.
 - **A new `hemnyckel.clear_fingerprint` service** (and a `finger` argument on
   `enroll_fingerprint`, plus `hemnyckel.relabel_fingerprint` for the label-only
-  rename) was added in step 3; `services.yaml` and both translation files carry
-  the keys.
+  rename — a wrong label is corrected and a confirmed fingerprint with no label
+  is named, both without touching the lock) was added in step 3; `services.yaml`
+  and both translation files carry the keys.
 
 ### 7.3 The relay
 
