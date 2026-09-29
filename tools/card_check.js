@@ -334,6 +334,130 @@ check(
 );
 listCard._fingerKey = null;
 
+// -- person icons ---------------------------------------------------------
+// The card draws the same icon the app does: the relay's descriptor (kind,
+// symbol, colour, version) with the photo served from the integration's
+// authenticated view, and the deterministic palette as the fallback. The
+// colour and initials must match Shared/Avatar.swift exactly.
+const avatarCard = new global.__Card();
+avatarCard._config = {};
+avatarCard._hass = {
+  states: {
+    "select.hemnyckel_elise": {
+      entity_id: "select.hemnyckel_elise",
+      state: "user",
+      attributes: {
+        person: "Elise Högberg",
+        id: "e51ac3e70b8947c8983216408c1d634f",
+        avatar_kind: "symbol",
+        avatar_symbol: "star",
+        avatar_color: "#FF9500",
+        avatar_version: 3,
+        entity_picture: null,
+      },
+    },
+    "select.hemnyckel_bo": {
+      entity_id: "select.hemnyckel_bo",
+      state: "user",
+      attributes: {
+        person: "Bo",
+        id: "2c518cea7a1b469081bcc4d8a423d2b9",
+        avatar_kind: "photo",
+        avatar_symbol: null,
+        avatar_color: null,
+        avatar_version: 5,
+        entity_picture: "/api/hemnyckel/avatar/2c518cea7a1b469081bcc4d8a423d2b9?v=5",
+      },
+    },
+  },
+};
+check(
+  "the palette index matches the app's FNV-1a (Elise -> #5856D6)",
+  avatarColor("e51ac3e70b8947c8983216408c1d634f") === "#5856D6",
+  avatarColor("e51ac3e70b8947c8983216408c1d634f")
+);
+check(
+  "the colour is stable for the same id",
+  avatarColor("2c518cea7a1b469081bcc4d8a423d2b9") ===
+    avatarColor("2c518cea7a1b469081bcc4d8a423d2b9")
+);
+check("initials take first and last word", avatarInitials("Elise Högberg") === "EH");
+check("initials are unicode-aware", avatarInitials("Åsa Öberg") === "ÅÖ");
+check("one word gives one letter", avatarInitials("Pappa") === "P");
+check("an empty name is never blank", avatarInitials("") === "?");
+const eliseEntity = avatarCard._personEntity("Elise Högberg");
+check(
+  "the person entity is found by its `person` attribute",
+  eliseEntity && eliseEntity.attributes.id === "e51ac3e70b8947c8983216408c1d634f"
+);
+const eliseAvatar = avatarCard._avatarFor({ name: "Elise Högberg" });
+check(
+  "a symbol avatar carries the token and colour",
+  eliseAvatar.kind === "symbol" && eliseAvatar.symbol === "star" && eliseAvatar.color === "#FF9500",
+  JSON.stringify(eliseAvatar)
+);
+const eliseHtml = avatarCard._avatarHtml({ name: "Elise Högberg" });
+check(
+  "a symbol draws its mdi glyph on the chosen colour",
+  eliseHtml.includes('icon="mdi:star"') && eliseHtml.includes("#FF9500"),
+  eliseHtml
+);
+const boHtml = avatarCard._avatarHtml({ name: "Bo" });
+check(
+  "a photo points at the authenticated avatar view",
+  boHtml.includes('class="avatar photo"') &&
+    boHtml.includes("/api/hemnyckel/avatar/2c518cea7a1b469081bcc4d8a423d2b9?v=5"),
+  boHtml
+);
+const boAbsolute = {
+  entity_id: "select.hemnyckel_bo_abs",
+  state: "user",
+  attributes: {
+    person: "Bo Absolut",
+    id: "2c518cea7a1b469081bcc4d8a423d2b9",
+    avatar_kind: "photo",
+    avatar_version: 5,
+    entity_picture:
+      "https://ha.example/api/hemnyckel/avatar/2c518cea7a1b469081bcc4d8a423d2b9?v=5",
+  },
+};
+avatarCard._hass.states["select.hemnyckel_bo_abs"] = boAbsolute;
+const absHtml = avatarCard._avatarHtml({ name: "Bo Absolut" });
+check(
+  "an absolute picture is loaded from this origin, not another",
+  absHtml.includes(
+    'src="/api/hemnyckel/avatar/2c518cea7a1b469081bcc4d8a423d2b9?v=5"'
+  ),
+  absHtml
+);
+const boNoPicture = {
+  entity_id: "select.hemnyckel_bo_nopic",
+  state: "user",
+  attributes: { ...boAbsolute.attributes, person: "Bo Utan", entity_picture: null },
+};
+avatarCard._hass.states["select.hemnyckel_bo_nopic"] = boNoPicture;
+const noPictureHtml = avatarCard._avatarHtml({ name: "Bo Utan" });
+check(
+  "a photo with no published picture is rebuilt from the person's id",
+  noPictureHtml.includes(
+    'src="/api/hemnyckel/avatar/2c518cea7a1b469081bcc4d8a423d2b9?v=5"'
+  ),
+  noPictureHtml
+);
+const unknownHtml = avatarCard._avatarHtml({ name: "Okänd Person" });
+check(
+  "a person with no entity falls back to the deterministic monogram",
+  unknownHtml.includes("OP") && unknownHtml.includes("background:#"),
+  unknownHtml
+);
+const boRow = avatarCard._guestRow({ slot: 3, name: "Bo" });
+check("the row shows the photo avatar", boRow.innerHTML.includes('class="avatar photo"'));
+const slotRowHtml = avatarCard._guestRow({ slot: 9, name: "Städfirma" }).innerHTML;
+check(
+  "a slot-only row still gets a monogram avatar",
+  slotRowHtml.includes('class="avatar"') && !slotRowHtml.includes('class="avatar photo"')
+);
+
 // -- create across locks ------------------------------------------------
 (async () => {
   const calls = [];

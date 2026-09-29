@@ -51,6 +51,92 @@ const FINGERS = [
 ];
 const FINGER_NAMES = Object.fromEntries(FINGERS);
 
+/* A person's icon, in the app's exact vocabulary: the same ten curated colours
+   picked by the same FNV-1a hash over the person's id, the same two-initial
+   monogram, and the same twenty symbol tokens. The relay's state document
+   carries id/kind/symbol/colour/version; the card only draws it, so a person
+   looks identical in the app, in Home Assistant and in a notification. */
+const AVATAR_COLORS = [
+  "#FF3B30", "#FF9500", "#34C759", "#00C7BE", "#30B0C7",
+  "#007AFF", "#5856D6", "#AF52DE", "#FF2D55", "#A2845E",
+];
+const SYMBOL_ICONS = {
+  pawprint: "mdi:paw",
+  star: "mdi:star",
+  heart: "mdi:heart",
+  bolt: "mdi:lightning-bolt",
+  leaf: "mdi:leaf",
+  moon: "mdi:moon-waning-crescent",
+  sun: "mdi:white-balance-sunny",
+  house: "mdi:home",
+  key: "mdi:key",
+  car: "mdi:car",
+  bike: "mdi:bike",
+  music: "mdi:music",
+  book: "mdi:book",
+  game: "mdi:gamepad-variant",
+  flower: "mdi:flower",
+  tree: "mdi:tree",
+  wave: "mdi:waves",
+  camera: "mdi:camera",
+  plane: "mdi:airplane",
+  cup: "mdi:coffee",
+};
+
+/* The integration's authenticated avatar view. Kept here because the card is
+   part of the same integration; the bridge's entity carries only the person's
+   opaque id and avatar version. */
+const AVATAR_VIEW = "/api/hemnyckel/avatar";
+
+function sameOriginPhoto(attrs, fallbackId) {
+  /* A person's photo as a path on *this* Home Assistant.
+     Home Assistant validates an MQTT `entity_picture` with `cv.url`, so the
+     bridge publishes it absolute; loading that absolute URL would send the
+     request to another origin, without the session cookie. Only its path is
+     kept, so the browser loads it from the page's own origin. When there is no
+     picture at all (Home Assistant had no origin to spell it with) the path is
+     rebuilt from the person's stable id and avatar version. */
+  if (attrs.entity_picture) {
+    try {
+      const base =
+        (globalThis.location && globalThis.location.href) || "http://localhost/";
+      const parsed = new URL(attrs.entity_picture, base);
+      return parsed.pathname + parsed.search;
+    } catch (e) {
+      return attrs.entity_picture;
+    }
+  }
+  const id = attrs.id || fallbackId;
+  if (id) return `${AVATAR_VIEW}/${id}?v=${attrs.avatar_version || 0}`;
+  return null;
+}
+
+function avatarColor(id) {
+  /* Swift's AvatarPalette.index: FNV-1a over the UTF-8 bytes, modulo ten. BigInt
+     is what keeps the 64-bit wraparound exact, whatever the browser's number
+     type would round. */
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  const bytes = new TextEncoder().encode(String(id || ""));
+  for (const byte of bytes) {
+    hash ^= BigInt(byte);
+    hash = (hash * prime) & mask;
+  }
+  return AVATAR_COLORS[Number(hash % BigInt(AVATAR_COLORS.length))];
+}
+
+function avatarInitials(name) {
+  const words = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "?";
+  const first = Array.from(words[0])[0] || "?";
+  if (words.length < 2 || words[words.length - 1] === words[0]) {
+    return first.toUpperCase();
+  }
+  const last = Array.from(words[words.length - 1])[0] || "";
+  return (first + last).toUpperCase();
+}
+
 /* Empty on purpose: the card discovers every lock from the guests sensors.
    Pin one entity here to make that door this card's own. */
 const DEFAULT_ENTITY = "";
@@ -79,9 +165,11 @@ const STYLE = `
   .avatar {
     width: 40px; height: 40px; border-radius: 50%; flex: 0 0 40px;
     background: var(--primary-color); color: var(--text-primary-color, #fff);
-    display: flex; align-items: center; justify-content: center;
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
     font-weight: 600; font-size: 16px; text-transform: uppercase;
   }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .avatar ha-icon { --mdc-icon-size: 22px; color: #fff; }
   .info { flex: 1; min-width: 0; }
   .name { font-weight: 600; color: var(--primary-text-color); display: flex;
           align-items: center; gap: 8px; }
@@ -263,6 +351,11 @@ class HemnyckelGuestsCard extends HTMLElement {
           door.finger_used,
           door.fingers,
         ]),
+        /* The avatar too: a new photo, symbol or colour must repaint the row. */
+        g.avatar
+          ? [g.avatar.kind, g.avatar.symbol, g.avatar.color, g.avatar.version,
+             g.avatar.picture, g.avatar.id]
+          : null,
       ])
     );
     if (fingerprint !== this._fingerprint) {
@@ -342,6 +435,59 @@ class HemnyckelGuestsCard extends HTMLElement {
     return `s:${guest.entry_id || ""}:${guest.slot}`;
   }
 
+  _personEntity(name) {
+    /* The bridge's person entity for this name: the one state whose `person`
+       attribute is the name and which carries a stable id. Matching on the
+       attribute (not the slug) means an accented or renamed person is still
+       found; a slot-only row matches nothing and falls back to a monogram. */
+    if (!name || !this._hass) return null;
+    for (const state of Object.values(this._hass.states)) {
+      const attrs = state.attributes || {};
+      if (attrs.person === name && attrs.id) return state;
+    }
+    return null;
+  }
+
+  _avatarFor(guest) {
+    /* The person's icon, read from the bridge's entity. A row with no matching
+       person (a slot that only exists in Nycklar) is a monogram over its name,
+       so it still gets a stable, person-like colour. */
+    const state = this._personEntity(guest.name);
+    const attrs = (state && state.attributes) || {};
+    const kind = attrs.avatar_kind || "monogram";
+    return {
+      kind,
+      symbol: attrs.avatar_symbol || null,
+      color: attrs.avatar_color || null,
+      version: attrs.avatar_version || 0,
+      picture: kind === "photo" ? sameOriginPhoto(attrs, guest.id) : null,
+      id: attrs.id || guest.id || guest.name || "",
+    };
+  }
+
+  _avatarHtml(guest) {
+    /* Photo when the entity has one, otherwise the symbol or the coloured
+       monogram - computed the way the app computes it. The photo URL is the
+       integration's authenticated view; the browser's own session loads it, so
+       no image bytes are inlined and none are public. */
+    const avatar = guest.avatar || this._avatarFor(guest);
+    if (avatar.kind === "photo" && avatar.picture) {
+      return `<div class="avatar photo"><img src="${this._esc(
+        avatar.picture
+      )}" alt="" /></div>`;
+    }
+    const color = avatar.color || avatarColor(avatar.id);
+    if (avatar.kind === "symbol" && avatar.symbol) {
+      const icon = SYMBOL_ICONS[avatar.symbol] || "mdi:star";
+      return `<div class="avatar symbol" style="background:${this._esc(
+        color
+      )}"><ha-icon icon="${icon}"></ha-icon></div>`;
+    }
+    return `<div class="avatar" style="background:${this._esc(color)}">${this._esc(
+      avatarInitials(guest.name)
+    )}</div>`;
+  }
+
   _buildGuests() {
     /* Every person on every lock the card can see, keyed by lock and slot, with
        the slot table folded in. Without a pinned entity this is the whole
@@ -403,6 +549,7 @@ class HemnyckelGuestsCard extends HTMLElement {
         }
         row.doors = [this._doorRef(row)];
         row.key = this._key(row);
+        row.avatar = this._avatarFor(row);
         out.push(row);
       }
     }
@@ -776,7 +923,6 @@ class HemnyckelGuestsCard extends HTMLElement {
   _guestRow(guest) {
     const row = document.createElement("div");
     row.className = guest.paused ? "row paused" : "row";
-    const initial = (guest.name || "?").trim().charAt(0);
     const meta = this._meta(guest);
     const slotText =
       guest.slot === null || guest.slot === undefined ? "" : `Slot ${guest.slot} · `;
@@ -790,7 +936,7 @@ class HemnyckelGuestsCard extends HTMLElement {
           .join(", ")}"><ha-icon icon="mdi:door"></ha-icon>${siblings.length + 1} lås</span>`
       : "";
     row.innerHTML = `
-      <div class="avatar">${initial}</div>
+      ${this._avatarHtml(guest)}
       <div class="info">
         <div class="name"><span>${this._esc(guest.name) || "Namnlös"}</span>${
         guest.restorable
