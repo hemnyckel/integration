@@ -21,6 +21,19 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS_MIRROR = ["sensor"]
 
 
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Register the components that exist once, not per lock.
+
+    The person-avatar view is served at ``/api/hemnyckel/avatar/<id>`` for the
+    whole installation, so it is registered here rather than from a config
+    entry: a household with two locks must not register the same URL twice.
+    """
+    from .mirror.avatar_view import async_register_avatar_view
+
+    async_register_avatar_view(hass)
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry_type = entry.data.get(CONF_TYPE)
     if entry_type != TYPE_MIRROR:

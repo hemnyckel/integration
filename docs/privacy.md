@@ -18,6 +18,18 @@ no analytics and no update check against any server of this project's own.
 - **Lock identity in the clear**: nothing is published anywhere; the IEEE
   address stays inside Home Assistant and its backups.
 
+## Person icons
+
+A person's icon is the relay's, not the integration's: the relay publishes the
+icon's descriptor (`kind`, `symbol`, `colour`, `version`) over MQTT, and — for a
+photo — mirrors the JPEG to `/share/hemnyckel/avatars/<person_id>.jpg` (its
+add-on maps `share:rw`). The integration serves that file at
+`/api/hemnyckel/avatar/<id>` **behind Home Assistant's own authentication**, so a
+photo is only ever fetched by a signed-in Home Assistant user, never from an open
+URL and never over MQTT. A monogram or a symbol has no bytes to serve (the card
+draws it from the descriptor), and a relay guest has no Home Assistant account
+and still sees no family. Nothing about an icon leaves the house.
+
 ## What is stored where
 
 | Where | What | Why |

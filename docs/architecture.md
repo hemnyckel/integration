@@ -96,6 +96,18 @@ state or a log line. See [guests.md](guests.md).
 The integration is written for several locks: one mirror entry per lock, repair
 issues and slots and people all per entry. A second lock is just a second entry.
 
+## Person icons
+
+The people the bridge projects into Home Assistant are MQTT entities, so the
+integration does not own their attributes; the relay's discovery already carries
+`id`, the `avatar_*` descriptor and the tile `icon`, and sets `entity_picture`
+for a photo. What the integration adds is the bytes: an authenticated view at
+`/api/hemnyckel/avatar/<person_id>` (`mirror/avatar_view.py`) that streams the
+JPEG the relay mirrored to `/share/hemnyckel/avatars/<person_id>.jpg`. Only a
+valid person id reaches the filesystem, only a signed-in Home Assistant user can
+fetch it, and a monogram or a symbol (drawn by the card) is a plain 404 here.
+See [privacy.md](privacy.md).
+
 ## Known limits
 
 - The lock does not know about schedules; the integration enforces them while it
